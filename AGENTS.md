@@ -31,6 +31,17 @@ implementation), shipped as a 0 A.D. mod and developed against **0.28.0 only**.
 - AI performance matters: the bot must not slow the simulation — no full-map
   scans per tick, prefer cached entity collections and shared resource maps.
 
+## Editing boundaries
+
+- **Never edit `AGENTS.md` or any file under `docs/`** (except the one file
+  below). These documents are the project's fixed reference; if one seems
+  wrong, report it to Louis instead of changing it.
+- **The one exception is `docs/LESSONS_LEARNED.md`** — you are allowed, and
+  encouraged, to update it. Record there the things you learn while
+  developing the bot (engine quirks, failed approaches, verified facts, perf
+  measurements) so the knowledge is not investigated again and the same
+  mistakes are not made twice. Keep entries short, dated, and factual.
+
 ## Telemetry and logging
 
 Understanding what happened during a game is a first-class requirement:
