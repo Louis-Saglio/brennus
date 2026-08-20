@@ -1,6 +1,6 @@
 {
 	"name": "Brennus",
-	"description": "AI bot under development. Assigns every worker to a resource and keeps it gathering; no training or building yet.",
+	"description": "AI bot under development. Gathers with all workers, trains women continuously, and builds houses ahead of the population cap.",
 	"constructor": "BrennusBot",
 	"filename": "brennus.js",
 	"useShared": true

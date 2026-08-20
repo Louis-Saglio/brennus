@@ -3,6 +3,35 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-20 — Goal 3 (population growth)
+
+- **Passability grid bit semantics are inverted vs intuition**: bit SET =
+  IMPASSABLE for that class (`IS_PASSABLE(item, mask) = (item & mask) == 0`,
+  `CCmpPathfinder.cpp` / `helpers/Pathfinding.h:130`). An inverted check
+  makes every building spot look blocked. Petra's `createObstructionMap`
+  matches this convention.
+- `passabilityClasses` masks are assigned **alphabetically** (std::map
+  iteration), not in XML order: building-land=1, building-shore=2,
+  default=4, default-terrain-only=8, … Always use
+  `gameState.getPassabilityClassMask(name)`.
+- `entity.construct(...)` (the AI helper) sends `autorepair: false`: the
+  foundation is created instantly at command processing and **no builder is
+  sent** — order `unit.repair(foundation)` separately the next cycle.
+- Building placement check that works: footprint cells clear in the
+  `building-land` passability grid + all covered territory tiles owned by
+  the player. Ring search around the CC (32 angles × 3 m steps out to
+  ~90 m) finds spots even in cluttered temperate forest; a narrow 18–45 m
+  ring with 16 angles exhausted within minutes.
+- Houses train women only after researching Fertility Festival
+  (`unlock_civilians_house_generic`, 250f/100w/100m, 60 s, at any house).
+- Key numbers (gaul): start = CC + 4 women + 4 infantry + 1 cav (pop 9/20);
+  woman 50 food, 8 s at CC (30 s from houses); house 75 wood, +5 pop,
+  11×11 m; field 100 wood, 22×22 m, infinite grain, 5 gatherers, dr 0.9.
+- House demand scales late: CC + N houses training needs up to 2–3
+  concurrent house foundations and counting in-progress houses as future
+  +5 cap, else pop touches the cap transiently (seen at t=25m with 1-at-a-
+  time building, margin trigger 8).
+
 ## 2026-08-20 — Goal 2 (gathering)
 
 - `BaseAI.this.timeElapsed` is set once at `Init` and never updated — use

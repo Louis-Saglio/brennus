@@ -3,10 +3,11 @@ import { BaseAI } from "simulation/ai/common-api/baseAI.js";
 /**
  * Brennus: AI bot for 0 A.D.
  *
- * Current stage — goal 2 (economy foundations): every starting worker is
- * assigned to a resource and kept gathering; idle units are reassigned to
- * the resource with the largest unmet gatherer need. No training or
- * building yet.
+ * Current stage — goal 3 (population growth): on top of goal-2 gathering
+ * (every worker kept busy, reassigned to the most-needed resource), the bot
+ * trains women without interruption at the civil centre (and at houses once
+ * Fertility Festival is researched), builds houses ahead of the population
+ * cap, and builds fields when natural food runs low.
  *
  * The init banner is the load canary used by the headless smoke test: if it
  * appears in stdout, the bot was constructed and initialized without script
@@ -19,14 +20,20 @@ export function BrennusBot(settings)
 
 BrennusBot.prototype = Object.create(BaseAI.prototype);
 
-/** How many gatherers each resource should have, in priority order. */
-BrennusBot.prototype.gathererTargets = { "food": 3, "wood": 2, "stone": 2, "metal": 2 };
+/** Share of all gatherers each resource should have, in priority order. */
+BrennusBot.prototype.gathererShares = { "food": 0.5, "wood": 0.3, "stone": 0.1, "metal": 0.1 };
+
+BrennusBot.prototype.houseTrainingTech = "unlock_civilians_house_generic";
 
 BrennusBot.prototype.CustomInit = function(gameState)
 {
 	print(`[HARNESS] brennus: loaded for player ${this.player}\n`);
 	// entityID -> resource this unit was ordered to gather.
-	this.assignments = this.savedAssignments || {};
+	this.assignments = this.savedState?.assignments || {};
+	// Last construct order awaiting its foundation: {template, x, z, turn}.
+	this.pendingBuild = this.savedState?.pendingBuild || null;
+	// [x, z] spots where a construct command failed; never retried.
+	this.failedSpots = this.savedState?.failedSpots || [];
 };
 
 BrennusBot.prototype.OnUpdate = function()
@@ -35,11 +42,17 @@ BrennusBot.prototype.OnUpdate = function()
 		return;
 
 	if (this.turn % 5 === 0)
+	{
 		this.assignGatherers();
+		this.trainWorkers();
+		this.manageConstruction();
+	}
 	if (this.turn % 1500 === 0)
 		this.logStatus();
 	this.turn++;
 };
+
+// ---------------------------------------------------------------- gathering
 
 /** Find idle gatherers and send them to the most-needed resource. */
 BrennusBot.prototype.assignGatherers = function()
@@ -62,14 +75,15 @@ BrennusBot.prototype.assignGatherers = function()
 	if (!idle.length)
 		return;
 
+	const total = idle.length + counts.food + counts.wood + counts.stone + counts.metal;
 	for (const ent of idle)
 	{
-		// The resource with the largest unmet need that this unit can gather.
+		// The resource with the largest unmet share that this unit can gather.
 		let resource;
 		let bestDeficit = -Infinity;
 		for (const res of ["food", "wood", "stone", "metal"])
 		{
-			const deficit = this.gathererTargets[res] - counts[res];
+			const deficit = this.gathererShares[res] * total - counts[res];
 			if (ent.canGather(res) && deficit > bestDeficit)
 			{
 				resource = res;
@@ -122,6 +136,226 @@ BrennusBot.prototype.canGatherSupply = function(unit, supply)
 	return !!(+rates[type.generic + "." + type.specific] || +rates[type.generic]);
 };
 
+// ---------------------------------------------------------------- training
+
+/** Keep every worker trainer producing women without interruption. */
+BrennusBot.prototype.trainWorkers = function()
+{
+	const gameState = this.gameState;
+	const resources = gameState.getResources();
+	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
+	const houseTraining = gameState.isResearched(this.houseTrainingTech);
+
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		let type;
+		if (ent.templateName() === ccType)
+			type = gameState.applyCiv("units/{civ}/support_civilian");
+		else if (houseTraining && ent.hasClass("House"))
+			type = gameState.applyCiv("units/{civ}/support_civilian_house");
+		else
+			continue;
+
+		const queue = ent.trainingQueue();
+		if (queue && !queue.length && resources.canAfford({ "food": 50 }))
+			ent.train(gameState.getPlayerCiv(), type, 1, {});
+	}
+};
+
+// ---------------------------------------------------------------- construction
+
+BrennusBot.prototype.manageConstruction = function()
+{
+	const gameState = this.gameState;
+	const foundations = gameState.getOwnFoundations().toEntityArray();
+
+	// Send builders to foundations that lack them.
+	for (const foundation of foundations)
+	{
+		const needed = 2 - foundation.getBuildersNb();
+		if (needed <= 0)
+			continue;
+		const builders = gameState.getOwnUnits()
+			.filter(ent => ent.isGatherer() && ent.isBuilder() && ent.position())
+			.filterNearest(foundation.position(), needed);
+		for (const unit of builders.values())
+			unit.repair(foundation);
+	}
+
+	// Track the last construct order: success once its foundation or the
+	// finished building exists at the ordered spot.
+	if (this.pendingBuild)
+	{
+		const nearSpot = ent => {
+			const pos = ent.position();
+			return pos && Math.abs(pos[0] - this.pendingBuild.x) < 4 &&
+				Math.abs(pos[1] - this.pendingBuild.z) < 4;
+		};
+		const done = foundations.some(nearSpot) ||
+			gameState.getOwnStructures().toEntityArray().some(nearSpot);
+		if (done)
+			this.pendingBuild = null;
+		else if (this.turn - this.pendingBuild.turn > 50)
+		{
+			this.failedSpots.push([this.pendingBuild.x, this.pendingBuild.z]);
+			this.pendingBuild = null;
+		}
+		else
+			return; // wait for the outcome before ordering anything else
+	}
+
+	const houseType = gameState.applyCiv("structures/{civ}/house");
+	const fieldType = gameState.applyCiv("structures/{civ}/field");
+	const hasFoundationOf = type => foundations.some(f =>
+		gameState.getBuiltTemplate(f.templateName()).templateName() === type);
+
+	// Houses ahead of the population cap.
+	let queuedPop = 0;
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		const queue = ent.trainingQueue();
+		if (queue)
+			queuedPop += queue.length;
+	}
+	const pop = gameState.getPopulation();
+	const houseFoundations = foundations.filter(f =>
+		gameState.getBuiltTemplate(f.templateName()).templateName() === houseType).length;
+	// Count each house being built as the +5 cap it will provide.
+	const margin = gameState.getPopulationLimit() + 5 * houseFoundations - pop - queuedPop;
+	if (margin < 10 && houseFoundations < (margin < 4 ? 3 : 2))
+	{
+		this.tryConstruct(houseType, 15, 90);
+		return;
+	}
+
+	// Fields when natural food near the CC runs low or the food workforce grows.
+	const cc = this.getCivicCentre();
+	if (!cc)
+		return;
+	const ccPos = cc.position();
+	let bushes = 0;
+	for (const supply of gameState.getResourceSupplies("food").values())
+	{
+		if (supply.resourceSupplyType()?.specific !== "fruit")
+			continue;
+		const pos = supply.position();
+		if (pos && supply.resourceSupplyAmount() > 30 &&
+			SquareDistance(pos, ccPos) < 100 * 100)
+			bushes++;
+	}
+	let foodGatherers = 0;
+	for (const res of Object.values(this.assignments))
+		if (res === "food")
+			foodGatherers++;
+	const desiredFields = foodGatherers >= 6 || bushes < 2 ?
+		Math.min(4, Math.max(1, Math.ceil(foodGatherers / 5))) : 0;
+	let fields = 0;
+	for (const ent of gameState.getOwnStructures().values())
+		if (ent.templateName() === fieldType)
+			fields++;
+	if (fields < desiredFields && !hasFoundationOf(fieldType) &&
+		gameState.getResources().canAfford({ "wood": 130 }))
+		this.tryConstruct(fieldType, 20, 70);
+
+	// Unlock house training once the economy can absorb the cost.
+	if (gameState.currentPhase() === "phase_village" &&
+		!gameState.isResearched(this.houseTrainingTech) &&
+		!gameState.isResearching(this.houseTrainingTech) &&
+		gameState.getResources().canAfford({ "food": 400, "wood": 250, "metal": 150 }))
+	{
+		for (const ent of gameState.getOwnStructures().values())
+			if (ent.hasClass("House") && !ent.trainingQueue()?.length)
+			{
+				ent.research(this.houseTrainingTech);
+				break;
+			}
+	}
+};
+
+BrennusBot.prototype.getCivicCentre = function()
+{
+	const ccType = this.gameState.applyCiv("structures/{civ}/civil_centre");
+	for (const ent of this.gameState.getOwnStructures().values())
+		if (ent.templateName() === ccType)
+			return ent;
+	return undefined;
+};
+
+/**
+ * Order the construct command for a building near the civic centre.
+ * Returns true if a spot was found and the order was sent.
+ */
+BrennusBot.prototype.tryConstruct = function(templateType, minRadius, maxRadius)
+{
+	const cc = this.getCivicCentre();
+	if (!cc)
+		return false;
+	const pos = this.findBuildingPosition(templateType, cc.position(), minRadius, maxRadius);
+	if (!pos)
+		return false;
+	const builder = this.gameState.getOwnUnits().filterNearest(pos, 1).toEntityArray()[0];
+	if (!builder)
+		return false;
+	builder.construct(templateType, pos[0], pos[1], 0, undefined);
+	this.pendingBuild = { "template": templateType, "x": pos[0], "z": pos[1], "turn": this.turn };
+	return true;
+};
+
+/**
+ * First free spot on rings around `center`: passable for buildings
+ * ("building-land" passability class over the whole footprint) and inside
+ * own territory.
+ */
+BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRadius, maxRadius)
+{
+	const gameState = this.gameState;
+	const template = gameState.getTemplate(templateType);
+	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
+	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
+	const pass = gameState.getPassabilityMap();
+	const mask = gameState.getPassabilityClassMask("building-land");
+	const terr = this.territoryMap;
+
+	for (let r = minRadius; r <= maxRadius; r += 3)
+		for (let a = 0; a < 32; ++a)
+		{
+			const angle = a * Math.PI / 16;
+			const x = center[0] + r * Math.cos(angle);
+			const z = center[1] + r * Math.sin(angle);
+			if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
+				continue;
+			if (this.placementOK(x, z, halfW, halfD, pass, mask, terr))
+				return [x, z];
+		}
+	return undefined;
+};
+
+BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, pass, mask, terr)
+{
+	const cell = pass.cellSize;
+	const x0 = Math.floor((x - halfW) / cell), x1 = Math.floor((x + halfW) / cell);
+	const z0 = Math.floor((z - halfD) / cell), z1 = Math.floor((z + halfD) / cell);
+	if (x0 < 0 || z0 < 0 || x1 >= pass.width || z1 >= pass.height)
+		return false;
+	for (let j = z0; j <= z1; ++j)
+		for (let i = x0; i <= x1; ++i)
+			if (pass.data[i + j * pass.width] & mask)
+				return false;
+
+	const tcell = terr.cellSize;
+	const tx0 = Math.floor((x - halfW) / tcell), tx1 = Math.floor((x + halfW) / tcell);
+	const tz0 = Math.floor((z - halfD) / tcell), tz1 = Math.floor((z + halfD) / tcell);
+	if (tx0 < 0 || tz0 < 0 || tx1 >= terr.width || tz1 >= terr.height)
+		return false;
+	for (let j = tz0; j <= tz1; ++j)
+		for (let i = tx0; i <= tx1; ++i)
+			if ((terr.data[i + j * terr.width] & 0x1F) !== this.player)
+				return false;
+	return true;
+};
+
+// ---------------------------------------------------------------- telemetry
+
 BrennusBot.prototype.logStatus = function()
 {
 	const counts = { "food": 0, "wood": 0, "stone": 0, "metal": 0 };
@@ -136,18 +370,31 @@ BrennusBot.prototype.logStatus = function()
 			counts[this.assignments[ent.id()]]++;
 	}
 	const res = this.gameState.getResources();
-	print(`[HARNESS] t=${Math.round(this.gameState.getTimeElapsed() / 60000)}m idle=${idle} ` +
+	const gameState = this.gameState;
+	print(`[HARNESS] t=${Math.round(gameState.getTimeElapsed() / 60000)}m ` +
+		`pop=${gameState.getPopulation()}/${gameState.getPopulationLimit()} idle=${idle} ` +
 		`gatherers food=${counts.food} wood=${counts.wood} stone=${counts.stone} metal=${counts.metal} ` +
 		`stock ${Math.floor(res.food)}/${Math.floor(res.wood)}/${Math.floor(res.stone)}/${Math.floor(res.metal)}\n`);
 };
 
+// ---------------------------------------------------------------- save/load
+
 BrennusBot.prototype.Serialize = function()
 {
-	return { "assignments": this.assignments };
+	return {
+		"assignments": this.assignments,
+		"pendingBuild": this.pendingBuild,
+		"failedSpots": this.failedSpots
+	};
 };
 
 BrennusBot.prototype.Deserialize = function(data, sharedScript)
 {
-	this.savedAssignments = data.assignments;
+	this.savedState = data;
 	this.isDeserialized = true;
 };
+
+function SquareDistance(a, b)
+{
+	return (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]);
+}
