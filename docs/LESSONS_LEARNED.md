@@ -3,6 +3,101 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-20 — Goal 6 part 2 (placement, threats, command races)
+
+- **`getEnemyEntities()` includes gaia** (gaia is a diplomatic enemy):
+  every tree/ bush matches. Filter `ent.owner() === 0` out; keep gaia
+  animals with an `Attack` component (they kill gatherers).
+- **Sandbox Petra kills**: its units defend — 37 workers lost on seed 5
+  gathering near its base. Exclude supplies/spots near enemy structures
+  (100 m) and mobiles (60 m); a static 45 m unit snapshot is not enough
+  (they chase).
+- **Construct commands are rejected at processing time if unaffordable by
+  then** (the AI resource snapshot predates command processing). Ordering
+  a house at wood < 75 → rejection → and brennus blacklisted the spot
+  permanently: 17 rejected orders burned the whole building ring on seed
+  5 (no houses/fields for 15 min). Also: a research order + construct
+  order in the same AI block overdraw (both see the same snapshot) — hold
+  construction one block after any research order.
+- **Territory**: gaul CC has root territory radius 140 m; markets 40 m
+  non-root. Search building spots out to ~140 m around the CC — markets
+  at opposite edges give 170–270 m trade routes (gain ∝ d²): income
+  ~900 at 90 m routes → 1300–1900 at 170–270 m.
+- **Women flood starves the trader fleet of food**: reserve one trader's
+  food cost (150 floor) ahead of the woman stream while the fleet is
+  incomplete; traders need only a small fixed metal buffer (230) — metal
+  techs total 850.
+- **Trader pop headroom must be capped** (6): an 18-slot reservation
+  exceeds the early-town limit and froze woman training (pop stuck at 32
+  from t=5 to t=15).
+- **Village-phase research works from surplus only**: allow techs costing
+  cost+500f/400w; never set techReserve in village; keeps the town bank
+  and the goal-4 timeline intact (~6-7 min town) while 3-4 village techs
+  complete early.
+- Priority-building wood banking: houses require 375 w while the town
+  trio or the market pair is pending; fields 450/250. Without it, the
+  house stream eats every wood surplus and the 300 w market never fires.
+- Stats JSON `unitsLost.total` can be 0 while the per-class breakdown is
+  nonzero — read the breakdown.
+
+## 2026-08-20 — Goal 6 API facts (trade/barter/research)
+
+- **`getOwnStructures()` includes foundations** (they carry the built
+  template's classes: a market foundation passes `hasClass("Market")`).
+  Exclude with `ent.foundationProgress() === undefined` — a fresh
+  foundation reports progress **0**, so the falsy `!ent.foundationProgress()`
+  test lets it through (caused "Called train on non-training entity
+  foundation|structures/gaul/market" errors). trainWorkers was only saved
+  by its `queue &&` guard.
+- AI-visible `playerData.statistics` = `GetBasicStatistics()` only
+  (resourcesGathered, percentMapExplored). No tradeIncome/resourcesSold —
+  the bot must count its own barter deals. Full stats only in end-of-game
+  stdout JSON.
+- Barter: `ent.barter(buyType, sellType, amount)` — amount must be exactly
+  100 or 500 (Barter.js DEAL_AMOUNT/BATCH_SIZE); all resources have
+  truePrice 100; 5×100 wood → ~400 stone (price drifts ~2%/deal). Requires
+  a completed Barter-class building (market). Verified via stats
+  `resourcesSold`/`resourcesBought`.
+- Trade: `trader.tradeRoute(target, source)` (UnitAI.SetupTradeRoute).
+  Gain = trader GainMultiplier (0.75) × TradeGainNormalization(mapSize in
+  metres) × d²/(1+0.25d/mapSize) — **quadratic in route distance, tiny per
+  trip** (~0.75 per 100 m on 768 m map). Place markets maximally apart
+  (each market's territory influence extends buildable area for the next).
+  Trader: `units/{civ}/support_trader`, 100f/80m, 15 s at market, visible
+  class "Trader". Idle trader = unrouted (route persists) — no bookkeeping
+  needed. Income in stats `tradeIncome`.
+- Gaul economic tech tree (26 techs, full list in brennus.js `econTechs`):
+  storehouse 4 chains×3 (lumbering/mining-stone/mining-metal/capacity,
+  tiers village→town→city), farmstead wicker + plows→training→fertilizer +
+  harvester (gaul-only), corral stockbreeding, house health + fertility +
+  pop_house_01→02, market trader_health + trade_gain_01→02 (×1.15 each) +
+  commercial_treaty. Techs append to the production queue (`ent.research`)
+  — a house/market can research while training, queue ≤ 1.
+- metadata.json playerStates: `phase` works ("city"), but
+  `researchedTechs` is always `{}` — do not use it for tech verification;
+  log tech counts from the bot instead.
+- **Liquidity problem**: the woman stream consumes food income instantly,
+  so 200-food techs are never affordable. Full-pause banking deadlocks
+  (women paused waiting for traders, traders paused waiting for bank → pop
+  froze at 32) or stalls the economy (fixed 500f/400w thresholds are
+  permanent in village). Working approach: `techReserve` = cost of first
+  unaffordable researchable tech; women train only above reserve.food+50,
+  traders above reserve+100/+80; `manageResearch` runs FIRST in the 5-turn
+  block. Village phase researches only Fertility Festival (goal-3 buffer
+  logic) — village research banking destroyed the bootstrap (town slipped
+  7.8 → 15 min).
+- **Wood starvation trap**: fields (canAfford 130 w) pin the wood stock at
+  ~130, so the 300 w market order never fires → town-trio stalls → city at
+  ~22 min. Field affordability thresholds must stay above the cost of
+  pending priority buildings (or fields must yield).
+- Traders starve against women: 100 f trader never affordable while women
+  eat all food; headroom mechanism (`traderHeadroom`, women cap at
+  limit-headroom, house margin threshold 10+headroom) keeps pop slots and
+  lets the fleet build.
+- 6-run verification (2 waves × 3 parallel on 4 cores) takes ~1–2.5 min
+  wall. The t=30m status log never prints (time-limit trigger fires first)
+  — last visible HARNESS status is t=25m.
+
 ## 2026-08-20 — Goal 5 (city phase)
 
 - **Foundations do not count** toward phase entity requirements:

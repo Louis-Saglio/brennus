@@ -10,40 +10,36 @@ Pick-up document for the next session. Read `AGENTS.md` and
 | 1 | Function without errors | PASSED (5 seeds, published) | `992b680` |
 | 2 | Gather resources | PASSED (5 seeds, published) | `eec1c13` |
 | 3 | Grow population | PASSED (5 seeds, published) | `90b6299` |
-| 4 | Town Phase < 12 in-game min | PASSED (5 seeds, published) | see git log |
-| 5 | City Phase < 20 in-game min | PASSED (5 seeds, published) | see git log |
-| 6 | Master the economy by 30 min | **next** | — |
+| 4 | Town Phase < 12 in-game min | PASSED (5 seeds, published) | `953dd20` |
+| 5 | City Phase < 20 in-game min | PASSED (5 seeds, published) | `5e75362` |
+| 6 | Master the economy by 30 min | PASSED (5 seeds, published) | see git log |
 
-## Next: goal 6 (economy mastery by 30 in-game min)
+Goal 6 final numbers (details in `experiments/goal-06.md`): town 6.0–8.4,
+city 13.9–16.3, 26/26 techs at 27.1–28.9, traders 14–17, tradeIncome
+1358–1921, barter 500/356–393, pop 300, zero errors, determinism OK.
 
-Needs all of: 300 population (already hits popMax ~t=22–25m), all economic
-technologies researched, City Phase (done ~t=15m), ≥ 10 traders, ≥ 1000
-resources earned from trader trading, ≥ 300 wood bartered to stone at the
-market.
+**Next: goal 7 — defeat a sandbox Petra in under 40 in-game minutes.**
+The bot has no military logic at all yet (no barracks, no soldiers beyond
+the starting ones, no attacks). Sandbox Petra does not attack but DOES
+defend; `conquest_civic_centers` requires destroying/capturing its CC.
 
-- The market is already built (goal 5): traders
-  (`units/{civ}/support_trader`) train there, and barter is a market
-  ability (`Barter` class). Check `docs/ai_engine_api.md` for barter and
-  trade APIs (`getTraderTemplatesGains`, entity `trade`/`barter` orders?).
-- Trade income needs a trade route: traders between two markets (or a
-  market and a dock/allied market). With one CC + one market the bot may
-  need a second market far away for meaningful gain.
-- "All economic technologies": enumerate from the game data (field,
-  farmstead/storehouse, market techs); some need buildings the bot does
-  not build yet (farmstead, storehouse, corral?).
-- Verification recipe: copy `tmp/goal5/run.sh` to `tmp/goal6/run.sh`
-  (sed goal5→goal6). Goal-6 outcomes live in the end-of-game statistics
-  JSON (trade income, barter) and `metadata.json`; 30-min runs as usual.
+## Verification protocol (Louis's instruction)
+
+- Iterate with a SINGLE seed run (`tmp/goal6/run1.sh <seed> [tag]`,
+  ~40 s wall). Run the full 6-run batch (`tmp/goal6/run.sh`, 5 seeds +
+  seed-1 determinism rerun, 2 parallel waves) only when the single run
+  looks good.
+- Analyze with `tmp/goal6/analyze.py` (stats JSON, HARNESS lines,
+  interestinglog ERRORs, determinism hash).
 
 ## Known blemishes / ideas
 
-- Seed 1 shows idle=13 at t=25m (pop maxed at 300, nearby food
-  saturated). Other seeds idle ≤ 3. Consider capping food gatherers or
-  more fields later if it matters for tier-2 goals.
-- After popMax is reached, training keeps trying (harmless; queue
-  blocked). Could skip training at popMax to save food for phases.
-- The 30-min time limit in `bot/maps/scripts/NonVisualTrigger.js` is the
-  harness cap for all tier-1 runs; probes can temporarily lower it.
+- Trade income varies with route distance (map-dependent territory
+  shape): 1358–1921 across seeds at ~170–270 m routes.
+- `logStatus` still carries goal-6 debug fields (enemyDist, fieldFail,
+  founds, failedSpots) — cheap (every 1500 turns); prune when they stop
+  being useful.
+- Seed 1 shows occasional single idle workers late; not criterion-relevant.
 
 ## Operational notes
 
@@ -51,7 +47,9 @@ market.
   in `experiments/goal-01.md` (sandbox Petra opponent for tier 1).
 - Experiment logs per goal live in `experiments/goal-NN.md`.
 - Engine facts and pitfalls are in `docs/LESSONS_LEARNED.md` — check it
-  before investigating engine behavior (passability bit semantics,
-  currentPhase() numeric, construct/autorepair, etc.).
+  before investigating engine behavior (gaia is an "enemy" diplomatically,
+  construct commands rejected at processing when unaffordable, CC root
+  territory radius 140 m, foundation inclusion in getOwnStructures,
+  trade gain formula, tech liquidity, etc.).
 - Mod zip published after each commit:
   `https://files.louissaglio.fr/brennus/brennus.zip`.
