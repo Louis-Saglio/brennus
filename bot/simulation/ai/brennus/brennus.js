@@ -46,6 +46,13 @@ BrennusBot.prototype.OnUpdate = function()
 		this.assignGatherers();
 		this.trainWorkers();
 		this.manageConstruction();
+		this.managePhaseUp();
+	}
+	const phase = this.gameState.currentPhase();
+	if (phase !== this.lastPhase)
+	{
+		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m phase=${this.gameState.getPhaseName(phase)}\n`);
+		this.lastPhase = phase;
 	}
 	if (this.turn % 1500 === 0)
 		this.logStatus();
@@ -78,26 +85,24 @@ BrennusBot.prototype.assignGatherers = function()
 	const total = idle.length + counts.food + counts.wood + counts.stone + counts.metal;
 	for (const ent of idle)
 	{
-		// The resource with the largest unmet share that this unit can gather.
-		let resource;
-		let bestDeficit = -Infinity;
-		for (const res of ["food", "wood", "stone", "metal"])
+		// Resources this unit can gather, most unmet need first; take the
+		// first one with an available supply (surplus workers spill over to
+		// less-needed resources rather than idling).
+		const order = ["food", "wood", "stone", "metal"]
+			.filter(res => ent.canGather(res))
+			.sort((a, b) =>
+				(this.gathererShares[b] * total - counts[b]) -
+				(this.gathererShares[a] * total - counts[a]));
+		for (const resource of order)
 		{
-			const deficit = this.gathererShares[res] * total - counts[res];
-			if (ent.canGather(res) && deficit > bestDeficit)
-			{
-				resource = res;
-				bestDeficit = deficit;
-			}
+			const supply = this.findSupply(ent, resource);
+			if (!supply)
+				continue;
+			ent.gather(supply);
+			this.assignments[ent.id()] = resource;
+			counts[resource]++;
+			break;
 		}
-		if (!resource)
-			continue;
-		const supply = this.findSupply(ent, resource);
-		if (!supply)
-			continue;
-		ent.gather(supply);
-		this.assignments[ent.id()] = resource;
-		counts[resource]++;
 	}
 };
 
@@ -141,6 +146,11 @@ BrennusBot.prototype.canGatherSupply = function(unit, supply)
 /** Keep every worker trainer producing women without interruption. */
 BrennusBot.prototype.trainWorkers = function()
 {
+	// While saving up for a phase-up, all training pauses so the bank
+	// fills as fast as possible.
+	if (this.wantsPhaseUp)
+		return;
+
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
@@ -258,7 +268,7 @@ BrennusBot.prototype.manageConstruction = function()
 		this.tryConstruct(fieldType, 20, 70);
 
 	// Unlock house training once the economy can absorb the cost.
-	if (gameState.currentPhase() === "phase_village" &&
+	if (gameState.currentPhase() === 1 &&
 		!gameState.isResearched(this.houseTrainingTech) &&
 		!gameState.isResearching(this.houseTrainingTech) &&
 		gameState.getResources().canAfford({ "food": 400, "wood": 250, "metal": 150 }))
@@ -269,6 +279,51 @@ BrennusBot.prototype.manageConstruction = function()
 				ent.research(this.houseTrainingTech);
 				break;
 			}
+	}
+};
+
+// ---------------------------------------------------------------- phases
+
+/** The phase-up tech for the current phase, if any. */
+BrennusBot.prototype.nextPhaseTech = function()
+{
+	return { 1: "phase_town_generic", 2: "phase_city_generic" }[this.gameState.currentPhase()];
+};
+
+/** Resource thresholds (cost + training buffer) before starting a phase-up. */
+BrennusBot.prototype.phaseUpBuffers = {
+	"phase_town_generic": { "food": 700, "wood": 600 },
+	"phase_city_generic": { "stone": 850, "metal": 850 }
+};
+
+/**
+ * Research the next phase as soon as possible. Once the requirements are
+ * met (and the economy has had a few minutes to spin up), all training
+ * pauses to bank the cost quickly, then the CC researches it. Training
+ * resumes as soon as the research starts (the cost is already paid).
+ */
+BrennusBot.prototype.managePhaseUp = function()
+{
+	const gameState = this.gameState;
+	const tech = this.nextPhaseTech();
+	if (!tech || gameState.isResearching(tech) || gameState.isResearched(tech))
+	{
+		this.wantsPhaseUp = false;
+		return;
+	}
+	if (!this.wantsPhaseUp)
+	{
+		if (gameState.getTimeElapsed() > 180000 && gameState.canResearch(tech))
+			this.wantsPhaseUp = true;
+		return;
+	}
+	if (!gameState.getResources().canAfford(this.phaseUpBuffers[tech]))
+		return;
+	const cc = this.getCivicCentre();
+	if (cc && !cc.trainingQueue()?.length)
+	{
+		cc.research(tech);
+		this.wantsPhaseUp = false;
 	}
 };
 
@@ -384,13 +439,15 @@ BrennusBot.prototype.Serialize = function()
 	return {
 		"assignments": this.assignments,
 		"pendingBuild": this.pendingBuild,
-		"failedSpots": this.failedSpots
+		"failedSpots": this.failedSpots,
+		"wantsPhaseUp": this.wantsPhaseUp
 	};
 };
 
 BrennusBot.prototype.Deserialize = function(data, sharedScript)
 {
 	this.savedState = data;
+	this.wantsPhaseUp = data.wantsPhaseUp;
 	this.isDeserialized = true;
 };
 

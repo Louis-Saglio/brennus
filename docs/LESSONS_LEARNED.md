@@ -3,6 +3,24 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-20 — Goal 4 (town phase)
+
+- `gameState.currentPhase()` returns a **number** (1=village, 2=town,
+  3=city), not a tech-name string. A `=== "phase_village"` comparison in
+  the goal-3 code silently never fired (Fertility Festival was never
+  researched in the goal-3 runs — CC-only training still passed).
+- Phase techs: town = 500f/500w, 30 s, requires 5 `Village`-class
+  structures; city = 750 stone/750 metal, 60 s, requires 3 `Town`-class
+  structures (houses/fields are Village; barracks/market/forge/temple…
+  are Town). Researched at the CC; use the `_generic` tech name for gaul.
+- With house training unlocked, food income is fully consumed by
+  training — a fixed "research when affordable" threshold is never
+  reached. Working pattern: pause ALL training once requirements are met,
+  bank the cost, research, resume training as soon as research starts.
+- End-of-game `metadata.json` playerStates carry `phase` and
+  `researchedTechs` — usable to verify phase goals without parsing bot
+  logs.
+
 ## 2026-08-20 — Goal 3 (population growth)
 
 - **Passability grid bit semantics are inverted vs intuition**: bit SET =
