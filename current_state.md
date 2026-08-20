@@ -11,22 +11,29 @@ Pick-up document for the next session. Read `AGENTS.md` and
 | 2 | Gather resources | PASSED (5 seeds, published) | `eec1c13` |
 | 3 | Grow population | PASSED (5 seeds, published) | `90b6299` |
 | 4 | Town Phase < 12 in-game min | PASSED (5 seeds, published) | see git log |
-| 5 | City Phase < 20 in-game min | **next** | — |
+| 5 | City Phase < 20 in-game min | PASSED (5 seeds, published) | see git log |
+| 6 | Master the economy by 30 min | **next** | — |
 
-## Next: goal 5 (City Phase < 20 in-game min)
+## Next: goal 6 (economy mastery by 30 in-game min)
 
-- `managePhaseUp` already maps phase 2 → `phase_city_generic` with a
-  stone/metal buffer (850/850), but city requires **3 Town-class
-  structures** — the bot currently builds only houses/fields (Village
-  class). Add construction of Town-class buildings (barracks, market,
-  forge, temple…). Check `docs/game_description/generic/buildings/` for
-  which are Town class and their costs.
-- Stockpiles at t=10–15m are ample (stone/metal ~2000+), so once Town
-  buildings go up around t=8–10m, city by ~t=12–15m looks reachable.
-- Verification recipe: copy `tmp/goal4/run.sh` to `tmp/goal5/run.sh`
-  (sed goal4→goal5), same command; check the `[HARNESS] phase=` lines
-  and zero ERROR in each run's interestinglog; rerun seed 1 for
-  determinism.
+Needs all of: 300 population (already hits popMax ~t=22–25m), all economic
+technologies researched, City Phase (done ~t=15m), ≥ 10 traders, ≥ 1000
+resources earned from trader trading, ≥ 300 wood bartered to stone at the
+market.
+
+- The market is already built (goal 5): traders
+  (`units/{civ}/support_trader`) train there, and barter is a market
+  ability (`Barter` class). Check `docs/ai_engine_api.md` for barter and
+  trade APIs (`getTraderTemplatesGains`, entity `trade`/`barter` orders?).
+- Trade income needs a trade route: traders between two markets (or a
+  market and a dock/allied market). With one CC + one market the bot may
+  need a second market far away for meaningful gain.
+- "All economic technologies": enumerate from the game data (field,
+  farmstead/storehouse, market techs); some need buildings the bot does
+  not build yet (farmstead, storehouse, corral?).
+- Verification recipe: copy `tmp/goal5/run.sh` to `tmp/goal6/run.sh`
+  (sed goal5→goal6). Goal-6 outcomes live in the end-of-game statistics
+  JSON (trade income, barter) and `metadata.json`; 30-min runs as usual.
 
 ## Known blemishes / ideas
 

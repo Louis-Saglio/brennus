@@ -3,6 +3,24 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-20 — Goal 5 (city phase)
+
+- **Foundations do not count** toward phase entity requirements:
+  `TechnologyManager.classCounts` excludes them explicitly
+  (`TechnologyManager.js`, "don't use foundations for the class counts").
+  `canResearch("phase_city_generic")` only goes true once 3 Town
+  structures are *completed*.
+- Gaul Town-class buildings available in town phase: forge 200 wood/120 s,
+  market 300 wood/150 s, temple 300 wood/200 s (gaul override; generic
+  temple is 300 stone). Gaul barracks is Village class — useless for city.
+- Building the three serially (one `pendingBuild` at a time, 2 builders
+  per foundation) takes ~7 min after town phase: city at ~14.7–15.7 min
+  across seeds 1–5. Wood dips to ~90 around t=9–11m while town buildings
+  compete with houses.
+- Statistics-JSON determinism hash: extract the block from the first line
+  `{` to the first line `}` in stdout and sha256 it; lines after the JSON
+  (replay path, profiler counters) differ between runs.
+
 ## 2026-08-20 — Goal 4 (town phase)
 
 - `gameState.currentPhase()` returns a **number** (1=village, 2=town,

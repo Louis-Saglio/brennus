@@ -3,11 +3,12 @@ import { BaseAI } from "simulation/ai/common-api/baseAI.js";
 /**
  * Brennus: AI bot for 0 A.D.
  *
- * Current stage — goal 3 (population growth): on top of goal-2 gathering
- * (every worker kept busy, reassigned to the most-needed resource), the bot
- * trains women without interruption at the civil centre (and at houses once
- * Fertility Festival is researched), builds houses ahead of the population
- * cap, and builds fields when natural food runs low.
+ * Current stage — goal 5 (city phase): on top of goal-2 gathering (every
+ * worker kept busy, reassigned to the most-needed resource), goal-3
+ * population growth (uninterrupted woman training, houses ahead of the cap,
+ * fields when natural food runs low) and goal-4 town phase, the bot builds
+ * three Town-class structures (forge, market, temple) once in town phase,
+ * then banks stone/metal and researches city phase at the civil centre.
  *
  * The init banner is the load canary used by the headless smoke test: if it
  * appears in stdout, the bot was constructed and initialized without script
@@ -236,6 +237,29 @@ BrennusBot.prototype.manageConstruction = function()
 	{
 		this.tryConstruct(houseType, 15, 90);
 		return;
+	}
+
+	// City phase requires 3 Town-class structures (forge/market/temple; all
+	// cost only wood for gaul). Foundations do not count toward the phase
+	// requirement, but count them here to avoid ordering duplicates.
+	if (gameState.currentPhase() === 2)
+	{
+		let townBuilt = 0;
+		for (const ent of gameState.getOwnStructures().values())
+			if (ent.hasClass("Town"))
+				townBuilt++;
+		const hasOrQueued = type =>
+			gameState.getOwnStructures().toEntityArray().some(ent => ent.templateName() === type) ||
+			foundations.some(f => gameState.getBuiltTemplate(f.templateName()).templateName() === type);
+		const nextType = ["forge", "market", "temple"]
+			.map(t => gameState.applyCiv(`structures/{civ}/${t}`))
+			.find(t => !hasOrQueued(t));
+		if (townBuilt < 3 && nextType &&
+			gameState.getResources().canAfford(gameState.getTemplate(nextType).cost()))
+		{
+			this.tryConstruct(nextType, 15, 90);
+			return;
+		}
 	}
 
 	// Fields when natural food near the CC runs low or the food workforce grows.
