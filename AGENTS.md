@@ -68,3 +68,25 @@ Before running, copy `bot/` into `$HOME/.local/share/0ad/mods/brennus`.
 Success = `[HARNESS] brennus: loaded for player 1` on stdout, turns
 progressing, zero `ERROR` lines in the interesting log
 (`$HOME/.local/state/0ad/log/interestinglog_*.html`).
+
+## Sharing progress
+
+- **Commit and push** to `main` on GitHub (Louis-Saglio/brennus) every time
+  significant progress is made — a passing goal, a working feature, a doc
+  update worth keeping. Don't batch unrelated changes.
+- **After each commit, publish the mod as a zip on the file server** so Louis
+  can try it. Build it with `mod.json` at the archive root and publish a
+  commit-named file plus a stable `brennus.zip`:
+
+  ```sh
+  SHA=$(git rev-parse --short HEAD)
+  (cd bot && python3 -m zipfile -c ../tmp/brennus-$SHA.zip .)
+  sudo install -D -o fileserver -g fileserver -m 644 \
+    tmp/brennus-$SHA.zip /home/fileserver/files/brennus/brennus-$SHA.zip
+  sudo install -o fileserver -g fileserver -m 644 \
+    tmp/brennus-$SHA.zip /home/fileserver/files/brennus/brennus.zip
+  ```
+
+  Download URL: `https://files.louissaglio.fr/brennus/brennus.zip`
+  (basic auth, see the global AGENTS.md). The file server is no-cache, so
+  the stable name always serves the latest commit.
