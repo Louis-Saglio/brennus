@@ -31,6 +31,26 @@ implementation), shipped as a 0 A.D. mod and developed against **0.28.0 only**.
 - AI performance matters: the bot must not slow the simulation — no full-map
   scans per tick, prefer cached entity collections and shared resource maps.
 
+## Telemetry and logging
+
+Understanding what happened during a game is a first-class requirement:
+implement telemetry and logging **in the mod**, not only in the bot code.
+Any JS the engine executes is fair game — AI scripts
+(`simulation/ai/brennus/`), map trigger scripts (e.g. a
+`maps/scripts/NonVisualTrigger.js` override), autostart JS — wherever the
+data lives. **Never patch the engine (C++)**: the pinned 0.28.0 binary stays
+untouched so results remain comparable.
+
+Channels: `print()` goes to stdout (tag bot lines, e.g. `[HARNESS]`), the
+engine prints per-player statistics JSON at game end, and trigger scripts
+can run arbitrary JS on game events/intervals.
+
+Logging has a cost: printing every turn or in hot `OnUpdate` paths slows the
+simulation measurably (see the turn-rate figures in
+`docs/pyrogenesis_cli.md`). Log sparingly and coarsely (init, phase changes,
+end-of-game summaries), and when in doubt measure the turn rate with and
+without the logging enabled.
+
 ## Smoke test
 
 ```sh
