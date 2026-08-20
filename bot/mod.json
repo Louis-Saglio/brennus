@@ -1,0 +1,7 @@
+{
+	"name": "brennus",
+	"version": "0.1.0",
+	"label": "Brennus",
+	"description": "In-engine JS AI bot for 0 A.D., developed autonomously on a headless VPS.",
+	"dependencies": ["0ad=0.28.0"]
+}
