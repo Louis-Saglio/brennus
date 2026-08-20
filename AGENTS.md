@@ -48,10 +48,3 @@ Before running, copy `bot/` into `$HOME/.local/share/0ad/mods/brennus`.
 Success = `[HARNESS] brennus: loaded for player 1` on stdout, turns
 progressing, zero `ERROR` lines in the interesting log
 (`$HOME/.local/state/0ad/log/interestinglog_*.html`).
-
-## Prior art
-
-`~/vercingetorix/` is a previous attempt at the same project: its `harness/`
-(Rust batch runner), `bot/` (mod overrides incl. a time-limited
-NonVisualTrigger), and docs encode many verified facts about headless runs
-and engine nondeterminism pitfalls. Reuse knowledge, not code.
