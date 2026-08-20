@@ -3,6 +3,21 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-20 — Goal 2 (gathering)
+
+- `BaseAI.this.timeElapsed` is set once at `Init` and never updated — use
+  `gameState.getTimeElapsed()` for the live sim time.
+- `filters.byResource` (hence `gameState.getResourceSupplies("food")`)
+  **excludes huntable animals**; use `getHuntableSupplies()` for meat.
+  `isHuntable()` already excludes retaliating animals (lions/wolves) and the
+  filter excludes sea creatures.
+- Gaul start (mainland): CC + 4 women + 2 spearmen + 2 javelineers +
+  1 cavalry javelineer. Cavalry gathers **only** `food.meat` (rate 5, great
+  hunter); infantry gathers wood/stone/metal at ~0.5–0.75, fruit at 0.5;
+  women are the best fruit gatherers (rate 1).
+- With 9 starting workers at 3/2/2/2, 30 in-game minutes yield roughly
+  food 2600–3500, wood 1600, stone 1300, metal 1250 (mainland 192).
+
 ## 2026-08-20 — Goal 1 verification
 
 - `maps/scripts/NonVisualTrigger.js` override works: the engine registers it

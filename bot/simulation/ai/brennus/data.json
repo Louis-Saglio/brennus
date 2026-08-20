@@ -1,6 +1,6 @@
 {
 	"name": "Brennus",
-	"description": "AI bot under development. Currently a no-op skeleton: it loads, runs every turn, and issues no commands.",
+	"description": "AI bot under development. Assigns every worker to a resource and keeps it gathering; no training or building yet.",
 	"constructor": "BrennusBot",
 	"filename": "brennus.js",
 	"useShared": true
