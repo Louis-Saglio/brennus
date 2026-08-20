@@ -82,6 +82,13 @@ than strictly necessary:
 - Never leave a run going "just in case": if the check you need has already
   printed what you need, stop the process.
 
+## Parallel runs
+
+Pyrogenesis is mostly single-threaded: one running match saturates roughly
+one core. When several matches must be run (e.g. multi-seed verification),
+run them **in parallel, one per core**, each with its own isolated HOME —
+this speeds up verification batches a lot compared to running them serially.
+
 ## Smoke test
 
 ```sh
