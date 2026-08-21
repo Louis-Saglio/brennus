@@ -67,6 +67,25 @@ seeds 1-4 byte-identical (no deer in the herding band), seed 5 city
 13.8→13.6, pop300 14.4→13.6, meat by t=8m 694→1049. Kept; details in
 `experiments/goal-07.md` (wound-then-steer section).
 
+## Builder ping-pong fix (sticky assignments, SHIPPED with known cost)
+
+Louis saw builders walking back and forth between adjacent foundations
+without building. Root cause: the sweep re-issued `repair` to the nearest
+units of every under-staffed foundation each block; adjacent foundations'
+nearest sets overlap, the last order wins. Four fix variants were probed
+(all regressed the boom — see LESSONS_LEARNED for the numbers); by
+Louis's call the **persistent sticky variant is shipped anyway** (a
+claimed unit is never re-targeted until its foundation is gone; herder
+excluded — it would be a phantom builder). Zero churn verified.
+
+**New baseline (regressed, to re-tune): city/pop300 seeds 1-5 = 14.6/16.0,
+14.6/14.6, 15.0/14.4, 14.2/13.7, 14.5/14.4, zero JS errors, seed-1 rerun
+hash identical. NEXT TASK: bring pop300 back to ≤ 14.7 (target: the old
+14.7/14.9, 14.4/14.8, 14.3/14.7, 13.3/13.4, 13.6/13.6). Known levers:
+the sticky crews never return to gathering between foundations (early
+fruitStock stalls ~1000 → fieldDemand false → houses eat the field wood),
+the fields-vs-houses wood gate, builder-target counts per building type.
+
 ## Next up (goal 8: defeat sandbox Petra < 40 in-game min)
 
 Tier 3 begins: `experiments/goal-08.md` doesn't exist yet — create it and

@@ -162,6 +162,8 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	print(`[HARNESS] brennus: loaded for player ${this.player}\n`);
 	// entityID -> resource this unit was ordered to gather.
 	this.assignments = this.savedState?.assignments || {};
+	// foundationID -> [entityID] of its sticky builders (never overlapping).
+	this.builderAssignments = this.savedState?.builderAssignments || {};
 	// Construct orders awaiting their foundation: [{template, x, z, turn}].
 	this.pendingBuilds = this.savedState?.pendingBuilds || [];
 	// [x, z] spots where a construct command failed; never retried.
@@ -1295,20 +1297,54 @@ BrennusBot.prototype.manageConstruction = function()
 	const foundations = gameState.getOwnFoundations().toEntityArray();
 
 	// Send builders to foundations that lack them (trio/dropsites 4, houses
-	// 3, fields 2 — every builder is a gatherer not gathering).
+	// 3, fields 2 — every builder is a gatherer not gathering). Assignments
+	// are sticky and never overlap: the old nearest-per-foundation sweep
+	// re-issued repair orders every block, and when two foundations stood
+	// close together the same units were the nearest to BOTH — the last
+	// order won, and the workers ping-ponged between the sites without ever
+	// building (Louis's report). Now a unit claimed by one foundation is
+	// never re-targeted to another until the first is done or gone. The
+	// herder is excluded: its hunting orders override repair every block,
+	// so a claim on it would be a phantom builder. Known cost: the sticky
+	// crews stop returning to gathering between foundations and the boom
+	// loses ~1 min on pop300 (seed 1 14.7 -> 16.0) — accepted for now, to
+	// be re-tuned in a dedicated session (see LESSONS_LEARNED).
+	const assigned = this.builderAssignments;
+	for (const fId in assigned)
+	{
+		const f = gameState.getEntityById(+fId);
+		if (!f)
+			delete assigned[fId];
+		else
+			assigned[fId] = assigned[fId].filter(id => gameState.getEntityById(id));
+	}
+	const taken = new Set();
+	for (const ids of Object.values(assigned))
+		for (const id of ids)
+			taken.add(id);
 	for (const foundation of foundations)
 	{
 		const built = gameState.getBuiltTemplate(foundation.templateName());
 		const isField = built.hasClass("Field");
 		const isHouse = built.hasClass("House");
-		const needed = (isField ? 2 : isHouse ? 3 : 4) - foundation.getBuildersNb();
+		const target = (isField ? 2 : isHouse ? 3 : 4);
+		let cur = assigned[foundation.id()];
+		if (!cur)
+			cur = assigned[foundation.id()] = [];
+		const needed = target - cur.length;
 		if (needed <= 0)
 			continue;
 		const builders = gameState.getOwnUnits()
-			.filter(ent => ent.isGatherer() && ent.isBuilder() && ent.position())
+			.filter(ent => ent.isGatherer() && ent.isBuilder() && ent.position() &&
+				!(ent.id() === this.herderId && !this.herdingDone) &&
+				!taken.has(ent.id()))
 			.filterNearest(foundation.position(), needed);
 		for (const unit of builders.values())
+		{
+			cur.push(unit.id());
+			taken.add(unit.id());
 			unit.repair(foundation);
+		}
 	}
 
 	// Track construct orders: success once the foundation exists at the
@@ -2326,6 +2362,7 @@ BrennusBot.prototype.Serialize = function()
 {
 	return {
 		"assignments": this.assignments,
+		"builderAssignments": this.builderAssignments,
 		"pendingBuilds": this.pendingBuilds,
 		"failedSpots": this.failedSpots,
 		"carry": this.carry,

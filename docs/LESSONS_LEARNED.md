@@ -3,7 +3,7 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
-## 2026-08-21 — Builder ping-pong between foundations (investigated, NOT fixed)
+## 2026-08-21 — Builder ping-pong between foundations (sticky variant SHIPPED, re-tune pending)
 
 - Louis's report is real: the builder sweep re-issues `repair` to the
   nearest units for every under-staffed foundation EVERY block, and when
@@ -21,9 +21,18 @@ and mistakes are not repeated. Short, dated, factual entries — newest first.
   chaotic sensitivity as the v79/v80 field-spread tip. The messy
   re-issuing is structurally load-bearing: it keeps the bootstrap crews
   overlapping so the first farmstead/storehouse/fields sequence lands in
-  the right order. A clean fix needs a bootstrap-aware design (e.g.
-  time/phase-gated exclusion) plus a full re-derive + multi-seed retune —
-  defer to goal 8 when the economy gets rebalanced anyway.
+  the right order.
+- **Shipped anyway (Louis's call): the persistent sticky variant** —
+  foundationID -> [unitIds] tracked in bot state, a claimed unit is never
+  re-targeted until its foundation is gone; the herder is excluded (its
+  hunt orders would override repair and make it a phantom builder). Zero
+  churn. The herder exclusion changed nothing on any seed (batch hashes
+  identical to the pre-exclusion batch). **New baseline (re-tune target):
+  seed1 14.6/16.0, seed2 14.6/14.6, seed3 15.0/14.4, seed4 14.2/13.7,
+  seed5 14.5/14.4, determinism OK, zero JS errors.** The re-tune session
+  starts from here; the known lever is the sticky crews never returning to
+  gathering between foundations (see the [FIELD] fruitStock ~1000
+  bootstrap stall), plus the fields-vs-houses wood gate.
 
 ## 2026-08-21 — Extended herding range (probed, DISCARDED)
 

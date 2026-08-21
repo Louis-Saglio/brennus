@@ -104,3 +104,17 @@ variants regressed vs v83: women-collect seed1 14.3/15.6, CC-steer
 bound + building-ring stalls) for 100 meat, and the collection displaces
 equivalent-or-better field work (seed 5 t=13m grain 4565→2193). The
 35-160 m band stays. Numbers in docs/LESSONS_LEARNED.md.
+
+### Builder ping-pong fix — sticky assignments shipped (regressed baseline, re-tune next)
+
+Louis's report: builders walking back and forth between adjacent
+foundations without building. Root cause: the per-block sweep re-issued
+`repair` to the nearest units of every under-staffed foundation; adjacent
+foundations' nearest sets overlap and the last order wins. Four variants
+probed (all regressed the boom, numbers in LESSONS_LEARNED); by Louis's
+call the persistent sticky variant is shipped: a unit claimed by one
+foundation is never re-targeted until it is gone; the herder is excluded
+(phantom-builder guard). Zero churn. New baseline to re-tune from:
+city/pop300 14.6/16.0, 14.6/14.6, 15.0/14.4, 14.2/13.7, 14.5/14.4 —
+determinism OK, zero JS errors. Target for the re-tune: the pre-fix
+numbers (14.5/14.7, 14.4/14.8, 14.3/14.7, 13.3/13.4, 13.6/13.6).
