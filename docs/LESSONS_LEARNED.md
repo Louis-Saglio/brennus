@@ -3,6 +3,47 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-21 — Goal 7 (dropsites, gather-rate telemetry)
+
+- **Measuring effective gather rate**: `ent.resourceCarrying()` (live
+  `IID_ResourceGatherer` query) returns `[{type, amount, max}]`; a drop from
+  >0 to 0 = a delivery. amount / time-between-deliveries = effective rate
+  per full gather-walk-drop cycle. Theoretical = `BaseSpeed ×
+  Rates[generic.specific]` (techs included via `ent.get`) × diminishing
+  returns for fields (`(1-dr^n)/(1-dr)/n`, dr 0.9, n from the supply's
+  `resourceSupplyNumGatherers()`). Skip partial loads (< 3): their cycle
+  includes post-exhaustion idle time.
+- **Dropsite placement that works**: react each block to workers whose
+  target supply is > ~18 m (edge) from a serving dropsite; build at the
+  clump around the WORST-served anchor (anchors within 25 m), not at the
+  centroid of all underserved — a wide cutting front's centroid lands
+  between clumps and serves none (13 storehouses, mean distance still 40+
+  m). Count same-type foundations as serving sites (else re-order spam
+  while the first builds), suppress within ~25-30 m, never fall back to a
+  CC-centered search for dropsites (a farmstead dumped at the base serves
+  nothing but counts against the cap).
+- Walk economics (woman 9 m/s, carry 10): grain field at 5 gatherers = 0.41
+  f/s effective → 85% efficiency needs ≤ ~19 m edge walk; wood (0.7/s) →
+  75% needs ≤ ~21 m. Farmsteads cannot fit between grid fields (22 m
+  footprint on 24 m pitch); they land just outside the cluster perimeter.
+- A storehouse at the woodline pays its 100 wood back in ~10-30 s of
+  gather-rate delta; gating dropsites behind trio/house wood reservations
+  starves the income that pays for everything (v14: zero dropsites, wood
+  rate 27%). Houses must instead leave 100 w while a dropsite is demanded.
+- **Food is the boom's binding constraint**: pop300@15 ≈ 15500 food by
+  t=15; training capacity (CC 10.3/min + 2/min/house) stops mattering once
+  food income < demand (from ~t=8). Berry window (fruit rate 1.0, 1.5 with
+  wicker) is ~750 f/2.5 min early; meat is the starting cav (~400 f first
+  window); everything else is grain.
+- The city bank (750s/750m) competes with metal boom techs (~800 metal
+  pre-city): techs need a 300 stone/metal floor in town phase or the bank
+  is short at deadline time.
+- Fertility Festival timing: rushing it at t~1 (250 f + training/construction
+  freeze) starves the bootstrap — pop behind all game (v32). ~t=5-8 is the
+  window where trainers actually become food-supported. If banking for it,
+  freeze construction AND floor training together (v23 paused training only;
+  houses ate the wood and fertility stalled 8 min).
+
 ## 2026-08-20 — Goal 6 part 2 (placement, threats, command races)
 
 - **`getEnemyEntities()` includes gaia** (gaia is a diplomatic enemy):
@@ -198,3 +239,42 @@ and mistakes are not repeated. Short, dated, factual entries — newest first.
 - Trigger-script scheduling: `cmpTrigger.DoAfterDelay(ms, "MethodName", {})`
   calls `Trigger.prototype.MethodName`; simulation ms (200 ms/turn).
 
+
+## 2026-08-21 — Goal 7 session (v34→v54, city 17.3→14.8, pop300 18.0→15.6)
+
+- Gaul **tavern** (`structures/gaul/tavern.xml`): Town class, 100w+100s,
+  BuildTime 200, **+10 pop**. Parent `template_structure_civic_house` so it
+  keeps class House (trains women after Fertility Festival, researches
+  pop_house techs). Cheapest Town-class structure — ideal third member of the
+  3-Town-structures requirement for `phase_city_generic`.
+- `phase_city_generic`: 750s/750m, needs 3 Town-class structures, 60 s.
+- Tech costs (0.28.0): plows 200w/100m (village); farming_training 300w/200m
+  (town); gaul harvester 200w/100m (gaul town); ironaxes 200w/100m (village);
+  pop_house_01 300w/100s; capacity 200f/200w; fertilizer 400w/300m (city).
+- `BatchTimeModifier` exists only on CC (0.8) and a few military/econ
+  buildings — houses have none; batching house foundations gives no discount.
+- Whole-forest union-find as "biggest woodline" spreads choppers over ~200 m
+  (v36); a bounded hotspot (45 m zone around densest 30 m cell, 90 m
+  neighbourhood score) actually concentrates them.
+- Storehouse depletion: testing only THE nearest supply misfires on
+  half-eaten trees (build/destroy loop, v36); must also skip when any
+  gatherer works within 40 m (v37).
+- Worker-assignment shares steer only IDLE units; existing assignments
+  persist. Miners must be actively `stopMoving()`-ed when the city bank is
+  spent, else ~25 mine uselessly through the sprint (v52/v53).
+- Fixed mining shares seesaw city-vs-pop (v37–v40). Rate-matching miners to
+  the bank deadline works, but no mining before t≈8 (early miners cost ~3×
+  in un-trained women — v41/42), and re-mining after the bank is spent must
+  be cut (v41).
+- Grain/house-cap techs stall behind the 750-metal city reserve from
+  trio-done on (v46: plows at 12.1) — they need a bank-floor exception +
+  miners pre-filling + the city research waiting for them.
+- First-dropsite placement must filter candidates to own territory + CC
+  region and must not block the rest of construction on failure (v35:
+  18 min total stall).
+- Counting queued women at face value in the house-margin calc under-builds
+  cap at the sprint (queue holds ~45 women food can't deliver; cap 260–278
+  at t=15 in v48–51).
+- Food volume is the pop300 blocker: ~12k food gathered by t=15 vs ~15k
+  needed; untried levers = tavern as sprint cap building, trade income as
+  food, fields-per-gatherer ratio, earlier farming_training.

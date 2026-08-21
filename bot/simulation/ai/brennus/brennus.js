@@ -3,16 +3,28 @@ import { BaseAI } from "simulation/ai/common-api/baseAI.js";
 /**
  * Brennus: AI bot for 0 A.D.
  *
- * Current stage — goal 6 (economy mastery): on top of goal-2 gathering
- * (every worker kept busy, reassigned to the most-needed resource, away
- * from enemies and aggressive animals), goal-3 population growth
- * (uninterrupted woman training, houses ahead of the cap, fields when
- * natural food runs low), goal-4 town phase and goal-5 city phase
- * (Town-class structures: market, forge, temple), the bot researches
- * every economic technology (storehouse, farmstead, corral, house and
- * market techs), builds three markets on opposite territory edges and
- * runs a trader fleet between them, and barters surplus wood against
- * stone. Drop sites are placed next to the resources they serve.
+ * Current stage — goal 7 (the boom): City Phase AND 300 population by 15
+ * in-game minutes. Everything is subordinated to population growth speed:
+ *
+ * - Houses are the boom engine: +5 pop cap each (6 with Home Garden, 7 with
+ *   Manors) and, once Fertility Festival is researched, a 30 s woman each.
+ *   They are mass-built on an aligned grid around the CC (straight rows
+ *   leave room for the big 22x22 fields — Louis's placement tip).
+ * - Worker training outranks phase research (Louis's tip): training never
+ *   pauses; phase costs are accumulated as a resource reserve that training
+ *   and construction spend only above.
+ * - Technologies are picked for gather-rate impact only (Louis's tip):
+ *   Fertility Festival, then food/wood rate and capacity techs, mining
+ *   techs once miners are out, and the two house-population techs.
+ * - Drop sites go next to the resources they serve (Louis's tip), and keep
+ *   following them: a farmstead by the berries, storehouses rebuilt at the
+ *   receding woodline, farmsteads by each new field cluster, and depleted
+ *   storehouses are destroyed. Fields go next to a farmstead with free
+ *   space; woodcutters all work the single biggest woodline in territory.
+ *   Verified by telemetry: effective vs theoretical gather rate (delivery
+ *   events), reported in the status log (bar: wood >= 75%, grain >= 85%).
+ * - Trade/barter stay available: a market is part of the town trio, and
+ *   surplus wood is bartered for the stone/metal the city phase needs.
  *
  * The init banner is the load canary used by the headless smoke test: if it
  * appears in stdout, the bot was constructed and initialized without script
@@ -25,176 +37,136 @@ export function BrennusBot(settings)
 
 BrennusBot.prototype = Object.create(BaseAI.prototype);
 
-/** Share of all gatherers each resource should have, in priority order. */
-BrennusBot.prototype.gathererShares = { "food": 0.46, "wood": 0.32, "stone": 0.1, "metal": 0.12 };
+/** Share of all gatherers each resource should have, per phase. Mining is
+ * deliberately thin in town phase: the 750/750 city bank is filled mostly
+ * by bartering food/wood surpluses, not by 0.35/s women on rock. */
+BrennusBot.prototype.gathererShares = {
+	1: { "food": 0.55, "wood": 0.45, "stone": 0.0, "metal": 0.0 },
+	2: { "food": 0.47, "wood": 0.53, "stone": 0.0, "metal": 0.0 },
+	3: { "food": 0.62, "wood": 0.36, "stone": 0.01, "metal": 0.01 }
+};
+
+/**
+ * Phase shares, with two dynamic overrides:
+ * - Town phase splits by trio status: wood-heavy while forge/market/temple
+ *   are missing (the city deadline needs their 800 wood in one block each),
+ *   food-heavy once they stand (the pop sprint is food-limited — v26 hit
+ *   city 14.9 but pop300 17.2 on fixed shares, v27 the reverse).
+ * - Mining is rate-matched to the city bank (Louis's bar: 750/750 in hand
+ *   by ~13.5 so the research lands before 15.0): just enough miners to
+ *   fill the bank (+100 tech allowance) in the time left, zero once full.
+ *   Fixed mining shares always lose — too few early (v37/v38: city 16+)
+ *   or they starve the wood the boom runs on (v39/v40: pop300 16+).
+ */
+BrennusBot.prototype.currentShares = function(total)
+{
+	const phase = this.gameState.currentPhase();
+	let base = this.gathererShares[phase] || this.gathererShares[1];
+	if (phase === 2)
+	{
+		const trioDone = this.trioTypes()
+			.every(t => this.gameState.getOwnStructures().toEntityArray()
+				.some(ent => ent.templateName() === t));
+		if (trioDone)
+			base = { "food": 0.66, "wood": 0.34, "stone": 0.0, "metal": 0.0 };
+		const shares = { ...base };
+		if (total)
+		{
+			const res = this.gameState.getResources();
+			// Once the city research is running the bank is spent: re-mining
+			// it stole ~50 workers from the boom at the worst moment (v41).
+			const bankingDone = this.gameState.isResearching("phase_city_generic");
+			// No mining before t=8: the bank fills in the last minutes easily,
+			// and every early miner costs triple in un-trained women (v41/v42:
+			// mining from t=4 put the boom ~40 pop behind by t=15).
+			const early = this.gameState.getTimeElapsed() < 480000;
+			const timeLeft = Math.max(60, (810000 - this.gameState.getTimeElapsed()) / 1000);
+			// Metal target: the 750 bank plus whatever the pending grain-rate
+			// techs still cost — they are spent from the bank before the city
+			// research starts, so the miners pre-fill for them.
+			let grainMetal = 0;
+			for (const tech of ["gather_farming_plows", "gather_farming_training", "gather_farming_harvester"])
+				if (!this.gameState.isResearched(tech) && !this.gameState.isResearching(tech))
+					grainMetal += this.gameState.getTemplate(tech).cost().metal || 0;
+			const target = { "stone": 850, "metal": 850 + grainMetal };
+			let mining = 0;
+			for (const res2 of ["stone", "metal"])
+			{
+				const needed = bankingDone || early ? 0 : target[res2] - res[res2];
+				// Women mine ~0.35/s before techs.
+				shares[res2] = needed > 0 ?
+					Math.min(0.18, needed / (0.35 * timeLeft) / total) : 0;
+				mining += shares[res2];
+			}
+			const scale = Math.max(0, 1 - mining) / (base.food + base.wood);
+			shares.food = base.food * scale;
+			shares.wood = base.wood * scale;
+		}
+		return shares;
+	}
+	return { ...base };
+};
 
 BrennusBot.prototype.houseTrainingTech = "unlock_civilians_house_generic";
 
 /**
- * Every economic technology available to gaul, in research priority order
- * (chains are ordered tier by tier; phase gating is enforced by
- * canResearch inside findResearchers). Fertility Festival first: house
- * training doubles worker production.
+ * Boom technologies in priority order (phase gating is enforced by
+ * findResearchers returning nothing before the phase unlocks). Only
+ * wood/stone/metal costs: food goes to the woman stream, so food-costing
+ * techs (capacity, mining) are deliberately out — women at 50 food are
+ * worth more than +25% on a dozen miners.
  */
-BrennusBot.prototype.econTechs = [
-	"unlock_civilians_house_generic",
+BrennusBot.prototype.boomTechs = [
 	// village
-	"gather_lumbering_ironaxes", "gather_capacity_basket",
-	"gather_mining_servants", "gather_mining_wedgemallet",
-	"gather_wicker_baskets", "gather_farming_plows",
-	"gather_animals_stockbreeding", "health_civilians_01",
-	// town (trade_gain_01 first: +15% trade income over the whole window)
-	"trade_gain_01",
-	"gather_lumbering_strongeraxes", "gather_capacity_wheelbarrow",
-	"gather_mining_serfs", "gather_mining_shaftmining",
-	"gather_farming_training", "gather_farming_harvester",
-	"pop_house_01", "trader_health", "trade_commercial_treaty",
+	"gather_wicker_baskets",       // +50% fruit rate (berries are the early food)
+	"gather_farming_plows",        // +20% grain rate
+	// town — grain-rate techs first: food income is the pop bottleneck, and
+	// they cost the metal the city bank wants, so they must land before the
+	// 750 reserve activates (v41-v43: queued behind, fired at 14.7, useless)
+	"gather_farming_training",     // +20% grain rate
+	"gather_farming_harvester",    // +10% grain rate (gaul, town)
+	"gather_lumbering_ironaxes",   // +25% wood rate (houses eat wood)
+	"pop_house_01",                // houses +20% pop: 5 -> 6
+	"gather_capacity_basket",      // +5 carry capacity: fewer walk trips
+	"gather_lumbering_strongeraxes",
 	// city
-	"gather_lumbering_sharpaxes", "gather_capacity_carts",
-	"gather_mining_slaves", "gather_mining_silvermining",
-	"gather_farming_fertilizer", "pop_house_02", "trade_gain_02"
+	"pop_house_02",                // houses +20% pop: 6 -> 7
+	"gather_farming_fertilizer"
 ];
 
-BrennusBot.prototype.traderType = "units/{civ}/support_trader";
-
-/** Trader fleet size: the goal needs 10; extra traders add trade income. */
-BrennusBot.prototype.targetTraders = 14;
-
-/** True while the trader fleet is incomplete and markets exist to train it. */
-BrennusBot.prototype.needsTraders = function()
-{
-	if (this.gameState.currentPhase() < 2 || this.completedMarkets().length < 2)
-		return false;
-	let traders = 0;
-	for (const ent of this.gameState.getOwnUnits().values())
-		if (ent.hasClass("Trader"))
-			traders++;
-	return traders < this.targetTraders;
-};
-
 /**
- * Threat positions, refreshed at the start of each 5-turn block: enemy
- * structures, enemy mobile units, and aggressive gaia animals. (Gaia is an
- * "enemy" diplomatically, so getEnemyEntities includes every tree on the
- * map — filter owner 0 out, keeping only animals that can attack.)
- * Unarmed gatherers sent near the enemy get slaughtered even by a sandbox
- * opponent's defensive units (seen: 37 workers lost on seed 5), and units
- * posted at a supply are chased down from further than a snapshot radius
- * of 45 m — structures keep a 100 m exclusion, mobiles 60 m.
+ * Phase-up costs kept as a reserve: training and construction may only
+ * spend above it, so the bank fills without ever pausing production.
  */
-BrennusBot.prototype.updateEnemyPositions = function()
-{
-	this.enemyStructuresPos = [];
-	this.enemyMobilesPos = [];
-	for (const ent of this.gameState.getEnemyEntities().values())
-	{
-		if (ent.owner() === 0 && !(ent.hasClass("Animal") && ent.get("Attack")))
-			continue;
-		const pos = ent.position();
-		if (!pos)
-			continue;
-		if (ent.hasClass("Structure"))
-			this.enemyStructuresPos.push(pos);
-		else
-			this.enemyMobilesPos.push(pos);
-	}
+BrennusBot.prototype.phaseUpCost = {
+	"phase_town_generic": { "food": 500, "wood": 500 },
+	"phase_city_generic": { "stone": 750, "metal": 750 }
 };
 
-BrennusBot.prototype.nearEnemy = function(pos, structureDist, mobileDist)
-{
-	const sd2 = structureDist * structureDist;
-	for (const epos of this.enemyStructuresPos || [])
-		if (SquareDistance(epos, pos) < sd2)
-			return true;
-	const md2 = mobileDist * mobileDist;
-	for (const epos of this.enemyMobilesPos || [])
-		if (SquareDistance(epos, pos) < md2)
-			return true;
-	return false;
-};
-
-/**
- * Population slots to keep free for the trader fleet: from town phase on,
- * a capped share of the traders still missing from the target. Uncapped,
- * the headroom (18) exceeds the whole early-town population limit and
- * freezes woman training (seen: pop stuck at 32 from t=5 to t=15).
- */
-BrennusBot.prototype.traderHeadroom = function()
-{
-	if (this.gameState.currentPhase() < 2)
-		return 0;
-	let traders = 0;
-	for (const ent of this.gameState.getOwnUnits().values())
-		if (ent.hasClass("Trader"))
-			traders++;
-	return Math.min(6, Math.max(0, this.targetTraders - traders));
-};
-
-/** Completed own markets (getOwnStructures includes foundations). */
-BrennusBot.prototype.completedMarkets = function()
-{
-	return this.gameState.getOwnStructures().toEntityArray()
-		.filter(ent => ent.hasClass("Market") && ent.foundationProgress() === undefined);
-};
-
-/**
- * True while the city-phase requirement of 3 completed Town-class
- * structures is unmet. During that window, wood spending (houses, wood
- * techs) must leave the market/forge/temple costs banked, or the trio
- * never fires and the city phase slips (goal 5 regression).
- */
-BrennusBot.prototype.townTrioPending = function()
-{
-	if (this.gameState.currentPhase() !== 2)
-		return false;
-	let townBuilt = 0;
-	for (const ent of this.gameState.getOwnStructures().values())
-		if (ent.hasClass("Town") && ent.foundationProgress() === undefined)
-			townBuilt++;
-	return townBuilt < 3;
-};
-
-/**
- * True until two markets stand (or one stands and another is on the way):
- * a trade route needs a market pair. Like the town trio, market 2 is a
- * priority building that houses must not starve of wood — without the
- * bank, house construction eats every wood surplus and trading starts
- * minutes late (seen: 1 market at t=20, traders ~0 at t=25).
- */
-BrennusBot.prototype.tradePending = function()
-{
-	if (this.gameState.currentPhase() < 2)
-		return false;
-	const marketType = this.gameState.applyCiv("structures/{civ}/market");
-	let standing = 0;
-	for (const ent of this.gameState.getOwnStructures().values())
-		if (ent.templateName() === marketType)
-			standing++;
-	if (standing >= 2)
-		return false;
-	for (const f of this.gameState.getOwnFoundations().values())
-		if (this.gameState.getBuiltTemplate(f.templateName()).templateName() === marketType)
-			standing++;
-	return standing < 2;
-};
-
-/** True while a priority building (town trio or the market pair) is pending. */
-BrennusBot.prototype.priorityBuildPending = function()
-{
-	return this.townTrioPending() || this.tradePending();
-};
+/** Population margin below which houses are ordered (they ARE production). */
+BrennusBot.prototype.houseMargin = 16;
+/** Concurrent house foundations allowed (houses are both cap and trainers).
+ * 3, not more: each foundation pulls 4 gatherers as builders, and the house
+ * order rate must stay below the wood income so trio/techs see a surplus. */
+BrennusBot.prototype.maxHouseFoundations = 4;
 
 BrennusBot.prototype.CustomInit = function(gameState)
 {
 	print(`[HARNESS] brennus: loaded for player ${this.player}\n`);
 	// entityID -> resource this unit was ordered to gather.
 	this.assignments = this.savedState?.assignments || {};
-	// Last construct order awaiting its foundation: {template, x, z, turn}.
-	this.pendingBuild = this.savedState?.pendingBuild || null;
+	// Construct orders awaiting their foundation: [{template, x, z, turn}].
+	this.pendingBuilds = this.savedState?.pendingBuilds || [];
 	// [x, z] spots where a construct command failed; never retried.
 	this.failedSpots = this.savedState?.failedSpots || [];
-	// Wood sold at the market against stone, in 100-unit deals.
-	this.woodBartered = this.savedState?.woodBartered || 0;
+	// Gather-rate telemetry (Louis's dropsite verification: effective rate
+	// must be >= 75% of theoretical for wood, >= 85% for grain).
+	this.carry = this.savedState?.carry || {};               // id -> {type, amount} last block
+	this.gatherTarget = this.savedState?.gatherTarget || {}; // id -> {generic, specific, supplyId, dr}
+	this.lastDelivery = this.savedState?.lastDelivery || {}; // id -> sim ms of last drop-off
+	this.rateStats = this.savedState?.rateStats ||
+		{ "wood": { "amount": 0, "theo": 0 }, "grain": { "amount": 0, "theo": 0 },
+		  "fruit": { "amount": 0, "theo": 0 }, "meat": { "amount": 0, "theo": 0 } };
 };
 
 BrennusBot.prototype.OnUpdate = function()
@@ -206,25 +178,19 @@ BrennusBot.prototype.OnUpdate = function()
 	{
 		this.updateEnemyPositions();
 		// Research and construction in the same block both see the pre-
-		// command resource snapshot: a 300w tech + a 300w market ordered
+		// command resource snapshot: a research order + a construct order
 		// together overdraw, the engine rejects the construct at processing,
 		// and the spot lands on the failedSpots blacklist. Hold construction
 		// for one block after any research order.
 		this.constructionHold = false;
+		this.updateWoodline();
 		this.assignGatherers();
+		this.sampleGatherRates();
+		this.managePhaseUp();
 		this.manageResearch();
 		this.trainWorkers();
 		this.manageConstruction();
-		this.managePhaseUp();
-		this.manageTrade();
 		this.manageBarter();
-		// The time-limit trigger ends the game before the final logStatus,
-		// so report completion of the tech tree as soon as it happens.
-		if (!this.allTechsLogged && this.econTechs.every(t => this.gameState.isResearched(t)))
-		{
-			this.allTechsLogged = true;
-			print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m all ${this.econTechs.length} econ techs researched\n`);
-		}
 	}
 	const phase = this.gameState.currentPhase();
 	if (phase !== this.lastPhase)
@@ -239,7 +205,7 @@ BrennusBot.prototype.OnUpdate = function()
 		this.pop300Logged = true;
 		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m population=300\n`);
 	}
-	if (this.turn % 1500 === 0)
+	if (this.turn % 750 === 0)
 		this.logStatus();
 	this.turn++;
 };
@@ -251,6 +217,19 @@ BrennusBot.prototype.assignGatherers = function()
 {
 	const counts = { "food": 0, "wood": 0, "stone": 0, "metal": 0 };
 	const idle = [];
+
+	// The city bank is spent the moment the research starts: stop every
+	// miner once so the shares reassign them to the boom (~25 workers
+	// mined a bank nobody needed anymore until the deadline — v52).
+	if (!this.minersFreed && (this.gameState.isResearching("phase_city_generic") ||
+		this.gameState.isResearched("phase_city_generic")))
+	{
+		this.minersFreed = true;
+		for (const ent of this.gameState.getOwnUnits().values())
+			if ((this.assignments[ent.id()] === "stone" || this.assignments[ent.id()] === "metal") &&
+				ent.isGatherer() && !ent.isIdle() && ent.position())
+				ent.stopMoving();
+	}
 
 	for (const ent of this.gameState.getOwnUnits().values())
 	{
@@ -268,6 +247,7 @@ BrennusBot.prototype.assignGatherers = function()
 		return;
 
 	const total = idle.length + counts.food + counts.wood + counts.stone + counts.metal;
+	const shares = this.currentShares(total);
 	this.starvedUnits = 0;
 	for (const ent of idle)
 	{
@@ -277,8 +257,8 @@ BrennusBot.prototype.assignGatherers = function()
 		const order = ["food", "wood", "stone", "metal"]
 			.filter(res => ent.canGather(res))
 			.sort((a, b) =>
-				(this.gathererShares[b] * total - counts[b]) -
-				(this.gathererShares[a] * total - counts[a]));
+				(shares[b] * total - counts[b]) -
+				(shares[a] * total - counts[a]));
 		let assigned = false;
 		for (const resource of order)
 		{
@@ -301,6 +281,31 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 {
 	const pos = unit.position();
 	const region = this.accessibility.getAccessValue(pos);
+	// Louis: all choppers on the ONE biggest woodline in territory — never
+	// spread over scattered sites; the line is re-picked when it runs out.
+	if (resource === "wood" && this.woodline)
+	{
+		let best, bestD = Infinity;
+		for (const id of this.woodline.ids)
+		{
+			const supply = this.gameState.getEntityById(id);
+			const supplyPos = supply?.position();
+			if (!supplyPos || this.accessibility.getAccessValue(supplyPos) !== region)
+				continue;
+			if (!supply.resourceSupplyAmount() || supply.isFull())
+				continue;
+			if (!this.canGatherSupply(unit, supply))
+				continue;
+			const d = SquareDistance(pos, supplyPos);
+			if (d < bestD)
+			{
+				bestD = d;
+				best = supply;
+			}
+		}
+		if (best)
+			return best;
+	}
 	// filterNearest returns entities sorted nearest-first.
 	let candidates = this.gameState.getResourceSupplies(resource).filterNearest(pos, 10).toEntityArray();
 	if (resource === "food")
@@ -333,66 +338,441 @@ BrennusBot.prototype.canGatherSupply = function(unit, supply)
 	return !!(+rates[type.generic + "." + type.specific] || +rates[type.generic]);
 };
 
+/**
+ * The one woodline every chopper works (Louis: concentrate on the biggest
+ * woodline in the territory, move on only when it is depleted — never
+ * spread over scattered sites). Recomputed every 25 turns: wood supplies
+ * are binned into 30 m cells, the cell with the most wood in its 90 m
+ * neighbourhood is the hotspot, and the zone is the trees within 45 m of
+ * its centre — concentrated enough that a single storehouse serves all.
+ * (Binning the whole connected forest as one "line" spread the choppers
+ * over 200 m of woodland — v36.) The zone is kept until under 800 wood
+ * remains, then the next hotspot is picked.
+ */
+BrennusBot.prototype.updateWoodline = function()
+{
+	if (this.turn < (this.woodlineRefresh || 0))
+		return;
+	this.woodlineRefresh = this.turn + 25;
+	if (this.woodline)
+	{
+		let remaining = 0;
+		for (const id of this.woodline.ids)
+			remaining += this.gameState.getEntityById(id)?.resourceSupplyAmount() || 0;
+		if (remaining > 800)
+		{
+			this.woodline.total = remaining;
+			return;
+		}
+	}
+	const scan = inTerritory => {
+		const supplies = this.gameState.getResourceSupplies("wood").toEntityArray()
+			.filter(s => s.position() && s.resourceSupplyAmount() > 100 &&
+				!this.nearEnemy(s.position(), 100, 60) &&
+				(!inTerritory || this.inOwnTerritory(s.position()[0], s.position()[1])));
+		const cells = new Map();
+		for (const s of supplies)
+		{
+			const pos = s.position();
+			const key = Math.floor(pos[0] / 30) + ":" + Math.floor(pos[1] / 30);
+			let cell = cells.get(key);
+			if (!cell)
+			{
+				cell = { "total": 0, "sx": 0, "sz": 0, "n": 0 };
+				cells.set(key, cell);
+			}
+			cell.total += s.resourceSupplyAmount();
+			cell.sx += pos[0];
+			cell.sz += pos[1];
+			cell.n++;
+		}
+		let best, bestScore = 0;
+		for (const entry of cells)
+		{
+			const coords = entry[0].split(":");
+			const cx = +coords[0], cz = +coords[1];
+			let score = 0;
+			for (let dx = -1; dx <= 1; ++dx)
+				for (let dz = -1; dz <= 1; ++dz)
+					score += cells.get((cx + dx) + ":" + (cz + dz))?.total || 0;
+			if (score > bestScore)
+			{
+				bestScore = score;
+				best = entry[1];
+			}
+		}
+		if (!best)
+			return null;
+		const hx = best.sx / best.n, hz = best.sz / best.n;
+		const ids = [];
+		let total = 0, sx = 0, sz = 0;
+		for (const s of supplies)
+		{
+			const pos = s.position();
+			if (Math.hypot(pos[0] - hx, pos[1] - hz) > 45)
+				continue;
+			ids.push(s.id());
+			total += s.resourceSupplyAmount();
+			sx += pos[0];
+			sz += pos[1];
+		}
+		if (!ids.length)
+			return null;
+		return { "ids": new Set(ids), "total": total, "center": [sx / ids.length, sz / ids.length] };
+	};
+	this.woodline = scan(true) || scan(false);
+};
+
+BrennusBot.prototype.inOwnTerritory = function(x, z)
+{
+	const terr = this.territoryMap;
+	const i = Math.floor(x / terr.cellSize), j = Math.floor(z / terr.cellSize);
+	if (i < 0 || j < 0 || i >= terr.width || j >= terr.height)
+		return false;
+	return (terr.data[i + j * terr.width] & 0x1F) === this.player;
+};
+
+// ------------------------------------------------- gather-rate telemetry
+
+/**
+ * Effective vs theoretical gather rates. Every block, watch each gatherer's
+ * carried load: when it drops from >0 to 0, a delivery just happened and
+ * amount / time-since-previous-delivery is that worker's effective rate over
+ * a full gather-walk-drop cycle. The theoretical rate is the template rate
+ * for the gathered subtype (technologies included via ent.get), times the
+ * supply's diminishing-returns multiplier (fields: dr 0.9), i.e. the rate a
+ * worker standing at the supply with a zero-distance dropsite would achieve.
+ * Aggregated as sum(delivered) / sum(theoRate * cycleTime) per class; read
+ * in logStatus. Louis's bar: wood >= 75%, grain >= 85%.
+ */
+BrennusBot.prototype.sampleGatherRates = function()
+{
+	const gameState = this.gameState;
+	const now = gameState.getTimeElapsed();
+	const seen = {};
+	for (const ent of gameState.getOwnUnits().values())
+	{
+		if (!ent.isGatherer())
+			continue;
+		const id = ent.id();
+		seen[id] = 1;
+
+		// While gathering, remember the target supply: its subtype sets the
+		// theoretical rate and fields carry diminishing returns. (Same order-
+		// data lookup as entity.currentGatherRate.)
+		if (ent.unitAIState()?.split(".")[1] === "GATHER")
+		{
+			for (const order of ent.unitAIOrderData() || [])
+			{
+				if (!order || order.target === undefined)
+					continue;
+				const supply = gameState.getEntityById(order.target);
+				const type = supply?.resourceSupplyType();
+				if (!type)
+					continue;
+				this.gatherTarget[id] = {
+					"generic": type.generic, "specific": type.specific,
+					"supplyId": order.target,
+					"dr": +supply.get("ResourceSupply/DiminishingReturns") || 0
+				};
+				break;
+			}
+		}
+
+		const carrying = (ent.resourceCarrying() || []).find(c => c.amount > 0);
+		const prev = this.carry[id];
+		if (prev && prev.amount > 0 && (!carrying || carrying.type !== prev.type || carrying.amount < prev.amount))
+		{
+			// Drop-off: any delivery resets the cycle clock; only full-ish
+			// loads become samples (partial drops after supply exhaustion
+			// include idle time and would pollute the metric).
+			const last = this.lastDelivery[id];
+			this.lastDelivery[id] = now;
+			const tgt = this.gatherTarget[id];
+			if (prev.amount >= 3 && last !== undefined && now - last > 5000 && tgt && tgt.generic === prev.type)
+			{
+				const rate = (+ent.get("ResourceGatherer/BaseSpeed") || 1) *
+					(+ent.get(`ResourceGatherer/Rates/${tgt.generic}.${tgt.specific}`) ||
+					 +ent.get(`ResourceGatherer/Rates/${tgt.generic}`));
+				let mult = 1;
+				if (rate && tgt.dr)
+				{
+					const supply = gameState.getEntityById(tgt.supplyId);
+					const n = supply?.resourceSupplyNumGatherers() || 0;
+					if (n > 1)
+						mult = (1 - Math.pow(tgt.dr, n)) / (1 - tgt.dr) / n;
+				}
+				const cls = prev.type === "wood" && tgt.specific === "tree" ? "wood" :
+					prev.type === "food" && ["grain", "fruit", "meat"].includes(tgt.specific) ? tgt.specific : undefined;
+				if (cls && rate)
+				{
+					this.rateStats[cls].amount += prev.amount;
+					this.rateStats[cls].theo += rate * mult * (now - last) / 1000;
+				}
+			}
+		}
+		else if (carrying && this.lastDelivery[id] === undefined)
+			this.lastDelivery[id] = now;
+		if (carrying)
+			this.carry[id] = { "type": carrying.type, "amount": carrying.amount };
+		else
+			delete this.carry[id];
+	}
+	// Prune state of dead units.
+	for (const map of [this.carry, this.gatherTarget, this.lastDelivery])
+		for (const id in map)
+			if (!seen[id])
+				delete map[id];
+};
+
+// ---------------------------------------------------------------- phases
+
+/** The phase-up tech for the current phase, if any. */
+BrennusBot.prototype.nextPhaseTech = function()
+{
+	return { 1: "phase_town_generic", 2: "phase_city_generic" }[this.gameState.currentPhase()];
+};
+
+/**
+ * Phase research, two regimes:
+ * - Town (500f/500w): a short hard bank — all spending pauses once the
+ *   tech is researchable, the bank fills in under a minute at early-game
+ *   income, research fires, everything resumes. The reserve approach
+ *   fought the boom for 3-4 minutes instead (v6-v8: town at 5.8-7.7).
+ * - City (750s/750m): a resource reserve that training/construction spend
+ *   only above — it taxes stone/metal only, which the woman stream and
+ *   the houses don't touch, so the boom never stalls for it.
+ */
+BrennusBot.prototype.managePhaseUp = function()
+{
+	const gameState = this.gameState;
+	const tech = this.nextPhaseTech();
+	this.phaseReserve = null;
+	this.phaseReady = false;
+	this.banking = false;
+	if (!tech || gameState.isResearching(tech) || gameState.isResearched(tech))
+		return;
+	if (!gameState.canResearch(tech))
+		return;
+	// Fertility before the town bank: the house trainers it unlocks ARE the
+	// boom (v24/v25: banking first pushed fertility to t=10-11). Delay the
+	// town bank until fertility is at least researching — hard fallback at
+	// t=4 so a resource-starved fertility can't deadlock the phase-up.
+	if (tech === "phase_town_generic")
+	{
+		const fert = this.houseTrainingTech;
+		const t = gameState.getTimeElapsed();
+		if (!gameState.isResearched(fert) && !gameState.isResearching(fert) &&
+			gameState.canResearch(fert) && t >= 240000 && t < 540000)
+			return;
+	}
+	const cost = this.phaseUpCost[tech];
+	if (tech === "phase_town_generic")
+		this.banking = true;
+	else
+		this.phaseReserve = cost;
+	// City: hold the research start until the grain-rate and house-cap techs
+	// (the pop bottleneck multipliers) are out — the bank fills minutes
+	// before the deadline, so spend the wait on them instead of sitting on
+	// it. Hard fallback at 13:20 so a starved tech can't deadlock the phase.
+	if (tech === "phase_city_generic" && gameState.getTimeElapsed() < 800000 &&
+		["gather_farming_plows", "gather_farming_training", "gather_farming_harvester",
+			"pop_house_01"].some(t2 =>
+			gameState.canResearch(t2) && !gameState.isResearched(t2) && !gameState.isResearching(t2)))
+		return;
+	if (!gameState.getResources().canAfford(cost))
+		return;
+	// The cost is banked: stop feeding the CC queue so it drains and the
+	// research can start (a full queue would postpone the phase forever —
+	// trainWorkers refills it every block otherwise). Houses keep training
+	// during the city banking (only the CC queue must drain).
+	this.phaseReady = true;
+	const cc = this.getCivicCentre();
+	if (cc && !cc.trainingQueue()?.length)
+	{
+		cc.research(tech);
+		this.constructionHold = true;
+	}
+};
+
+BrennusBot.prototype.getCivicCentre = function()
+{
+	const ccType = this.gameState.applyCiv("structures/{civ}/civil_centre");
+	for (const ent of this.gameState.getOwnStructures().values())
+		if (ent.templateName() === ccType)
+			return ent;
+	return undefined;
+};
+
 // ---------------------------------------------------------------- training
 
-/** Keep every worker trainer producing women without interruption. */
+/**
+ * Keep every woman trainer producing. The CC trains in batches of 5 (its
+ * BatchTimeModifier is 0.8: 5 women in ~29 s instead of 40); houses train
+ * singly (their house-woman takes 30 s and batching has no discount).
+ * Training spends only food above the phase reserve.
+ */
 BrennusBot.prototype.trainWorkers = function()
 {
-	// While saving up for a phase-up, all training pauses so the bank
-	// fills as fast as possible.
-	if (this.wantsPhaseUp)
-		return;
-
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
+	// Town banking: training keeps running above the 500-food floor (the
+	// hard pause of v11/v12 threw away ~15 women at the worst moment of the
+	// boom); only construction orders and techs pause for the bank. Once
+	// the bank is full (phaseReady) the CC queue must drain so the research
+	// can start — houses may keep training, they don't block the CC queue.
+	const reserveFood = this.banking ? 500 : (this.phaseReserve?.food || 0);
+	// Fertility Festival outranks the woman stream: while fertPending, the CC
+	// trains only above its 300-food cost. Construction is frozen at the same
+	// time (see manageResearch/manageConstruction) so wood accumulates too.
+	const fertFloor = this.fertPending ? 300 : 0;
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const houseTraining = gameState.isResearched(this.houseTrainingTech);
 
-	// Liquidity for techs: while a tech waits for its food cost, train
-	// women only above that cost (plus one woman), so the bank fills
-	// without ever pausing training entirely.
-	if (this.techReserve && resources.food < (this.techReserve.food || 0) + 50)
-		return;
-
-	// While the trader fleet is incomplete, women also leave one trader's
-	// food cost in the bank: the markets get their share instead of
-	// trailing the woman stream (seen: 0 traders at t=25 with food pinned
-	// at ~20 by the final pop flood). The fleet completes in a minute or
-	// two, then women reclaim the food.
-	if (this.needsTraders() && resources.food < 150)
-		return;
-
-	// From town phase on, keep population headroom for the traders (goal 6):
-	// women fill only up to the limit minus the missing traders, so trader
-	// training is never blocked by a maxed population.
-	const headroom = this.traderHeadroom();
-	if (headroom > 0)
-	{
-		let queuedPop = 0;
-		for (const ent of gameState.getOwnStructures().values())
-		{
-			const queue = ent.trainingQueue();
-			if (queue)
-				queuedPop += queue.length;
-		}
-		if (gameState.getPopulation() + queuedPop > gameState.getPopulationLimit() - headroom)
-			return;
-	}
-
 	for (const ent of gameState.getOwnStructures().values())
 	{
-		let type;
+		let type, batch;
 		if (ent.templateName() === ccType)
+		{
+			// While the phase-up waits for the queue to drain, stop feeding it.
+			if (this.phaseReady)
+				continue;
 			type = gameState.applyCiv("units/{civ}/support_civilian");
-		else if (houseTraining && ent.hasClass("House"))
+			batch = 5;
+		}
+		else if (houseTraining && ent.hasClass("House") && ent.foundationProgress() === undefined)
+		{
 			type = gameState.applyCiv("units/{civ}/support_civilian_house");
+			batch = 1;
+		}
 		else
 			continue;
 
 		const queue = ent.trainingQueue();
-		if (queue && !queue.length && resources.canAfford({ "food": 50 }))
-			ent.train(gameState.getPlayerCiv(), type, 1, {});
+		if (queue && !queue.length && resources.food >= reserveFood + fertFloor + 50 * batch)
+		{
+			ent.train(gameState.getPlayerCiv(), type, batch, {});
+			resources.subtract({ "food": 50 * batch });
+		}
 	}
+};
+
+// ---------------------------------------------------------------- research
+
+/**
+ * Boom techs, one per block, from genuine surplus only: every cost must
+ * leave the phase reserve, the pending trio wood and a house buffer intact,
+ * so techs never stall construction or the woman stream (seen in v3: a wood
+ * tech reserve starved houses/fields for minutes — the boom engine must
+ * always win). Unaffordable techs are skipped, not blocking — in v11 one
+ * expensive tech plus the 750/750 city reserve froze the whole list at 2/9.
+ * Fertility Festival comes first, at the first completed
+ * house — doubling the trainer count is worth banking for.
+ */
+BrennusBot.prototype.manageResearch = function()
+{
+	const gameState = this.gameState;
+	const resources = gameState.getResources();
+	const reserve = this.phaseReserve || {};
+	if (this.banking)
+		return;
+
+	// Fertility Festival first — but not before t=5: earlier the food income
+	// can't feed extra trainers anyway and the 250 f + banking freeze just
+	// slows the bootstrap (v32: fertility at 1.1, pop behind all game).
+	const fert = this.houseTrainingTech;
+	this.fertPending = false;
+	if (!gameState.isResearched(fert) && !gameState.isResearching(fert) &&
+		gameState.getTimeElapsed() >= 240000)
+	{
+		const affordable = resources.canAfford({ "food": 260, "wood": 110, "metal": 110 });
+		const facility = gameState.findResearchers(fert)?.toEntityArray()
+			.filter(ent => ent.foundationProgress() === undefined && (ent.trainingQueue()?.length || 0) <= 1)[0];
+		this.fertPending = !!facility && gameState.canResearch(fert) && !affordable;
+		if (affordable && facility)
+		{
+			facility.research(fert);
+			resources.subtract({ "food": 250, "wood": 100, "metal": 100 });
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${fert}\n`);
+			this.constructionHold = true;
+		}
+		return;
+	}
+
+	for (const tech of this.boomTechs)
+	{
+		if (gameState.isResearched(tech) || gameState.isResearching(tech))
+			continue;
+		const researchers = gameState.findResearchers(tech);
+		if (!researchers)
+			continue;
+		const cost = gameState.getTemplate(tech).cost();
+		// Priority order, but an unaffordable tech only defers itself — in
+		// v11 returning here let one expensive tech block every cheaper one
+		// behind it for the whole game. Stone/metal have a floor even before
+		// the phase reserve kicks in: the city bank (750/750) is coming, and
+		// metal techs that spend below it pushed city past the deadline
+		// (v29/v30: bank 33-700 short at t=15).
+		const bankFloor = gameState.currentPhase() === 2 ? 300 : 0;
+		// Food-rate and house-cap techs may spend into the city bank: the
+		// miners pre-fill for them (see currentShares) and the city research
+		// waits for them (see managePhaseUp) — they multiply the boom's
+		// binding constraints. Without this they stall behind the 750
+		// reserve until past the deadline (v46: plows at 12.1).
+		const bankTech = ["gather_farming_plows", "gather_farming_training",
+			"gather_farming_harvester", "pop_house_01"].includes(tech);
+		if (!resources.canAfford({
+			"food": (cost.food || 0) + (reserve.food || 0),
+			"wood": (cost.wood || 0) + (reserve.wood || 0),
+			"stone": (cost.stone || 0) + (bankTech ? bankFloor : Math.max(reserve.stone || 0, bankFloor)),
+			"metal": (cost.metal || 0) + (bankTech ? bankFloor : Math.max(reserve.metal || 0, bankFloor)) }))
+			continue;
+		const facility = researchers.toEntityArray()
+			.filter(ent => ent.foundationProgress() === undefined && (ent.trainingQueue()?.length || 0) <= 1)
+			.sort((a, b) => (a.trainingQueue()?.length || 0) - (b.trainingQueue()?.length || 0))[0];
+		if (facility)
+		{
+			facility.research(tech);
+			resources.subtract(cost);
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${tech}\n`);
+			this.constructionHold = true;
+		}
+		return;
+	}
+};
+
+/**
+ * Wood cost of the next missing town-trio structure (0 once forge, temple
+ * and market all exist). Discretionary spending must leave this untouched:
+ * the trio is on the critical path to the city deadline, and in v11 houses
+ * at 75 wood a pop kept the stock below the 300 the market needed until
+ * t=16.5.
+ */
+BrennusBot.prototype.nextTrioWood = function()
+{
+	if (this.gameState.currentPhase() < 2)
+		return 0;
+	const foundations = this.gameState.getOwnFoundations().toEntityArray();
+	const next = this.trioTypes()
+		.find(t => !this.hasStructureOrFoundation(t, foundations));
+	return next ? (this.gameState.getTemplate(next).cost().wood || 0) : 0;
+};
+
+/**
+ * The three Town structures the city phase needs: forge, market, and the
+ * gaul tavern where it exists — 100w+100s with +10 pop and class House (it
+ * trains women too) where the temple costs 300w for nothing else.
+ */
+BrennusBot.prototype.trioTypes = function()
+{
+	if (!this._trioTypes)
+	{
+		const third = this.gameState.getTemplate(this.gameState.applyCiv("structures/{civ}/tavern")) ?
+			"tavern" : "temple";
+		this._trioTypes = ["forge", "market", third]
+			.map(t => this.gameState.applyCiv(`structures/{civ}/${t}`));
+	}
+	return this._trioTypes;
 };
 
 // ---------------------------------------------------------------- construction
@@ -400,12 +780,17 @@ BrennusBot.prototype.trainWorkers = function()
 BrennusBot.prototype.manageConstruction = function()
 {
 	const gameState = this.gameState;
+	const resources = gameState.getResources();
 	const foundations = gameState.getOwnFoundations().toEntityArray();
 
-	// Send builders to foundations that lack them.
+	// Send builders to foundations that lack them (trio/dropsites 4, houses
+	// 3, fields 2 — every builder is a gatherer not gathering).
 	for (const foundation of foundations)
 	{
-		const needed = 2 - foundation.getBuildersNb();
+		const built = gameState.getBuiltTemplate(foundation.templateName());
+		const isField = built.hasClass("Field");
+		const isHouse = built.hasClass("House");
+		const needed = (isField ? 2 : isHouse ? 3 : 4) - foundation.getBuildersNb();
 		if (needed <= 0)
 			continue;
 		const builders = gameState.getOwnUnits()
@@ -415,163 +800,148 @@ BrennusBot.prototype.manageConstruction = function()
 			unit.repair(foundation);
 	}
 
-	// Track the last construct order: success once its foundation or the
-	// finished building exists at the ordered spot.
-	if (this.pendingBuild)
-	{
+	// Track construct orders: success once the foundation exists at the
+	// ordered spot; on timeout blacklist the spot (rejected orders used to
+	// burn it silently).
+	this.pendingBuilds = this.pendingBuilds.filter(pb => {
 		const nearSpot = ent => {
 			const pos = ent.position();
-			return pos && Math.abs(pos[0] - this.pendingBuild.x) < 4 &&
-				Math.abs(pos[1] - this.pendingBuild.z) < 4;
+			return pos && Math.abs(pos[0] - pb.x) < 4 && Math.abs(pos[1] - pb.z) < 4;
 		};
-		const done = foundations.some(nearSpot) ||
-			gameState.getOwnStructures().toEntityArray().some(nearSpot);
-		if (done)
-			this.pendingBuild = null;
-		else if (this.turn - this.pendingBuild.turn > 50)
+		if (foundations.some(nearSpot) ||
+			gameState.getOwnStructures().toEntityArray().some(nearSpot))
+			return false;
+		if (this.turn - pb.turn > 50)
 		{
-			const res = gameState.getResources();
-			print(`[HARNESS] construct FAILED: ${this.pendingBuild.template} at ` +
-				`${this.pendingBuild.x.toFixed(0)},${this.pendingBuild.z.toFixed(0)} ` +
-				`stock ${Math.floor(res.food)}/${Math.floor(res.wood)}/${Math.floor(res.stone)}/${Math.floor(res.metal)}\n`);
-			this.failedSpots.push([this.pendingBuild.x, this.pendingBuild.z]);
-			this.pendingBuild = null;
+			print(`[HARNESS] construct FAILED: ${pb.template} at ${pb.x.toFixed(0)},${pb.z.toFixed(0)}\n`);
+			this.failedSpots.push([pb.x, pb.z]);
+			return false;
 		}
-		else
-			return; // wait for the outcome before ordering anything else
-	}
+		return true;
+	});
 
-	const houseType = gameState.applyCiv("structures/{civ}/house");
-	const fieldType = gameState.applyCiv("structures/{civ}/field");
-	const hasFoundationOf = type => foundations.some(f =>
-		gameState.getBuiltTemplate(f.templateName()).templateName() === type);
-
-	// A research order was sent earlier in this block: the resource snapshot
-	// predates it, so a construct order now could overdraw and be rejected
-	// at processing time (and the spot permanently blacklisted). Wait one
-	// block — 1 sim second.
 	if (this.constructionHold)
 		return;
 
-	// Houses ahead of the population cap. The margin threshold includes the
-	// trader headroom: while women training is paused to leave room for
-	// traders, the cap must keep growing anyway.
+	// Hard bank for the town phase: no new construct orders until the 500
+	// wood are in hand (builders keep working existing foundations above).
+	if (this.banking)
+		return;
+
+	// Fertility Festival freeze: while the research is wanted but
+	// unaffordable, construction pauses so wood accumulates for it (the
+	// training half is the fertFloor in trainWorkers).
+	if (this.fertPending)
+		return;
+
+	const houseType = gameState.applyCiv("structures/{civ}/house");
+	const fieldType = gameState.applyCiv("structures/{civ}/field");
+	const reserve = this.phaseReserve || {};
+
+	// Population margin: queued unit batches reserve their slots only when
+	// they reach the head of the queue, so count queued units explicitly.
 	let queuedPop = 0;
 	for (const ent of gameState.getOwnStructures().values())
-	{
-		const queue = ent.trainingQueue();
-		if (queue)
-			queuedPop += queue.length;
-	}
-	const pop = gameState.getPopulation();
+		for (const item of ent.trainingQueue() || [])
+			if (item.unitTemplate)
+				queuedPop += item.count;
+	const margin = gameState.getPopulationLimit() - gameState.getPopulation() - queuedPop;
 	const houseFoundations = foundations.filter(f =>
 		gameState.getBuiltTemplate(f.templateName()).templateName() === houseType).length;
-	// Count each house being built as the +5 cap it will provide.
-	const margin = gameState.getPopulationLimit() + 5 * houseFoundations - pop - queuedPop;
-	const hasStructureOrFoundation = type =>
-		gameState.getOwnStructures().toEntityArray().some(ent => ent.templateName() === type) ||
-		foundations.some(f => gameState.getBuiltTemplate(f.templateName()).templateName() === type);
+	const houseCost = 75;
+	const tryHouse = () => {
+		if (this.tryConstruct(houseType, "house"))
+			resources.subtract({ "wood": houseCost });
+		return true; // one order per block either way
+	};
 
-	// Markets and the town trio come before houses from the town phase on:
-	// construction is serialized through pendingBuild, so a hungry house
-	// stream evaluated first would never leave a free cycle for the market
-	// orders (seen: markets stuck at 1 while houses rebuilt after a pop
-	// stall). In village phase these blocks are no-ops, so the goal-3/4
-	// bootstrap order is unchanged.
-	if (gameState.currentPhase() >= 2)
-	{
-		// The first market near the CC (it doubles as one of the three
-		// Town-class structures the city phase needs), the second right
-		// after — a market pair starts trade income early —, the third once
-		// the town trio is complete, as far as possible from the first:
-		// trade gain grows with the square of the route distance, and each
-		// market's territory influence lets the next one be placed farther.
-		const marketType = gameState.applyCiv("structures/{civ}/market");
-		const completedMarkets = gameState.getOwnStructures().toEntityArray()
-			.filter(ent => ent.templateName() === marketType);
-		if (completedMarkets.length < 3 && !hasFoundationOf(marketType) &&
-			(completedMarkets.length < 2 || !this.townTrioPending()) &&
-			gameState.getResources().canAfford(gameState.getTemplate(marketType).cost()))
-		{
-			// The CC's root territory reaches 140 m, so search the whole
-			// disk: every market goes to the buildable spot farthest from
-			// the previous one (Louis: "build markets on the edge of the
-			// territory"). Trade gain grows with the square of the route
-			// distance — a 30-90 m ring capped routes at ~90 m and starved
-			// trade income (~930 with 15 traders).
-			this.tryConstruct(marketType, 40, 140, completedMarkets.at(-1)?.position());
-			return;
-		}
-
-		// The other two Town-class structures (forge, temple; wood-only for
-		// gaul). Foundations do not count toward the city-phase requirement,
-		// but count them here to avoid ordering duplicates.
-		const nextType = ["forge", "temple"]
-			.map(t => gameState.applyCiv(`structures/{civ}/${t}`))
-			.find(t => !hasStructureOrFoundation(t));
-		if (this.townTrioPending() && nextType &&
-			gameState.getResources().canAfford(gameState.getTemplate(nextType).cost()))
-		{
-			this.tryConstruct(nextType, 15, 90);
-			return;
-		}
-	}
-
-	// Up to 3 concurrent house foundations (4 in an emergency): the cap must
-	// grow ~20/min or the woman stream pins the population at the limit.
-	// Once the limit is at the population maximum, houses are pure waste.
-	if (margin < 12 + this.traderHeadroom() && houseFoundations < (margin < 4 ? 4 : 3) &&
-		gameState.getPopulationLimit() < gameState.getPopulationMax())
-	{
-		// While a priority building (town trio, market pair) is pending,
-		// houses must not eat the wood the 300-wood market needs: build only
-		// once the market cost is banked too, except when the population is
-		// about to hit the cap. When the house must wait, fall through so
-		// the economic buildings below can still be evaluated. Never order
-		// without the 75 wood in hand: the engine rejects unaffordable
-		// construct commands at processing time, and a rejected order burns
-		// the spot permanently (failedSpots) — seen on seed 5: 17 rejected
-		// house orders blacklisted the whole building ring.
-		if ((!this.priorityBuildPending() || margin < 4 ||
-			gameState.getResources().canAfford({ "wood": 375 })) &&
-			gameState.getResources().canAfford({ "wood": 75 }))
-		{
-			this.tryConstruct(houseType, 15, 90);
-			return;
-		}
-	}
-
-	// Economic buildings (research sites for the goal-6 tech tree): one
-	// storehouse, one farmstead, one corral. After houses so population
-	// growth keeps priority. Drop sites belong next to the resources they
-	// serve — the storehouse next to a woodline, the farmstead next to
-	// fruit — so gatherers drop off without walking back to the CC.
-	for (const name of ["storehouse", "farmstead", "corral"])
+	// 1. One-time drop sites, next to what they serve (Louis: walking time is
+	// the real efficiency loss). Farmstead where the food within 30 m is
+	// maximal, storehouse at the assigned woodline. Before houses: they pay
+	// for themselves immediately. A failed placement must NOT block the rest
+	// of construction (v35: a top-scoring fruit patch outside the territory
+	// froze ALL building for the whole game).
+	for (const name of ["farmstead", "storehouse"])
 	{
 		const type = gameState.applyCiv(`structures/{civ}/${name}`);
-		if (hasStructureOrFoundation(type) ||
-			!gameState.getResources().canAfford(gameState.getTemplate(type).cost()))
+		if (this.hasStructureOrFoundation(type, foundations))
 			continue;
-		let center;
-		if (name !== "corral")
+		if (!resources.canAfford({
+			"food": reserve.food || 0, "wood": (reserve.wood || 0) + 100,
+			"stone": reserve.stone || 0, "metal": reserve.metal || 0 }))
+			continue;
+		const placed = name === "farmstead" ?
+			this.placeFirstFarmstead(type) :
+			!!this.tryConstruct(type, "dropsite", this.woodline?.center);
+		if (placed)
 		{
-			const res = name === "storehouse" ? "wood" : "food";
-			const cc = this.getCivicCentre();
-			const supply = cc && gameState.getResourceSupplies(res)
-				.filterNearest(cc.position(), 20).toEntityArray()
-				.find(s => s.position() && s.resourceSupplyAmount() > 200 &&
-					!this.nearEnemy(s.position(), 100, 60) &&
-					this.accessibility.getAccessValue(s.position()) ===
-						this.accessibility.getAccessValue(cc.position()));
-			center = supply?.position();
+			resources.subtract({ "wood": 100 });
+			return;
 		}
-		// Near the supply if possible, else fall back to the CC ring.
-		if (!this.tryConstruct(type, 10, 30, undefined, center) && center)
-			this.tryConstruct(type, 15, 90);
-		return;
 	}
 
-	// Fields when natural food near the CC runs low or the food workforce grows.
+	// 2. Town phase: the three Town-class structures the city phase needs
+	// (forge 200w, market 300w, tavern 100w+100s for gaul — see trioTypes).
+	// Market before the third: it unlocks barter for topping up the
+	// stone/metal bank. Ahead of houses: the trio is on the critical path to
+	// the city deadline (in v4/v6 urgent houses kept eating the bank at 75
+	// wood a pop and the trio never finished).
+	if (gameState.currentPhase() >= 2)
+	{
+		const trioType = this.trioTypes()
+			.find(t => !this.hasStructureOrFoundation(t, foundations));
+		if (trioType)
+		{
+			const cost = gameState.getTemplate(trioType).cost();
+			if (resources.canAfford({
+				"food": reserve.food || 0, "wood": (cost.wood || 0) + (reserve.wood || 0),
+				"stone": (cost.stone || 0) + (reserve.stone || 0), "metal": (cost.metal || 0) + (reserve.metal || 0) }))
+			{
+				if (this.tryConstruct(trioType, "civic"))
+				{
+					resources.subtract(cost);
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m building ${trioType.split("/").pop()}\n`);
+				}
+				return;
+			}
+		}
+	}
+
+	// 2.5. Continuous dropsites (Louis: the #1 economy blocker — effective
+	// gather rate collapses with walk distance). Storehouses must follow the
+	// receding woodline; farmsteads must sit by the field clusters.
+	if (this.manageDropSites(foundations, reserve))
+		return;
+
+	// 3. Emergency houses when the population is truly pinned.
+	if (margin < 2 && houseFoundations < this.maxHouseFoundations &&
+		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
+		resources.wood >= houseCost)
+		return tryHouse();
+
+	// Rate techs outrank discretionary construction: while one is wanted but
+	// unaffordable, the house/field stream would eat the wood it needs (the
+	// house trainers are food-starved at this stage anyway — the wood is
+	// worth more as +20% grain / +25% wood). v45: farming_training slipped
+	// to 15.1 because the house stream kept wood under its 300 cost.
+	this.techPendingWood = 0;
+	for (const tech of ["gather_farming_plows", "gather_farming_training",
+		"gather_farming_harvester", "gather_lumbering_ironaxes"])
+	{
+		if (gameState.isResearched(tech) || gameState.isResearching(tech) ||
+			!gameState.canResearch(tech))
+			continue;
+		const techWood = gameState.getTemplate(tech).cost().wood || 0;
+		if (resources.wood < techWood + 100)
+			this.techPendingWood = techWood;
+		break;
+	}
+
+	// 4. Fields: once berries fade or the food workforce grows, keep one
+	// field per five food gatherers. Exempt from every wood reserve (phase,
+	// trio): fields are the food income that pays for the women the houses
+	// produce — starving them flatlines food within minutes (v3, v5). In
+	// village, cap at 3 so they don't drain the 500-wood town bank (v7).
 	const cc = this.getCivicCentre();
 	if (!cc)
 		return;
@@ -590,299 +960,542 @@ BrennusBot.prototype.manageConstruction = function()
 	for (const res of Object.values(this.assignments))
 		if (res === "food")
 			foodGatherers++;
-	const desiredFields = foodGatherers >= 6 || bushes < 2 ?
-		Math.min(10, Math.max(1, Math.ceil(foodGatherers / 5))) : 0;
+	const started = gameState.getTimeElapsed() > 120000;
+	const fieldCap = gameState.currentPhase() === 1 ? 4 : 30;
+	const desiredFields = started || bushes < 2 || foodGatherers >= 10 ?
+		Math.min(fieldCap, Math.max(2, Math.ceil(foodGatherers / 3) + 1)) : 0;
 	let fields = 0;
 	for (const ent of gameState.getOwnStructures().values())
 		if (ent.templateName() === fieldType)
 			fields++;
-	// Fields must not starve priority buildings: a 100-wood field order as
-	// soon as 130 wood is banked pins the stock below the 300-wood market
-	// cost and stalls the whole town build-out, so only order a field well
-	// above the most expensive pending building (the threshold can relax
-	// once the town trio and the market pair stand).
-	if (fields < desiredFields && !hasFoundationOf(fieldType) &&
-		gameState.getResources().canAfford({ "wood": this.priorityBuildPending() ? 450 : 250 }))
-		this.fieldPlacementFailed = !this.tryConstruct(fieldType, 25, 75);
+	const fieldFoundations = foundations.filter(f =>
+		gameState.getBuiltTemplate(f.templateName()).templateName() === fieldType).length;
+	if (fields < desiredFields && fieldFoundations < 2 &&
+		resources.wood >= 100)
+	{
+		// Louis: fields go next to an existing farmstead that still has room —
+		// the walk to the dropsite is the grain-rate killer. Least crowded
+		// farmstead first; the grid is the fallback when none has free space.
+		const farmType = gameState.applyCiv("structures/{civ}/farmstead");
+		const farms = gameState.getOwnStructures().toEntityArray()
+			.filter(ent => ent.templateName() === farmType &&
+				ent.foundationProgress() === undefined && ent.position())
+			.map(farm => {
+				let near = 0;
+				for (const other of gameState.getOwnStructures().values())
+					if (other.templateName() === fieldType && other.position() &&
+						SquareDistance(other.position(), farm.position()) < 30 * 30)
+						near++;
+				return [near, farm.position()];
+			})
+			.sort((a, b) => a[0] - b[0]);
+		const region = this.accessibility.getAccessValue(ccPos);
+		for (const farm of farms)
+		{
+			const spot = this.findBuildingPosition(fieldType, farm[1], 16, 36, true, region);
+			if (spot && this.placeOrder(fieldType, spot))
+				return;
+		}
+		this.tryConstruct(fieldType, "field");
+		return;
+	}
+
+	// 6. Discretionary houses, at raw cost: the boom wants the cap growing
+	// always. But leave the trio's wood untouched (the v11 stall: houses at
+	// 75 a pop kept the stock under the 300 the market needed); the
+	// 3-foundation cap throttles the house drain below wood income. While a
+	// dropsite is demanded, houses must also leave its 100 wood (v19: the
+	// house stream pinned wood under 100 and the woodline receded unserved).
+	// And while a rate tech is pending they wait entirely (see step 4).
+	// From t=10, keep the cap climbing to the 300 max regardless of margin:
+	// queued women block the margin for minutes (the food can't pop them
+	// faster) and the sprint then ends cap-short (v48/v49/v51: cap 260-278
+	// at t=15, pop300 ~0.5 min late).
+	const sprintCap = gameState.getTimeElapsed() > 600000 &&
+		gameState.getPopulationLimit() < gameState.getPopulationMax();
+	if ((margin < this.houseMargin || sprintCap) && houseFoundations < this.maxHouseFoundations &&
+		!this.techPendingWood &&
+		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
+		resources.wood >= (reserve.wood || 0) + this.nextTrioWood() + (this.dropsiteDemand ? 100 : 0) + houseCost)
+		return tryHouse();
 };
 
-// ---------------------------------------------------------------- phases
-
-/** The phase-up tech for the current phase, if any. */
-BrennusBot.prototype.nextPhaseTech = function()
+BrennusBot.prototype.hasStructureOrFoundation = function(type, foundations)
 {
-	return { 1: "phase_town_generic", 2: "phase_city_generic" }[this.gameState.currentPhase()];
-};
-
-/** Resource thresholds (cost + training buffer) before starting a phase-up. */
-BrennusBot.prototype.phaseUpBuffers = {
-	"phase_town_generic": { "food": 700, "wood": 600 },
-	"phase_city_generic": { "stone": 850, "metal": 850 }
+	return this.gameState.getOwnStructures().toEntityArray().some(ent => ent.templateName() === type) ||
+		foundations.some(f => this.gameState.getBuiltTemplate(f.templateName()).templateName() === type);
 };
 
 /**
- * Research the next phase as soon as possible. Once the requirements are
- * met (and the economy has had a few minutes to spin up), all training
- * pauses to bank the cost quickly, then the CC researches it. Training
- * resumes as soon as the research starts (the cost is already paid).
+ * Louis: the first farm goes where there is room to build AND the food in a
+ * 30 m radius is maximal. Only in-territory, reachable patches are scored
+ * (a far richer patch outside the territory can never place and must not
+ * starve the base). Distinct patches are tried best-first — positions 30 m
+ * apart are the same patch. Returns true when an order went out.
  */
-BrennusBot.prototype.managePhaseUp = function()
+BrennusBot.prototype.placeFirstFarmstead = function(type)
 {
 	const gameState = this.gameState;
-	const tech = this.nextPhaseTech();
-	if (!tech || gameState.isResearching(tech) || gameState.isResearched(tech))
-	{
-		this.wantsPhaseUp = false;
-		return;
-	}
-	if (!this.wantsPhaseUp)
-	{
-		if (gameState.getTimeElapsed() > 180000 && gameState.canResearch(tech))
-			this.wantsPhaseUp = true;
-		return;
-	}
-	if (!gameState.getResources().canAfford(this.phaseUpBuffers[tech]))
-		return;
 	const cc = this.getCivicCentre();
-	if (cc && !cc.trainingQueue()?.length)
+	if (!cc)
+		return false;
+	const region = this.accessibility.getAccessValue(cc.position());
+	const fruits = gameState.getResourceSupplies("food").toEntityArray()
+		.filter(s => s.resourceSupplyType()?.specific === "fruit" && s.position() &&
+			s.resourceSupplyAmount() > 30 && !this.nearEnemy(s.position(), 100, 60) &&
+			this.inOwnTerritory(s.position()[0], s.position()[1]) &&
+			this.accessibility.getAccessValue(s.position()) === region);
+	const scored = fruits.map(f => {
+		let score = 0;
+		for (const g of fruits)
+			if (SquareDistance(f.position(), g.position()) < 30 * 30)
+				score += g.resourceSupplyAmount();
+		return [score, f.position()];
+	}).sort((a, b) => b[0] - a[0]);
+	const tried = [];
+	for (const cand of scored)
 	{
-		cc.research(tech);
-		this.wantsPhaseUp = false;
+		if (tried.some(p => SquareDistance(p, cand[1]) < 30 * 30))
+			continue;
+		tried.push(cand[1]);
+		if (this.tryConstruct(type, "dropsite", cand[1]))
+			return true;
+		if (tried.length >= 5)
+			break;
 	}
+	return false;
 };
-
-BrennusBot.prototype.getCivicCentre = function()
-{
-	const ccType = this.gameState.applyCiv("structures/{civ}/civil_centre");
-	for (const ent of this.gameState.getOwnStructures().values())
-		if (ent.templateName() === ccType)
-			return ent;
-	return undefined;
-};
-
-// ---------------------------------------------------------------- research
 
 /**
- * Work through the economic tech list. Each missing tech goes to the
- * research facility with the shortest queue: research appends to the
- * production queue, so houses and markets keep training while a tech
- * waits its turn.
- *
- * Liquidity: the woman stream consumes food income as fast as it comes
- * in, so a 200-food tech is never affordable. Instead of pausing
- * training, the first unaffordable researchable tech is recorded in
- * techReserve and woman/trader training is throttled to stay above that
- * cost — the stock climbs to the reserve, the tech fires, repeat.
+ * Continuous dropsite coverage. The initial farmstead/storehouse pair is
+ * block 1 above; this keeps coverage as the economy moves: the woodline
+ * recedes as trees die and new fields appear far from the first farmstead.
+ * One order per block when a group of gatherers is underserved (nearest
+ * accepting dropsite farther than ~20 m edge-to-edge), placed at the
+ * centroid of the underserved anchors. Costs leave the phase reserve
+ * untouched; the caps keep it from draining the boom.
  */
-BrennusBot.prototype.manageResearch = function()
+BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 {
-	this.techReserve = null;
-	if (this.wantsPhaseUp)
-		return;
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
+	const cc = this.getCivicCentre();
+	if (!cc)
+		return false;
+	// Gated on raw wood + phase reserve only — never on the trio reserve:
+	// dropsites ARE the income (Louis's #1 blocker); reserving them behind
+	// the trio starves the economy that pays for the trio (v14: wood stock
+	// pinned at 30-110, zero dropsites built, wood rate fell to 27%).
+	const woodFloor = 100 + (reserve.wood || 0);
+	// Set when a dropsite is needed: discretionary houses must then leave 100
+	// wood or the storehouse never gets built (v19: houses at 75 a pop kept
+	// the stock under 100 while the woodline receded past 60 m).
+	this.dropsiteDemand = false;
 
-	// Village phase: Fertility Festival as early as the economy absorbs it
-	// (house training doubles worker production — the goal-3 bootstrap).
-	if (gameState.currentPhase() === 1)
-	{
-		const fert = this.houseTrainingTech;
-		if (!gameState.isResearched(fert) && !gameState.isResearching(fert))
+	const halfDiag = ent => {
+		const o = ent.get("Obstruction/Static");
+		return o ? Math.hypot(+o["@width"], +o["@depth"]) / 2 : 8;
+	};
+	const centroid = points => {
+		let sx = 0, sz = 0;
+		for (const p of points)
 		{
-			if (resources.canAfford({ "food": 400, "wood": 250, "metal": 150 }))
+			sx += p[0];
+			sz += p[1];
+		}
+		return [sx / points.length, sz / points.length];
+	};
+	const minEdgeDist = (pos, sites) =>
+		Math.min(...sites.map(s => Math.hypot(pos[0] - s.pos[0], pos[1] - s.pos[1]) - s.half));
+
+	// Wood: a storehouse by the woodline being cut. Anchors are the target
+	// trees when known (gatherTarget), else the unit's own position. Target
+	// ONE local clump: the worst-served anchor and the anchors within 25 m of
+	// it — the centroid of the whole cutting front lands between clumps and
+	// serves none (v20: 13 storehouses, mean distance still 40+ m).
+	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
+	const woodSites = [{ "pos": cc.position(), "half": halfDiag(cc) }];
+	const storeFoundations = [];
+	let storeCount = 0;
+	for (const f of foundations)
+		if (gameState.getBuiltTemplate(f.templateName()).templateName() === storeType && f.position())
+		{
+			woodSites.push({ "pos": f.position(), "half": halfDiag(f) });
+			storeFoundations.push(f.position());
+			storeCount++;
+		}
+	for (const ent of gameState.getOwnStructures().values())
+		if (ent.templateName() === storeType && ent.position())
+		{
+			woodSites.push({ "pos": ent.position(), "half": halfDiag(ent) });
+			storeCount++;
+		}
+	// Louis: a storehouse whose wood/stone/metal is gone is dead weight —
+	// destroy it (one per block), it only serves as a far-away fallback.
+	// Depleted = under 200 resources within 40 m (checking only THE nearest
+	// supply misfires on a half-eaten tree at an active woodline — v36).
+	// Never destroy while gatherers still work within 40 m: they are the
+	// proof the site is alive, and destroying under them oscillates
+	// build/destroy at the receding woodline (v37).
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		if (ent.templateName() !== storeType || ent.foundationProgress() !== undefined || !ent.position())
+			continue;
+		const pos = ent.position();
+		const half = halfDiag(ent);
+		let busy = false;
+		for (const unit of gameState.getOwnUnits().values())
+		{
+			if (!unit.isGatherer() || unit.isIdle() || !unit.position())
+				continue;
+			if (Math.hypot(pos[0] - unit.position()[0], pos[1] - unit.position()[1]) < 40)
 			{
-				const researchers = gameState.findResearchers(fert);
-				const facility = researchers && researchers.toEntityArray()
-					.filter(ent => ent.foundationProgress() === undefined && (ent.trainingQueue()?.length || 0) <= 1)[0];
-				if (facility)
-				{
-					facility.research(fert);
-					this.constructionHold = true;
-				}
+				busy = true;
+				break;
 			}
-			return;
 		}
-		// Then the village-tier techs, from surplus only: never eat into the
-		// town-phase bank (500f/500w), so the goal-4 timeline is undisturbed,
-		// and never set techReserve — woman training is not throttled here.
-		for (const tech of this.econTechs)
-		{
-			if (gameState.isResearched(tech) || gameState.isResearching(tech))
-				continue;
-			const researchers = gameState.findResearchers(tech);
-			if (!researchers)
-				continue;
-			const cost = gameState.getTemplate(tech).cost();
-			if (!resources.canAfford({
-				"food": (cost.food || 0) + 500, "wood": (cost.wood || 0) + 400,
-				"stone": cost.stone || 0, "metal": cost.metal || 0 }))
-				continue;
-			const facility = researchers.toEntityArray()
-				.filter(ent => ent.foundationProgress() === undefined && (ent.trainingQueue()?.length || 0) <= 1)
-				.sort((a, b) => (a.trainingQueue()?.length || 0) - (b.trainingQueue()?.length || 0))[0];
-			if (facility)
+		if (busy)
+			continue;
+		let nearby = 0;
+		for (const res of ["wood", "stone", "metal"])
+			for (const s of gameState.getResourceSupplies(res).filterNearest(pos, 10).toEntityArray())
 			{
-				facility.research(tech);
-				resources.subtract(cost);
-				this.constructionHold = true;
+				if (!s.position())
+					continue;
+				if (Math.hypot(pos[0] - s.position()[0], pos[1] - s.position()[1]) - half >= 40)
+					break; // filterNearest is sorted nearest-first
+				nearby += s.resourceSupplyAmount();
 			}
-		}
-		return;
-	}
-
-	for (const tech of this.econTechs)
-	{
-		if (gameState.isResearched(tech) || gameState.isResearching(tech))
-			continue;
-		const researchers = gameState.findResearchers(tech);
-		if (!researchers)
-			continue;
-		const cost = gameState.getTemplate(tech).cost();
-		// While the town trio is pending, a wood tech may not eat into the
-		// 300-wood market bank; a stone/metal tech may not eat into the
-		// 850/850 city-phase bank (phaseUpBuffers). Deferring is not banking:
-		// such a tech must not become techReserve (it would throttle
-		// woman/trader training for a tech we deliberately postpone).
-		if (gameState.currentPhase() === 2 &&
-			((cost.wood && this.townTrioPending() &&
-				!resources.canAfford({ "wood": cost.wood + 300 })) ||
-			((cost.stone || cost.metal) &&
-				!resources.canAfford({ "stone": (cost.stone || 0) + 850, "metal": (cost.metal || 0) + 850 }))))
-			continue;
-		if (!resources.canAfford(cost))
+		if (nearby < 200)
 		{
-			if (!this.techReserve)
-				this.techReserve = cost;
-			continue;
-		}
-		const facility = researchers.toEntityArray()
-			.filter(ent => ent.foundationProgress() === undefined && (ent.trainingQueue()?.length || 0) <= 1)
-			.sort((a, b) => (a.trainingQueue()?.length || 0) - (b.trainingQueue()?.length || 0))[0];
-		if (facility)
-		{
-			facility.research(tech);
-			// The command applies next turn; keep the local snapshot in
-			// sync so later techs in this loop don't overdraw.
-			resources.subtract(cost);
-			this.constructionHold = true;
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse destroyed at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} (depleted)\n`);
+			ent.destroy();
+			return true;
 		}
 	}
-};
-
-// ---------------------------------------------------------------- trade & barter
-
-/**
- * Keep a trader fleet shuttling between the two markets farthest apart
- * (trade gain grows with the square of the route distance). Idle traders
- * are the ones without a route yet, so no bookkeeping is needed.
- */
-BrennusBot.prototype.manageTrade = function()
-{
-	const gameState = this.gameState;
-	const markets = this.completedMarkets();
-	if (markets.length < 2)
-		return;
-
-	if (!this.wantsPhaseUp)
+	if (storeCount < 18)
 	{
-		let traders = 0;
+		let worst, worstDist = 18;
+		const underserved = [];
 		for (const ent of gameState.getOwnUnits().values())
-			if (ent.hasClass("Trader"))
-				traders++;
-		// Liquidity: food stays guarded by the tech reserve (the food techs
-		// alone cost 2400, and the woman stream eats the rest), so traders
-		// spend only the surplus above it. Metal techs total just 850, so a
-		// small fixed metal buffer suffices — binding traders to the metal
-		// reserve starved the fleet (1-4 traders by t=25) whenever a metal
-		// tech was pending.
-		const reserve = this.techReserve;
-		const canAffordTrader = () => {
-			const res = gameState.getResources();
-			return res.canAfford({ "food": 100, "metal": 80 }) &&
-				(!reserve || res.food >= (reserve.food || 0) + 50) &&
-				res.metal >= 230;
-		};
-		if (traders < this.targetTraders)
-			for (const market of markets)
+		{
+			if (!ent.isGatherer() || ent.isIdle() || !ent.position())
+				continue;
+			const tgt = this.gatherTarget[ent.id()];
+			if (tgt?.generic !== "wood")
+				continue;
+			const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
+			const d = minEdgeDist(anchor, woodSites);
+			if (d > 18)
+				underserved.push(anchor);
+			if (d > worstDist)
 			{
-				const queue = market.trainingQueue();
-				if ((queue?.length || 0) <= 1 && canAffordTrader())
-					market.train(gameState.getPlayerCiv(), gameState.applyCiv(this.traderType), 1, {});
+				worstDist = d;
+				worst = anchor;
 			}
+		}
+		if (underserved.length >= 4)
+		{
+			this.dropsiteDemand = true;
+			const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
+			const center = centroid(clump);
+			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 30);
+			const pos = resources.wood >= woodFloor && !planned &&
+				this.tryConstruct(storeType, "dropsite", center);
+			if (pos)
+			{
+				resources.subtract({ "wood": 100 });
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for woodline ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved)\n`);
+				return true;
+			}
+		}
 	}
 
-	let far = markets[0], near = markets[1], best = -1;
-	for (const a of markets)
-		for (const b of markets)
+	// Grain: a farmstead by each field cluster. A field is underserved when
+	// its edge is over 15 m from the nearest farmstead/CC edge (field half-
+	// diagonal is 15.5 m). Target one local cluster (same clump logic as
+	// storehouses); farmstead foundations suppress re-orders nearby.
+	const farmType = gameState.applyCiv("structures/{civ}/farmstead");
+	const fieldType = gameState.applyCiv("structures/{civ}/field");
+	const foodSites = [{ "pos": cc.position(), "half": halfDiag(cc) }];
+	const farmFoundations = [];
+	let farmCount = 0;
+	for (const f of foundations)
+		if (gameState.getBuiltTemplate(f.templateName()).templateName() === farmType && f.position())
 		{
-			if (a === b)
-				continue;
-			const dist = SquareDistance(a.position(), b.position());
-			if (dist > best)
-			{
-				best = dist;
-				far = a;
-				near = b;
-			}
+			foodSites.push({ "pos": f.position(), "half": halfDiag(f) });
+			farmFoundations.push(f.position());
+			farmCount++;
 		}
+	for (const ent of gameState.getOwnStructures().values())
+		if (ent.templateName() === farmType && ent.position())
+		{
+			foodSites.push({ "pos": ent.position(), "half": halfDiag(ent) });
+			farmCount++;
+		}
+	let worstField, worstFieldDist = 15;
+	const unservedFields = [];
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		if (ent.templateName() !== fieldType || ent.foundationProgress() !== undefined || !ent.position())
+			continue;
+		const d = minEdgeDist(ent.position(), foodSites) - 15.5;
+		if (d > 15)
+			unservedFields.push(ent.position());
+		if (d > worstFieldDist)
+		{
+			worstFieldDist = d;
+			worstField = ent.position();
+		}
+	}
+	if (unservedFields.length >= 2 && farmCount < 12)
+	{
+		const cluster = unservedFields.filter(p => Math.hypot(p[0] - worstField[0], p[1] - worstField[1]) < 30);
+		const center = centroid(cluster);
+		const planned = farmFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 25);
+		const pos = !planned && resources.wood >= woodFloor &&
+			this.tryConstruct(farmType, "dropsite", center);
+		if (pos)
+		{
+			resources.subtract({ "wood": 100 });
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for fields ${center[0].toFixed(0)},${center[1].toFixed(0)} (${unservedFields.length} underserved)\n`);
+			return true;
+		}
+	}
+	// Fruit (Louis: berry/fruit pickers need a farmstead at the patch — watch
+	// their effective rate). Same clump logic as the wood storehouses.
+	let worstFruit, worstFruitDist = 18;
+	const unservedFruit = [];
 	for (const ent of gameState.getOwnUnits().values())
-		if (ent.hasClass("Trader") && ent.isIdle())
+	{
+		if (!ent.isGatherer() || ent.isIdle() || !ent.position())
+			continue;
+		const tgt = this.gatherTarget[ent.id()];
+		if (tgt?.generic !== "food" || tgt?.specific !== "fruit")
+			continue;
+		const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
+		const d = minEdgeDist(anchor, foodSites);
+		if (d > 18)
+			unservedFruit.push(anchor);
+		if (d > worstFruitDist)
 		{
-			if (!this.routeLogged)
-			{
-				this.routeLogged = true;
-				print(`[HARNESS] trade route distance ${Math.sqrt(best).toFixed(0)}m\n`);
-			}
-			ent.tradeRoute(far, near);
+			worstFruitDist = d;
+			worstFruit = anchor;
 		}
+	}
+	if (unservedFruit.length >= 3 && farmCount < 12)
+	{
+		this.dropsiteDemand = true;
+		const cluster = unservedFruit.filter(p => Math.hypot(p[0] - worstFruit[0], p[1] - worstFruit[1]) < 25);
+		const center = centroid(cluster);
+		const planned = farmFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 25);
+		const pos = !planned && resources.wood >= woodFloor &&
+			this.tryConstruct(farmType, "dropsite", center);
+		if (pos)
+		{
+			resources.subtract({ "wood": 100 });
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for fruit ${center[0].toFixed(0)},${center[1].toFixed(0)} (${unservedFruit.length} underserved)\n`);
+			return true;
+		}
+	}
+	return false;
 };
 
+// ---------------------------------------------------------------- barter
+
 /**
- * Sell surplus wood against stone in 100-unit deals (the barter command
- * only accepts 100 or 500). Five deals sell 500 wood for ~390 stone at
- * equal true prices, comfortably over the 300 required on both sides.
+ * Barter converts whatever piles up into whatever is scarce — the market
+ * from the town trio unlocks it. While banking the city phase, surplus
+ * food/wood (500-deals from 700, 100-deals from 400) buys the missing
+ * stone/metal; stone/metal mined far past the bank (1300+) is sold back
+ * for wood (the boom's bottleneck) or food.
+ * Kept from goal 6: the ability stays even when a run doesn't need it.
  */
 BrennusBot.prototype.manageBarter = function()
 {
-	if (this.woodBartered >= 500 || this.gameState.getResources().wood < 1000)
+	const gameState = this.gameState;
+	if (gameState.currentPhase() < 2)
 		return;
-	const market = this.gameState.getOwnStructures().toEntityArray()
+	const market = gameState.getOwnStructures().toEntityArray()
 		.find(ent => ent.hasClass("Market") && ent.foundationProgress() === undefined);
 	if (!market)
 		return;
-	market.barter("stone", "wood", 100);
-	this.woodBartered += 100;
+	const res = gameState.getResources();
+	// One deal per 5-turn block; 500-unit deals drift prices ~8% each, so
+	// alternate what is sold instead of hammering one resource.
+	if (!gameState.isResearched("phase_city_generic"))
+	{
+		// The 750/750 bank comes from the boom's surpluses: sell whichever
+		// of food/wood is rich for whichever of stone/metal is short.
+		if ((res.stone < 750 || res.metal < 750))
+		{
+			const want = res.stone <= res.metal ? "stone" : "metal";
+			const sell = res.food >= res.wood ? "food" : "wood";
+			if (res[sell] >= 700)
+			{
+				market.barter(want, sell, 500);
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${sell} -> ${want}\n`);
+				return;
+			}
+			if (res[sell] >= 400)
+			{
+				market.barter(want, sell, 100);
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 100 ${sell} -> ${want}\n`);
+				return;
+			}
+		}
+		// Sell mining surplus only far above the bank: a 500-deal at 1000
+		// would drop the stock under 750 and trigger an immediate buy-back
+		// at a worse rate.
+		const excess = res.stone - 800 >= res.metal - 800 ? "stone" : "metal";
+		if (res[excess] >= 1300 && (res.wood < 250 || res.food < 200))
+		{
+			const want = res.wood < 250 ? "wood" : "food";
+			market.barter(want, excess, 500);
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${excess} -> ${want}\n`);
+			return;
+		}
+	}
+	else if (res.stone >= 600 || res.metal >= 600)
+	{
+		const excess = res.stone >= res.metal ? "stone" : "metal";
+		if (res[excess] >= 600 && (res.wood < 250 || res.food < 200))
+		{
+			const want = res.wood < 250 ? "wood" : "food";
+			market.barter(want, excess, 500);
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${excess} -> ${want}\n`);
+		}
+	}
 };
 
+// ---------------------------------------------------------------- placement
+
 /**
- * Order the construct command for a building near the civic centre.
- * Returns true if a spot was found and the order was sent.
+ * Order the construct command for a building. `kind` selects the placement
+ * policy: "house" and "field" go on the aligned grids, "dropsite" near the
+ * given supply centroid, "civic" anywhere handy. Returns true if the order
+ * was sent.
  */
-BrennusBot.prototype.tryConstruct = function(templateType, minRadius, maxRadius, farFrom, center)
+BrennusBot.prototype.tryConstruct = function(templateType, kind, center)
 {
 	const cc = this.getCivicCentre();
-	const anchor = center || cc?.position();
-	if (!anchor)
+	if (!cc)
 		return false;
-	const pos = this.findBuildingPosition(templateType, anchor, minRadius, maxRadius, farFrom);
+	const ccPos = cc.position();
+	// Reachability: a spot across a cliff or river is buildable on paper but
+	// its foundation sits unbuilt forever (the v10 market, 7 min at 0
+	// builders). Only place in the CC's land region.
+	const region = this.accessibility.getAccessValue(ccPos);
+	let pos;
+	if (kind === "house")
+		pos = this.findGridSpot(templateType, this.housePlots(ccPos), region);
+	else if (kind === "field")
+		pos = this.findGridSpot(templateType, this.fieldPlots(ccPos), region);
+	else if (kind === "dropsite")
+		// A dropsite's whole value is its location: search tightly around the
+		// target and never fall back to the base — a farmstead dumped 45 m
+		// from its fields serves nothing but still counts against the cap
+		// (v16/v19). No fallback: a failed order retries next block for free.
+		pos = this.findBuildingPosition(templateType, center || ccPos, 10, 28, true, region);
+	else
+		// Big civic buildings (temple/market footprints are 20+ m) need a
+		// wide, fine search — a coarse 90 m ring in a packed base finds
+		// nothing and the city requirement silently stalls (v8).
+		pos = this.findBuildingPosition(templateType, center || ccPos, 10, 130, true, region);
+	if (!pos && kind !== "dropsite")
+		// Grid exhausted (terrain): fall back to the free ring search.
+		pos = this.findBuildingPosition(templateType, ccPos, 12, 120, true, region);
 	if (!pos)
 		return false;
+	return this.placeOrder(templateType, pos) ? pos : false;
+};
+
+/** Send the nearest unit to build templateType at pos; track the order. */
+BrennusBot.prototype.placeOrder = function(templateType, pos)
+{
 	const builder = this.gameState.getOwnUnits().filterNearest(pos, 1).toEntityArray()[0];
 	if (!builder)
 		return false;
 	builder.construct(templateType, pos[0], pos[1], 0, undefined);
-	this.pendingBuild = { "template": templateType, "x": pos[0], "z": pos[1], "turn": this.turn };
+	this.pendingBuilds.push({ "template": templateType, "x": pos[0], "z": pos[1], "turn": this.turn });
 	return true;
 };
 
 /**
- * Free spot on rings around `center`: passable for buildings
- * ("building-land" passability class over the whole footprint) and inside
- * own territory. Without `farFrom`, the first valid spot wins; with it,
- * the valid spot farthest from `farFrom` is returned (trade gain grows
- * with distance between markets).
+ * Aligned house plots (Louis: houses in straight rows free up base space).
+ * A square grid with 14 m pitch (11 m footprint + 3 m lanes) around the CC,
+ * near plots first, skipping the CC footprint and the field wedge.
  */
-BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRadius, maxRadius, farFrom)
+BrennusBot.prototype.housePlots = function(ccPos)
+{
+	if (this._housePlots)
+		return this._housePlots;
+	const plots = [];
+	for (let gx = -5; gx <= 5; ++gx)
+		for (let gz = -5; gz <= 5; ++gz)
+		{
+			const dx = gx * 14, dz = gz * 14;
+			const dist2 = dx * dx + dz * dz;
+			if (dist2 < 18 * 18 || dist2 > 70 * 70)
+				continue;
+			plots.push([ccPos[0] + dx, ccPos[1] + dz, dist2]);
+		}
+	plots.sort((a, b) => a[2] - b[2]);
+	this._housePlots = plots;
+	return plots;
+};
+
+/**
+ * Field plots: aligned 24 m pitch (22 m footprint) on the far side of the
+ * base from the house core, 30-80 m out.
+ */
+BrennusBot.prototype.fieldPlots = function(ccPos)
+{
+	if (this._fieldPlots)
+		return this._fieldPlots;
+	const plots = [];
+	for (let gx = -4; gx <= 4; ++gx)
+		for (let gz = -4; gz <= 4; ++gz)
+		{
+			const dx = gx * 24, dz = gz * 24;
+			const dist2 = dx * dx + dz * dz;
+			if (dist2 < 58 * 58 || dist2 > 96 * 96)
+				continue;
+			plots.push([ccPos[0] + dx, ccPos[1] + dz, dist2]);
+		}
+	plots.sort((a, b) => a[2] - b[2]);
+	this._fieldPlots = plots;
+	return plots;
+};
+
+/** First grid plot that is free, in territory, reachable and away from enemies. */
+BrennusBot.prototype.findGridSpot = function(templateType, plots, region)
+{
+	const template = this.gameState.getTemplate(templateType);
+	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
+	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
+	const pass = this.gameState.getPassabilityMap();
+	const mask = this.gameState.getPassabilityClassMask("building-land");
+	for (const [x, z] of plots)
+	{
+		if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
+			continue;
+		if (this.nearEnemy([x, z], 100, 60))
+			continue;
+		if (this.accessibility.getAccessValue([x, z]) !== region)
+			continue;
+		if (this.placementOK(x, z, halfW, halfD, pass, mask, this.territoryMap))
+			return [x, z];
+	}
+	return undefined;
+};
+
+/**
+ * Free spot on rings around `center`: passable for buildings
+ * ("building-land" passability class over the whole footprint), inside
+ * own territory and in the CC's land region (reachable by builders).
+ */
+BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRadius, maxRadius, fine, region)
 {
 	const gameState = this.gameState;
 	const template = gameState.getTemplate(templateType);
@@ -891,30 +1504,25 @@ BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRa
 	const pass = gameState.getPassabilityMap();
 	const mask = gameState.getPassabilityClassMask("building-land");
 	const terr = this.territoryMap;
+	const angles = fine ? 64 : 32;
+	const step = fine ? 2 : 3;
 
-	let best, bestDist = -1;
-	for (let r = minRadius; r <= maxRadius; r += 3)
-		for (let a = 0; a < 32; ++a)
+	for (let r = minRadius; r <= maxRadius; r += step)
+		for (let a = 0; a < angles; ++a)
 		{
-			const angle = a * Math.PI / 16;
+			const angle = a * 2 * Math.PI / angles;
 			const x = center[0] + r * Math.cos(angle);
 			const z = center[1] + r * Math.sin(angle);
 			if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
 				continue;
 			if (this.nearEnemy([x, z], 100, 60))
 				continue;
-			if (!this.placementOK(x, z, halfW, halfD, pass, mask, terr))
+			if (region !== undefined && this.accessibility.getAccessValue([x, z]) !== region)
 				continue;
-			if (!farFrom)
+			if (this.placementOK(x, z, halfW, halfD, pass, mask, terr))
 				return [x, z];
-			const dist = SquareDistance([x, z], farFrom);
-			if (dist > bestDist)
-			{
-				bestDist = dist;
-				best = [x, z];
-			}
 		}
-	return best;
+	return undefined;
 };
 
 BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, pass, mask, terr)
@@ -941,20 +1549,54 @@ BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, pass, mask, terr
 	return true;
 };
 
-// ---------------------------------------------------------------- telemetry
+// ---------------------------------------------------------------- threats
+
+/**
+ * Threat positions, refreshed at the start of each 5-turn block: enemy
+ * structures, enemy mobile units, and aggressive gaia animals. (Gaia is an
+ * "enemy" diplomatically, so getEnemyEntities includes every tree on the
+ * map — filter owner 0 out, keeping only animals that can attack.)
+ */
+BrennusBot.prototype.updateEnemyPositions = function()
+{
+	this.enemyStructuresPos = [];
+	this.enemyMobilesPos = [];
+	for (const ent of this.gameState.getEnemyEntities().values())
+	{
+		if (ent.owner() === 0 && !(ent.hasClass("Animal") && ent.get("Attack")))
+			continue;
+		const pos = ent.position();
+		if (!pos)
+			continue;
+		if (ent.hasClass("Structure"))
+			this.enemyStructuresPos.push(pos);
+		else
+			this.enemyMobilesPos.push(pos);
+	}
+};
+
+BrennusBot.prototype.nearEnemy = function(pos, structureDist, mobileDist)
+{
+	const sd2 = structureDist * structureDist;
+	for (const epos of this.enemyStructuresPos || [])
+		if (SquareDistance(epos, pos) < sd2)
+			return true;
+	const md2 = mobileDist * mobileDist;
+	for (const epos of this.enemyMobilesPos || [])
+		if (SquareDistance(epos, pos) < md2)
+			return true;
+	return false;
+};
+
+// ---------------------------------------------------------------- logging
 
 BrennusBot.prototype.logStatus = function()
 {
+	const gameState = this.gameState;
 	const counts = { "food": 0, "wood": 0, "stone": 0, "metal": 0 };
 	let idle = 0;
-	let traders = 0;
-	for (const ent of this.gameState.getOwnUnits().values())
+	for (const ent of gameState.getOwnUnits().values())
 	{
-		if (ent.hasClass("Trader"))
-		{
-			traders++;
-			continue;
-		}
 		if (!ent.isGatherer() || !ent.position())
 			continue;
 		if (ent.isIdle())
@@ -962,34 +1604,116 @@ BrennusBot.prototype.logStatus = function()
 		else if (this.assignments[ent.id()])
 			counts[this.assignments[ent.id()]]++;
 	}
-	const markets = this.gameState.getOwnStructures().toEntityArray()
-		.filter(ent => ent.hasClass("Market") && ent.foundationProgress() === undefined).length;
-	const fieldType = this.gameState.applyCiv("structures/{civ}/field");
-	let fields = 0;
-	for (const ent of this.gameState.getOwnStructures().values())
-		if (ent.templateName() === fieldType)
+	let houses = 0, fields = 0, town = 0;
+	const houseType = gameState.applyCiv("structures/{civ}/house");
+	const fieldType = gameState.applyCiv("structures/{civ}/field");
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		if (ent.foundationProgress() !== undefined)
+			continue;
+		if (ent.templateName() === houseType)
+			houses++;
+		else if (ent.templateName() === fieldType)
 			fields++;
-	const techs = this.econTechs.filter(t => this.gameState.isResearched(t)).length;
-	// Debug: distance from the CC to the nearest enemy structure (seed 5's
-	// fields never place — suspected enemy proximity excluding the ring).
-	const cc = this.getCivicCentre();
-	let enemyDist = -1;
-	if (cc)
-		for (const epos of this.enemyStructuresPos || [])
-		{
-			const d = Math.sqrt(SquareDistance(epos, cc.position()));
-			if (enemyDist < 0 || d < enemyDist)
-				enemyDist = d;
-		}
-	const res = this.gameState.getResources();
-	const gameState = this.gameState;
+		else if (ent.hasClass("Town"))
+			town++;
+	}
+	const techs = this.boomTechs.filter(t => gameState.isResearched(t)).length;
+	const res = gameState.getResources();
+	// Effective/theoretical gather rates over the last window (Louis's
+	// dropsite check): aggregate deliveries / aggregate theoretical output.
+	const rate = cls => {
+		const s = this.rateStats[cls];
+		return s.theo > 0 ? `${Math.round(100 * s.amount / s.theo)}%` : "-";
+	};
+	const rates = `wood=${rate("wood")} grain=${rate("grain")} fruit=${rate("fruit")}`;
+	// Food composition of the window (delivered amounts by subtype).
+	const foodmix = ["fruit", "grain", "meat"].map(c => `${c}=${Math.round(this.rateStats[c].amount)}`).join(" ");
+	for (const s of Object.values(this.rateStats))
+	{
+		s.amount = 0;
+		s.theo = 0;
+	}
+	// Placement telemetry: mean edge distance of active woodcutters' trees to
+	// the nearest wood dropsite, and of fields to the nearest food dropsite
+	// (minus the field half-diagonal) — separates "no dropsite nearby" from
+	// other cycle losses (construction churn, retargeting).
+	const dropsiteDist = this.meanDropsiteDistances();
 	print(`[HARNESS] t=${Math.round(gameState.getTimeElapsed() / 60000)}m ` +
 		`pop=${gameState.getPopulation()}/${gameState.getPopulationLimit()} idle=${idle} starved=${this.starvedUnits || 0} ` +
 		`gatherers food=${counts.food} wood=${counts.wood} stone=${counts.stone} metal=${counts.metal} ` +
-		`markets=${markets} traders=${traders} fields=${fields} techs=${techs}/${this.econTechs.length} ` +
-		`enemyDist=${enemyDist < 0 ? "-" : enemyDist.toFixed(0)} fieldFail=${this.fieldPlacementFailed ? 1 : 0} ` +
-		`founds=${this.gameState.getOwnFoundations().toEntityArray().length} failedSpots=${(this.failedSpots || []).length} ` +
+		`houses=${houses} fields=${fields} town=${town} techs=${techs}/${this.boomTechs.length} ` +
+		`rates ${rates} ` +
+		`foodmix ${foodmix} ` +
+		`dist wood=${dropsiteDist.wood}m grain=${dropsiteDist.grain}m fruit=${dropsiteDist.fruit}m ` +
+		`founds=${gameState.getOwnFoundations().toEntityArray().length} failedSpots=${(this.failedSpots || []).length} ` +
 		`stock ${Math.floor(res.food)}/${Math.floor(res.wood)}/${Math.floor(res.stone)}/${Math.floor(res.metal)}\n`);
+};
+
+/** Mean edge distance (m) from active woodcutters / fields to their nearest
+ * serving dropsite; "-" when no workers/fields. Diagnostic for logStatus. */
+BrennusBot.prototype.meanDropsiteDistances = function()
+{
+	const gameState = this.gameState;
+	const halfDiag = ent => {
+		const o = ent.get("Obstruction/Static");
+		return o ? Math.hypot(+o["@width"], +o["@depth"]) / 2 : 8;
+	};
+	const cc = this.getCivicCentre();
+	if (!cc)
+		return { "wood": "-", "grain": "-" };
+	const woodSites = [{ "pos": cc.position(), "half": halfDiag(cc) }];
+	const foodSites = [{ "pos": cc.position(), "half": halfDiag(cc) }];
+	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
+	const farmType = gameState.applyCiv("structures/{civ}/farmstead");
+	const fieldType = gameState.applyCiv("structures/{civ}/field");
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		if (!ent.position())
+			continue;
+		if (ent.templateName() === storeType)
+			woodSites.push({ "pos": ent.position(), "half": halfDiag(ent) });
+		else if (ent.templateName() === farmType)
+			foodSites.push({ "pos": ent.position(), "half": halfDiag(ent) });
+	}
+	const minEdge = (pos, sites) =>
+		Math.min(...sites.map(s => Math.hypot(pos[0] - s.pos[0], pos[1] - s.pos[1]) - s.half));
+	let wSum = 0, wN = 0;
+	for (const ent of gameState.getOwnUnits().values())
+	{
+		if (!ent.isGatherer() || ent.isIdle() || !ent.position())
+			continue;
+		const tgt = this.gatherTarget[ent.id()];
+		if (tgt?.generic !== "wood")
+			continue;
+		const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
+		wSum += Math.max(0, minEdge(anchor, woodSites));
+		wN++;
+	}
+	let gSum = 0, gN = 0;
+	for (const ent of gameState.getOwnStructures().values())
+		if (ent.templateName() === fieldType && ent.foundationProgress() === undefined && ent.position())
+		{
+			gSum += Math.max(0, minEdge(ent.position(), foodSites) - 15.5);
+			gN++;
+		}
+	let fSum = 0, fN = 0;
+	for (const ent of gameState.getOwnUnits().values())
+	{
+		if (!ent.isGatherer() || ent.isIdle() || !ent.position())
+			continue;
+		const tgt = this.gatherTarget[ent.id()];
+		if (tgt?.generic !== "food" || tgt?.specific !== "fruit")
+			continue;
+		const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
+		fSum += Math.max(0, minEdge(anchor, foodSites));
+		fN++;
+	}
+	return {
+		"wood": wN ? Math.round(wSum / wN) : "-",
+		"grain": gN ? Math.round(gSum / gN) : "-",
+		"fruit": fN ? Math.round(fSum / fN) : "-"
+	};
 };
 
 // ---------------------------------------------------------------- save/load
@@ -998,17 +1722,18 @@ BrennusBot.prototype.Serialize = function()
 {
 	return {
 		"assignments": this.assignments,
-		"pendingBuild": this.pendingBuild,
+		"pendingBuilds": this.pendingBuilds,
 		"failedSpots": this.failedSpots,
-		"wantsPhaseUp": this.wantsPhaseUp,
-		"woodBartered": this.woodBartered
+		"carry": this.carry,
+		"gatherTarget": this.gatherTarget,
+		"lastDelivery": this.lastDelivery,
+		"rateStats": this.rateStats
 	};
 };
 
 BrennusBot.prototype.Deserialize = function(data, sharedScript)
 {
 	this.savedState = data;
-	this.wantsPhaseUp = data.wantsPhaseUp;
 	this.isDeserialized = true;
 };
 
