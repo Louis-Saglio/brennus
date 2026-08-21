@@ -3,6 +3,32 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-21 — Wound-then-steer herding (v83, Louis's idea)
+
+- **FLEEING mechanics (UnitAI.js, 0.28.0), source-verified**: on the
+  "Attacked" message an animal enters FLEEING with `distanceToFlee` =
+  distance-to-attacker at wound time + `FleeDistance` (24), **fixed at
+  enter**; the order finishes when the animal reaches that range (re-checked
+  against the attacker's LIVE position). So: wound it once and FOLLOW within
+  the flee distance → it flees forever, direction = directly away from the
+  attacker's current position → the cav steers it by its own position. The
+  kill shot (a deer is left at 7/25 HP by one 18-pierce javelin) is the
+  last re-aim. Skittish animals have Vision 0 — a stopped animal will NOT
+  flee again without a new wound, hence the follow must be close.
+- **The attack order keeps firing on its own**: after the wound lands, the
+  engine's attack continues (javelin RepeatTime 1.5 s) and kills the animal
+  ~2 s later — before any steering. Must `stopMoving()` the cav in the
+  FIRST block that sees `isHurt()` (and that block must bypass the command
+  throttle, else the gate delays the cancel past the second shot). Without
+  this the feature is a no-op (v83-w1 probe: wound→death in 0.6 s).
+- **Result (v83): seeds 1-4 byte-identical to v82** (no deer in the herding
+  band on those seeds), **seed 5 city 13.8→13.6, pop300 14.4→13.6** (-0.8).
+  Steered deer die 16-35 m from the nearest dropsite (vs ~50 m before) and
+  the meat lands in the territory where the women collect it: seed 5 meat
+  by t=8m 694→1049. Kept. (Only seed 5 has deer within 35-160 m of the CC
+  on mainland/temperate 192 — the band is mostly chicken/sheep on the other
+  seeds.)
+
 ## 2026-08-21 — Hunting experiment (v81→v82, Louis's flee-speed strategy)
 
 - **Tip 3 revisited (farmstead by in-territory carcass clumps): DISCARDED

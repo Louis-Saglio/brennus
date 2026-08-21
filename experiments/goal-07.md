@@ -74,3 +74,19 @@ seed 2 city 14.4→14.7, pop300 14.8→14.6; seed 5 city 13.8→14.5, pop300
 city more than the meat gain (~220 s of walk savings per 200-food clump)
 pays. Gated behind the trio it never fires (clumps are gone by then).
 Discarded; tree kept at v82.
+
+### Wound-then-steer herding (v83, kept) — Louis's follow-the-flee idea
+
+FLEEING mechanics (UnitAI.js, source-verified): a wounded animal flees
+away from its attacker until it reaches `distance at wound time + 24 m`
+(fixed at enter, re-checked against the live attacker position). So the
+cav wounds a deer ONCE (18 pierce leaves 25 HP → 7), cancels its attack
+order in the next block (the engine would fire the killing shot ~2 s
+later on its own — javelin RepeatTime 1.5 s), then follows on the far
+side within the flee distance: the deer runs to the nearest food
+dropsite, where the kill shot lands. Stall (stopped fleeing > 2 s, or
+30 s without closing 10 m) falls back to killing in place.
+
+Batch vs v82 baseline: seeds 1-4 byte-identical (no deer in the 35-160 m
+band on those seeds), seed 5 city 13.8→13.6, pop300 14.4→13.6, meat by
+t=8m 694→1049, zero JS errors, seed-1 rerun hash identical.

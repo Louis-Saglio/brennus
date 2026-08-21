@@ -57,6 +57,16 @@ baseline first (seeds 1-5: 14.7/14.9, 14.3/14.9, 14.3/14.8, 13.7/13.6,
 hash identical. Kept; details in `experiments/goal-07.md` (hunting
 experiment section).
 
+## Goal 7 — wound-then-steer herding (Louis's follow-the-flee idea, v83)
+
+Implemented and verified after v82: the cav wounds a deer ONCE, cancels
+its own attack order immediately (the engine would fire the killing shot
+~2 s later on its own), then follows the fleeing animal on the far side
+to steer it to the nearest food dropsite, killing it there. Batch vs v82:
+seeds 1-4 byte-identical (no deer in the herding band), seed 5 city
+13.8→13.6, pop300 14.4→13.6, meat by t=8m 694→1049. Kept; details in
+`experiments/goal-07.md` (wound-then-steer section).
+
 ## Next up (goal 8: defeat sandbox Petra < 40 in-game min)
 
 Tier 3 begins: `experiments/goal-08.md` doesn't exist yet — create it and

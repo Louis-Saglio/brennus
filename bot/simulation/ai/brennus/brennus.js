@@ -27,8 +27,9 @@ import { BaseAI } from "simulation/ai/common-api/baseAI.js";
  *   events), reported in the status log (bar: wood >= 75%, grain >= 85%).
  * - Hunting (Louis's tips): slow animals (chicken/sheep/pig) are killed in
  *   place and collected by the cavalry itself, one at a time; fast fleers
- *   (deer/gazelle) are herded toward the nearest food dropsite — killed in
- *   territory they are left to the civilians, outside the cavalry collects.
+ *   (deer/gazelle) are wounded once, then steered toward the nearest food
+ *   dropsite and killed there — in-territory kills go to the civilians,
+ *   outside-territory ones the cavalry collects itself.
  * - Trade/barter stay available: a market is part of the town trio, and
  *   surplus wood is bartered for the stone/metal the city phase needs.
  *
@@ -184,7 +185,7 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.herdStartTurn = 0;
 	this.herdStartDist = Infinity;
 	this.herdBestDist = Infinity;
-	this.herdNoFlee = false;
+	this.herdWoundTurn = this.savedState?.herdWoundTurn || 0;
 	this.herdFast = this.savedState?.herdFast || false;
 	this.herdLastPos = this.savedState?.herdLastPos;
 	// Cached in-territory fruit stock (updateWoodline refresh): berries out-
@@ -537,15 +538,22 @@ BrennusBot.prototype.nearestFoodDropsite = function(pos)
  *   killed in place with no positioning, and the cavalry collects each
  *   carcass fully BEFORE moving to the next — one at a time, never batch
  *   kills left behind.
- * - Fast fleers (skittish — deer/gazelle at 6.3 m/s): herded toward the
- *   nearest food dropsite (not necessarily the CC) by attacking from the
- *   side opposite it; killed inside the territory they are left to the
- *   civilians, killed outside the cavalry gathers the carcass itself.
+ * - Fast fleers (skittish — deer/gazelle at 6.3 m/s): wound-then-steer
+ *   (Louis's idea). A wounded animal flees directly away from its attacker
+ *   and keeps fleeing while the attacker stays within the flee distance
+ *   (UnitAI.js FLEEING: distanceToFlee = distance at wound time +
+ *   FleeDistance 24, fixed at enter — the order only finishes when the
+ *   animal reaches that range). So the cav shoots ONCE from the far side,
+ *   then follows closely without attacking: the animal's flight carries it
+ *   to the nearest food dropsite, where the kill shot lands (a deer is left
+ *   at 7/25 HP by the first javelin). Killed inside the territory they are
+ *   left to the civilians, killed outside the cavalry gathers the carcass
+ *   itself.
  * Civilians collect in-territory carcasses once the fruit runs out
  * (findSupply); they never leave the territory for meat (Louis).
  * One herder, exempt from the gatherer shares until no animals remain in
- * range (then it joins the economy). A 30 s behavioral fallback catches
- * fast animals that won't close on the dropsite: kill in place.
+ * range (then it joins the economy). Stall detection (stopped fleeing, or
+ * 30 s without closing on the dropsite) falls back to killing in place.
  */
 BrennusBot.prototype.manageHerding = function()
 {
@@ -665,7 +673,7 @@ BrennusBot.prototype.manageHerding = function()
 		this.herdStartTurn = this.turn;
 		this.herdStartDist = Math.sqrt(bestD);
 		this.herdBestDist = this.herdStartDist;
-		this.herdNoFlee = false;
+		this.herdWoundTurn = 0;
 		this.huntDbgLog = false;
 		// Fleer class by template stance (source-verified, 0.28.0): domestic
 		// animals (chicken/sheep/pig) are passive and crawl when fleeing
@@ -692,31 +700,69 @@ BrennusBot.prototype.manageHerding = function()
 		}
 		return;
 	}
-	// Fast fleer: herd it toward the nearest food dropsite (Louis: not
-	// necessarily the CC — a farmstead by the berries is just as good).
-	// Non-fleeing detection: 30 s (150 turns) of attack without the animal
-	// ending up 10 m closer to the dropsite → kill in place, no positioning.
+	// Fast fleer: wound-then-steer (Louis). The wounded animal flees away
+	// from the attacker and keeps fleeing while the attacker stays within
+	// the flee distance — so shoot once from the far side, then follow
+	// closely without attacking, and kill once the animal is near the
+	// nearest food dropsite. One javelin leaves a deer at 7/25 HP: the kill
+	// shot is the last re-aim. Stall (stopped fleeing, or 30 s without
+	// closing 10 m on the dropsite) → kill in place.
 	const pos = target.position();
 	this.herdLastPos = pos;
 	const drop = this.nearestFoodDropsite(pos);
 	const dist = Math.hypot(pos[0] - drop[0], pos[1] - drop[1]);
 	this.herdBestDist = Math.min(this.herdBestDist, dist);
-	if (!this.herdNoFlee && this.turn - this.herdStartTurn > 150 &&
-		this.herdBestDist > this.herdStartDist - 10)
-		this.herdNoFlee = true;
-	// Behind the animal (opposite the dropsite), then attack: it flees toward
-	// the dropsite and dies there. Commands re-issue at most every 10 turns.
+	if (target.isHurt() && !this.herdWoundTurn)
+	{
+		// First detection of the wound: cancel the attack order NOW. The
+		// engine's attack keeps firing on its own (javelin RepeatTime is
+		// 1.5 s) and the second shot would kill the animal before any
+		// steering happens.
+		this.herdWoundTurn = this.turn;
+		this.herdCmdTurn = 0;
+		herder.stopMoving();
+		print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m wounded ${target.templateName()} at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} dropDist=${dist.toFixed(0)}\n`);
+		return;
+	}
 	if (this.turn < this.herdCmdTurn)
 		return;
+	if (!target.isHurt())
+	{
+		// Position on the far side, then shoot until the first hit connects
+		// (misses wound nothing, so keep trying).
+		this.herdCmdTurn = this.turn + 10;
+		const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
+		const n = Math.hypot(dx, dz) || 1;
+		const bx = pos[0] + dx / n * 12, bz = pos[1] + dz / n * 12;
+		const hp = herder.position();
+		if (Math.hypot(hp[0] - bx, hp[1] - bz) > 8 && dist > 25)
+			herder.move(bx, bz);
+		else
+			herder.attack(target.id(), false);
+		return;
+	}
+	const fleeing = (target.unitAIState() || "").indexOf("FLEEING") !== -1;
+	// Kill: near the dropsite, or the flee stalled, or the steer made no
+	// progress for 30 s.
+	if (dist < 25 ||
+		(!fleeing && this.turn - this.herdWoundTurn > 10) ||
+		(this.turn - this.herdStartTurn > 150 && this.herdBestDist > this.herdStartDist - 10))
+	{
+		this.herdCmdTurn = this.turn + 10;
+		herder.attack(target.id(), false);
+		return;
+	}
+	// Steer: stay on the far side, close enough that the animal never
+	// reaches its flee distance (fixed at wound time: ~dist + 24 m).
 	this.herdCmdTurn = this.turn + 10;
 	const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
 	const n = Math.hypot(dx, dz) || 1;
 	const bx = pos[0] + dx / n * 12, bz = pos[1] + dz / n * 12;
 	const hp = herder.position();
-	if (!this.herdNoFlee && Math.hypot(hp[0] - bx, hp[1] - bz) > 8 && dist > 25)
+	if (Math.hypot(hp[0] - bx, hp[1] - bz) > 8)
 		herder.move(bx, bz);
 	else
-		herder.attack(target.id(), false);
+		herder.stopMoving();
 };
 
 /** Whether the unit has a non-zero gather rate for this supply's subtype. */
@@ -2292,7 +2338,7 @@ BrennusBot.prototype.Serialize = function()
 		"herdStartTurn": this.herdStartTurn,
 		"herdStartDist": this.herdStartDist,
 		"herdBestDist": this.herdBestDist,
-		"herdNoFlee": this.herdNoFlee,
+		"herdWoundTurn": this.herdWoundTurn,
 		"herdFast": this.herdFast,
 		"herdLastPos": this.herdLastPos,
 		"fruitStockSeenHigh": this.fruitStockSeenHigh,
