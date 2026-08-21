@@ -534,3 +534,57 @@ from the current tree.
   stays. The engine's gather autocontinue may still pile workers onto one
   field after the AI's initial assignment — the fix, if any, belongs in
   the anti-drift sweep, not in findSupply.
+
+## 2026-08-21 — Building orientation: align everything on the CC angle (Louis)
+
+The bot placed every building at angle 0 while the CC sits at 135° — the
+whole base looked twisted. Aligning costs nothing measurable and is kept.
+
+Verified facts (engine, 0.28.0):
+
+- `entity.angle()` (common-api `entity.js:602`) returns the CCmpPosition
+  yaw in radians — exposed to the AI via `AIProxy.js:233`
+  (`cmpPosition.GetRotation().y`). On mainland temperate the starting CC
+  yaw is exactly 3π/4 (135.0° on all 5 seeds), NOT the rmgen
+  `BUILDING_ORIENTATION` (-π/4); trust the runtime value.
+- `construct(template, x, z, angle, metadata)` takes the yaw directly.
+- A rotated footprint's corners reach past its axis-aligned box
+  (11×11 house at 135°: AABB 15.6×15.6), so BOTH the placement prefilter
+  AND the aligned plot grids must rotate with the angle: with all
+  buildings sharing one angle, a rigid rotation of the whole plot set
+  preserves every distance — rotating the grids keeps the 14/24 m pitches
+  valid, while keeping axis-aligned rows would overlap rotated footprints
+  at the corners (verified by geometry, and the 88-failure probe).
+- Prefilter variants, probed on seed 1 (baseline city/pop300 14.1/14.9):
+  - center-sampled exact rotated rect, no inflation: 88 `construct
+    FAILED` lines (42 farmstead, 35 storehouse, 11 market) — tree cells
+    whose centre sits just outside the footprint still overlap it, the
+    engine rejects, each rejection burns 50 turns of blacklist latency.
+  - rotated axis-aligned box (conservative, old code's semantics):
+    0 failures, city 13.6, but pop300 NEVER reached (284 by the 18 min
+    limit) — the box is up to 41% larger than the true footprint, pushes
+    near-tree farmsteads/fields outward (grain dist 15-17 m vs 3-6 m in
+    the baseline) and starves the house stream (38 houses at 15 min vs
+    46).
+  - KEPT: exact rotated rect inflated by half a navcell diagonal
+    (0.75 m), cell-centre sampled — conservative yet footprint-tight.
+    0 failures, city 14.4 / pop300 14.8 on seed 1.
+- The passability map given to the AI has 1 m cells, the territory map
+  4 m; the obstruction grid marks cells a footprint overlaps (boundary
+  touch does NOT mark — the 2 m field lanes survive the inflation).
+
+A/B (5 seeds + determinism, re-derived baseline first — reproduced the
+recorded batch exactly):
+
+| seed | baseline | aligned | delta city/pop300 |
+|------|----------|---------|-------------------|
+| 1 | 14.1/14.9 | 14.4/14.8 | +0.3/-0.1 |
+| 2 | 14.7/14.8 | 14.5/14.6 | -0.2/-0.2 |
+| 3 | 14.3/14.0 | 14.4/13.9 | +0.1/-0.1 |
+| 4 | 13.5/13.6 | 13.8/13.4 | +0.3/-0.2 |
+| 5 | 14.3/13.9 | 13.9/13.0 | -0.4/-0.9 |
+
+Mean city 14.17 → 14.23 (+0.06 min), mean pop300 14.35 → 14.08 (-0.27
+min): neutral on city phase, slightly positive on pop300, within the
+seed-to-seed noise band. Zero JS errors, seed-1 rerun hash identical,
+all 5 seeds ≤ 15.0 on both criteria.

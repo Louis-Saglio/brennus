@@ -160,6 +160,11 @@ BrennusBot.prototype.maxHouseFoundations = 4;
 BrennusBot.prototype.CustomInit = function(gameState)
 {
 	print(`[HARNESS] brennus: loaded for player ${this.player}\n`);
+	// Placement orientation (Louis): every building is aligned on the civic
+	// centre's own angle. Cached lazily on first use — the CC never turns,
+	// and after a save/load the world state is identical, so re-deriving is
+	// deterministic and nothing needs serializing.
+	this.ccAngle = undefined;
 	// entityID -> resource this unit was ordered to gather.
 	this.assignments = this.savedState?.assignments || {};
 	// foundationID -> [entityID] of its sticky builders (never overlapping).
@@ -2070,20 +2075,45 @@ BrennusBot.prototype.placeOrder = function(templateType, pos)
 	const builder = this.gameState.getOwnUnits().filterNearest(pos, 1).toEntityArray()[0];
 	if (!builder)
 		return false;
-	builder.construct(templateType, pos[0], pos[1], 0, undefined);
+	builder.construct(templateType, pos[0], pos[1], this.getPlacementAngle(), undefined);
 	this.pendingBuilds.push({ "template": templateType, "x": pos[0], "z": pos[1], "turn": this.turn });
 	return true;
 };
 
 /**
+ * Buildings are aligned on the civic centre's orientation (Louis): one
+ * shared angle keeps the base coherent AND keeps the aligned plot grids
+ * grid-consistent — since every structure rotates by the same angle, the
+ * relative geometry of the grid is exactly the unrotated one (a rigid
+ * rotation of the whole plot set preserves all distances).
+ */
+BrennusBot.prototype.getPlacementAngle = function()
+{
+	if (this.ccAngle === undefined)
+	{
+		const cc = this.getCivicCentre();
+		if (!cc)
+			return 0;
+		this.ccAngle = cc.angle() ?? 0;
+		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(2)}m placement angle=${(this.ccAngle * 180 / Math.PI).toFixed(1)}°\n`);
+	}
+	return this.ccAngle;
+};
+
+/**
  * Aligned house plots (Louis: houses in straight rows free up base space).
  * A square grid with 14 m pitch (11 m footprint + 3 m lanes) around the CC,
- * near plots first, skipping the CC footprint and the field wedge.
+ * near plots first, skipping the CC footprint and the field wedge. The grid
+ * is rotated onto the CC's orientation: the houses share that angle, so the
+ * rows stay aligned with the footprints (axis-aligned rows would overlap at
+ * the corners once the buildings rotate).
  */
 BrennusBot.prototype.housePlots = function(ccPos)
 {
 	if (this._housePlots)
 		return this._housePlots;
+	const angle = this.getPlacementAngle();
+	const cosa = Math.cos(angle), sina = Math.sin(angle);
 	const plots = [];
 	for (let gx = -5; gx <= 5; ++gx)
 		for (let gz = -5; gz <= 5; ++gz)
@@ -2092,7 +2122,10 @@ BrennusBot.prototype.housePlots = function(ccPos)
 			const dist2 = dx * dx + dz * dz;
 			if (dist2 < 18 * 18 || dist2 > 70 * 70)
 				continue;
-			plots.push([ccPos[0] + dx, ccPos[1] + dz, dist2]);
+			plots.push([
+				ccPos[0] + dx * cosa - dz * sina,
+				ccPos[1] + dx * sina + dz * cosa,
+				dist2]);
 		}
 	plots.sort((a, b) => a[2] - b[2]);
 	this._housePlots = plots;
@@ -2101,12 +2134,15 @@ BrennusBot.prototype.housePlots = function(ccPos)
 
 /**
  * Field plots: aligned 24 m pitch (22 m footprint) on the far side of the
- * base from the house core, 30-80 m out.
+ * base from the house core, 30-80 m out, rotated with the CC like the
+ * houses.
  */
 BrennusBot.prototype.fieldPlots = function(ccPos)
 {
 	if (this._fieldPlots)
 		return this._fieldPlots;
+	const angle = this.getPlacementAngle();
+	const cosa = Math.cos(angle), sina = Math.sin(angle);
 	const plots = [];
 	for (let gx = -4; gx <= 4; ++gx)
 		for (let gz = -4; gz <= 4; ++gz)
@@ -2115,7 +2151,10 @@ BrennusBot.prototype.fieldPlots = function(ccPos)
 			const dist2 = dx * dx + dz * dz;
 			if (dist2 < 58 * 58 || dist2 > 96 * 96)
 				continue;
-			plots.push([ccPos[0] + dx, ccPos[1] + dz, dist2]);
+			plots.push([
+				ccPos[0] + dx * cosa - dz * sina,
+				ccPos[1] + dx * sina + dz * cosa,
+				dist2]);
 		}
 	plots.sort((a, b) => a[2] - b[2]);
 	this._fieldPlots = plots;
@@ -2128,6 +2167,7 @@ BrennusBot.prototype.findGridSpot = function(templateType, plots, region)
 	const template = this.gameState.getTemplate(templateType);
 	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
 	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
+	const angle = this.getPlacementAngle();
 	const pass = this.gameState.getPassabilityMap();
 	const mask = this.gameState.getPassabilityClassMask("building-land");
 	for (const [x, z] of plots)
@@ -2138,7 +2178,7 @@ BrennusBot.prototype.findGridSpot = function(templateType, plots, region)
 			continue;
 		if (this.accessibility.getAccessValue([x, z]) !== region)
 			continue;
-		if (this.placementOK(x, z, halfW, halfD, pass, mask, this.territoryMap))
+		if (this.placementOK(x, z, halfW, halfD, angle, pass, mask, this.territoryMap))
 			return [x, z];
 	}
 	return undefined;
@@ -2155,6 +2195,7 @@ BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRa
 	const template = gameState.getTemplate(templateType);
 	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
 	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
+	const angle = this.getPlacementAngle();
 	const pass = gameState.getPassabilityMap();
 	const mask = gameState.getPassabilityClassMask("building-land");
 	const terr = this.territoryMap;
@@ -2164,36 +2205,62 @@ BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRa
 	for (let r = minRadius; r <= maxRadius; r += step)
 		for (let a = 0; a < angles; ++a)
 		{
-			const angle = a * 2 * Math.PI / angles;
-			const x = center[0] + r * Math.cos(angle);
-			const z = center[1] + r * Math.sin(angle);
+			const ang = a * 2 * Math.PI / angles;
+			const x = center[0] + r * Math.cos(ang);
+			const z = center[1] + r * Math.sin(ang);
 			if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
 				continue;
 			if (this.nearEnemy([x, z], 100, 60))
 				continue;
 			if (region !== undefined && this.accessibility.getAccessValue([x, z]) !== region)
 				continue;
-			if (this.placementOK(x, z, halfW, halfD, pass, mask, terr))
+			if (this.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
 				return [x, z];
 		}
 	return undefined;
 };
 
-BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, pass, mask, terr)
+/**
+ * Placement prefilter for the rotated footprint (angle = the CC
+ * orientation). Passability uses the TRUE rotated rectangle, inflated by
+ * half a navcell diagonal (0.75 m) so that any navcell the footprint
+ * overlaps is caught by its centre — conservative, but barely larger than
+ * the footprint itself, so the tight farmstead field clusters and the
+ * 14/24 m grids keep packing exactly as before the rotation. (The rotated
+ * axis-aligned box would be up to 41% larger and pushes near-tree
+ * placements outward, which measurably slows the boom.) Territory keeps
+ * the conservative box semantics of the original check: every 4 m cell
+ * under the rotated box must be own. The engine's own validation is the
+ * final arbiter either way.
+ */
+BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mask, terr)
 {
+	const hw = halfW + 0.75, hd = halfD + 0.75;
+	const ex = hw * Math.abs(Math.cos(angle)) + hd * Math.abs(Math.sin(angle));
+	const ez = hw * Math.abs(Math.sin(angle)) + hd * Math.abs(Math.cos(angle));
+
 	const cell = pass.cellSize;
-	const x0 = Math.floor((x - halfW) / cell), x1 = Math.floor((x + halfW) / cell);
-	const z0 = Math.floor((z - halfD) / cell), z1 = Math.floor((z + halfD) / cell);
+	const x0 = Math.floor((x - ex) / cell), x1 = Math.floor((x + ex) / cell);
+	const z0 = Math.floor((z - ez) / cell), z1 = Math.floor((z + ez) / cell);
 	if (x0 < 0 || z0 < 0 || x1 >= pass.width || z1 >= pass.height)
 		return false;
+	const cosa = Math.cos(angle), sina = Math.sin(angle);
 	for (let j = z0; j <= z1; ++j)
 		for (let i = x0; i <= x1; ++i)
-			if (pass.data[i + j * pass.width] & mask)
+		{
+			// Inverse-rotate the cell centre into the footprint frame.
+			const dx = (i + 0.5) * cell - x;
+			const dz = (j + 0.5) * cell - z;
+			const u = dx * cosa + dz * sina;
+			const v = -dx * sina + dz * cosa;
+			if (Math.abs(u) <= hw && Math.abs(v) <= hd &&
+				(pass.data[i + j * pass.width] & mask))
 				return false;
+		}
 
 	const tcell = terr.cellSize;
-	const tx0 = Math.floor((x - halfW) / tcell), tx1 = Math.floor((x + halfW) / tcell);
-	const tz0 = Math.floor((z - halfD) / tcell), tz1 = Math.floor((z + halfD) / tcell);
+	const tx0 = Math.floor((x - ex) / tcell), tx1 = Math.floor((x + ex) / tcell);
+	const tz0 = Math.floor((z - ez) / tcell), tz1 = Math.floor((z + ez) / tcell);
 	if (tx0 < 0 || tz0 < 0 || tx1 >= terr.width || tz1 >= terr.height)
 		return false;
 	for (let j = tz0; j <= tz1; ++j)

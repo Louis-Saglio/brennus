@@ -94,6 +94,21 @@ mean city 14.18 / pop300 14.24 (v83: 14.02/14.24). Goal-7 criteria all
 (P2 trio-wood floor, fields-before-dropsites, house-2-everywhere,
 5 house foundations) are in LESSONS_LEARNED.
 
+## Building orientation (SHIPPED — aligned on the CC angle, DONE)
+
+Louis's report: buildings stand at angle 0 while the starting CC sits at
+135°, so the base looks twisted. All buildings now take the CC yaw
+(`cc.angle()`, runtime 135.0° on every seed); the house/field plot grids
+rotate with the same angle (rigid rotation preserves the 14/24 m pitches),
+and the placement prefilter checks the rotated footprint exactly, inflated
+by 0.75 m (half a navcell diagonal) — the rotated-AABB variant pushed
+near-tree placements outward and cost seed 1 its pop300; the un-inflated
+exact check produced 88 engine-rejected orders. A/B vs the re-derived
+baseline (5 seeds, zero JS errors, determinism OK): mean city 14.17→14.23
+(+0.06), pop300 14.35→14.08 (-0.27) — neutral/slightly positive, all 5
+seeds ≤ 15.0. Details: `experiments/goal-07.md` (orientation section) and
+LESSONS_LEARNED.
+
 ## Next up (goal 8: defeat sandbox Petra < 40 in-game min)
 
 Tier 3 begins: `experiments/goal-08.md` doesn't exist yet — create it and

@@ -142,3 +142,33 @@ Final batch (5 seeds, zero JS errors, seed-1 rerun hash identical):
 
 Mean city 14.18 / pop300 14.24 (v83: 14.02/14.24) — the sticky fix is
 kept with the boom restored; goal-7 criteria all ≤ 15.0 again.
+
+## Building orientation experiment (2026-08-21): align everything on the CC angle
+
+Requested: brennus built at angle 0 while the starting CC sits at 135° —
+align all buildings on the CC's orientation and measure the impact on the
+goal-7 metrics (city phase + 300 pop).
+
+Implementation: `construct()` takes the CC yaw (`cc.angle()`, runtime
+135.0° on every seed); the house/field plot grids rotate with the same
+angle so the 14/24 m pitches stay valid (all buildings share one angle ⇒
+rigid rotation of the plot set, all distances preserved); the placement
+prefilter checks the rotated footprint exactly, inflated by half a navcell
+diagonal (0.75 m) so it stays conservative without the rotated-AABB bloat
+(which pushed near-tree placements outward and cost seed 1 its pop300).
+See LESSONS_LEARNED for the failed prefilter variants.
+
+A/B vs re-derived baseline (5 seeds + determinism, zero JS errors,
+seed-1 rerun hash identical):
+
+| seed | baseline | aligned | delta   |
+|------|----------|---------|---------|
+| 1    | 14.1/14.9 | 14.4/14.8 | +0.3/-0.1 |
+| 2    | 14.7/14.8 | 14.5/14.6 | -0.2/-0.2 |
+| 3    | 14.3/14.0 | 14.4/13.9 | +0.1/-0.1 |
+| 4    | 13.5/13.6 | 13.8/13.4 | +0.3/-0.2 |
+| 5    | 14.3/13.9 | 13.9/13.0 | -0.4/-0.9 |
+
+Mean city 14.17 → 14.23 (+0.06), mean pop300 14.35 → 14.08 (-0.27):
+neutral on the city phase, slightly positive on pop300, inside the
+seed-to-seed noise. Goal-7 criteria all ≤ 15.0 still. Kept.
