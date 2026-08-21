@@ -3,6 +3,28 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-21 — Builder ping-pong between foundations (investigated, NOT fixed)
+
+- Louis's report is real: the builder sweep re-issues `repair` to the
+  nearest units for every under-staffed foundation EVERY block, and when
+  two foundations stand close together the same units are the nearest to
+  BOTH — the last order wins, so the workers oscillate between the sites.
+  Verified in-game ([BUILD] telemetry: the same unit ordered to two
+  foundations in the same block).
+- **Every fix variant regresses the boom** (baseline seed1 14.5/14.7):
+  persistent sticky claims (16.0), REPAIR-state exclusion (16.5),
+  per-block exclusivity (15.4), 30-m-gated per-block exclusivity (14.8 +
+  city +0.4, and 364 churn events remain — builders of a FULL foundation
+  are still stealable). Root cause of the regressions: the claim-order
+  details feed the wood/food cadence (fields-vs-houses bootstrap,
+  fieldDemand/fruitStock gate) and ANY perturbation cascades — same
+  chaotic sensitivity as the v79/v80 field-spread tip. The messy
+  re-issuing is structurally load-bearing: it keeps the bootstrap crews
+  overlapping so the first farmstead/storehouse/fields sequence lands in
+  the right order. A clean fix needs a bootstrap-aware design (e.g.
+  time/phase-gated exclusion) plus a full re-derive + multi-seed retune —
+  defer to goal 8 when the economy gets rebalanced anyway.
+
 ## 2026-08-21 — Extended herding range (probed, DISCARDED)
 
 - Louis's design: herd anywhere not near enemies, priority chickens →
