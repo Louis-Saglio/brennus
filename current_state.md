@@ -13,7 +13,7 @@ Pick-up document for the next session. Read `AGENTS.md` and
 | 4 | Town Phase < 12 in-game min | PASSED (5 seeds, published) | `953dd20` |
 | 5 | City Phase < 20 in-game min | PASSED (5 seeds, published) | `5e75362` |
 | 6 | Master the economy by 30 min | PASSED (5 seeds, published) | `e56c87b` |
-| 7 | City Phase AND 300 pop by 15 min | **PASSED (5/5 seeds)** | (this session's commit) |
+| 7 | City Phase AND 300 pop by 15 min | **PASSED (5/5 seeds)** | `287c8af` |
 
 ## Goal 7 — DONE (Louis's round-3 tips audit session)
 
