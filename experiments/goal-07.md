@@ -172,3 +172,23 @@ seed-1 rerun hash identical):
 Mean city 14.17 → 14.23 (+0.06), mean pop300 14.35 → 14.08 (-0.27):
 neutral on the city phase, slightly positive on pop300, inside the
 seed-to-seed noise. Goal-7 criteria all ≤ 15.0 still. Kept.
+
+### Statistical confirmation on fresh seeds (2026-08-21, seeds 11-20)
+
+Louis asked for a more significant measurement: same A/B (baseline
+6fa2acb vs aligned 5dc736f, both extracted from git), 10 seeds never used
+for iteration, plus a seed-11 determinism rerun per variant. Zero JS
+errors everywhere, rerun hashes identical (base 62ed79aa90e2, aligned
+8893d01fc291).
+
+City phase (aligned − baseline, min): deltas -0.2/-0.3/-0.2/+0.2/-0.2/
++0.3/+0.4/+0.4/0.0/-0.1. Mean baseline 14.18, aligned 14.21, paired
+delta -0.03 ± 0.27 (n=10), t=-0.35, p=0.734.
+
+Pop300: deltas -0.2/+0.1/+0.4/+0.7/-0.7/0.0/-0.2/0.0/0.0/+0.1. Mean
+baseline 13.80, aligned 13.82, paired delta -0.02 ± 0.37 (n=10),
+t=-0.17, p=0.868.
+
+Conclusion: the orientation change has NO measurable impact on either
+metric on unseen seeds (both variants also hold the ≤ 15.0 goal-7
+criteria on all 10 fresh seeds). The alignment is free.

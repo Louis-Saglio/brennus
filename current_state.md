@@ -106,8 +106,11 @@ near-tree placements outward and cost seed 1 its pop300; the un-inflated
 exact check produced 88 engine-rejected orders. A/B vs the re-derived
 baseline (5 seeds, zero JS errors, determinism OK): mean city 14.17→14.23
 (+0.06), pop300 14.35→14.08 (-0.27) — neutral/slightly positive, all 5
-seeds ≤ 15.0. Details: `experiments/goal-07.md` (orientation section) and
-LESSONS_LEARNED.
+seeds ≤ 15.0. Statistical confirmation on 10 fresh seeds (11-20, never
+iterated on): city paired delta -0.03 ± 0.27 min (p=0.734), pop300
+-0.02 ± 0.37 min (p=0.868) — no measurable impact; both variants hold
+≤ 15.0 on all 10. Details: `experiments/goal-07.md` (orientation section)
+and LESSONS_LEARNED.
 
 ## Next up (goal 8: defeat sandbox Petra < 40 in-game min)
 

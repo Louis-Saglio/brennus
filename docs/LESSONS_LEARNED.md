@@ -588,3 +588,10 @@ Mean city 14.17 → 14.23 (+0.06 min), mean pop300 14.35 → 14.08 (-0.27
 min): neutral on city phase, slightly positive on pop300, within the
 seed-to-seed noise band. Zero JS errors, seed-1 rerun hash identical,
 all 5 seeds ≤ 15.0 on both criteria.
+
+Statistical confirmation (seeds 11-20, never iterated on; both commits
+extracted from git; zero JS errors; per-variant seed-11 rerun hashes
+identical): city paired delta -0.03 ± 0.27 min (t=-0.35, p=0.734),
+pop300 -0.02 ± 0.37 min (t=-0.17, p=0.868) — the orientation change has
+no measurable impact on the boom on unseen seeds, and both variants hold
+the goal-7 ≤ 15.0 criteria on all 10. The alignment is free; ship it.
