@@ -27,3 +27,36 @@ Seed 1, exit 0, zero JS errors: town 7.0m, city **13.9m**, population=300
 **never reached** by the 18m time limit (goal 6 only hit 300 pop around
 t=30m — the goal-6 trader/tech program and the 500f/500w town bank throttle
 the boom hard). The deadline is far from met on both criteria.
+
+## Hunting experiment (2026-08-21, v81→v82): Louis's flee-speed strategy
+
+Requested: split hunting by how fast the animal flees.
+
+- **v81 (discarded)**: slow animals (passive stance: chicken/sheep/pig)
+  killed in place + collected by the cav, one at a time; fast fleers
+  (skittish: deer/gazelle) herded to the nearest food dropsite, collected
+  by the cav only when killed outside territory; civilians prefer
+  in-territory carcasses over fields when fruit runs out. Probes: seed 1
+  pop300 14.9→15.6, seed 2 15.0. Root causes found by instrumenting:
+  1. The fruitStock ≤ 400 gate fired at game start (initial scan reads
+     ~200) and sent women to distant chicken carcasses instead of the
+     berries; 2. the kill→collect never engaged: the engine replaces a dead
+     animal with a NEW corpse entity, so the herder's target id went stale
+     and it just batch-killed chickens (exactly what Louis wants to avoid).
+- **v82 (kept, this commit)**: corpse adoption by position (nearest dead
+  huntable within 25 m of the last seen position) + fruitStockSeenHigh
+  latch (carcass fallback only after berries were demonstrably plentiful).
+
+Final batch vs re-derived baseline (city/pop300, all ≤ 15.0, zero JS
+errors, seed-1 rerun hash identical):
+
+| seed | baseline | v82    | delta   |
+|------|----------|--------|---------|
+| 1    | 14.7/14.9| 14.5/14.7 | -0.2/-0.2 |
+| 2    | 14.3/14.9| 14.4/14.8 | +0.1/-0.1 |
+| 3    | 14.3/14.8| 14.3/14.7 | 0.0/-0.1  |
+| 4    | 13.7/13.6| 13.3/13.4 | -0.4/-0.2 |
+| 5    | 14.5/14.3| 13.8/14.4 | -0.7/+0.1 |
+
+Mean city 14.30→14.06 (-0.24), mean pop300 14.50→14.40 (-0.10). Consistent
+improvement; kept.

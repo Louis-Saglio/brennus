@@ -25,9 +25,10 @@ import { BaseAI } from "simulation/ai/common-api/baseAI.js";
  *   woodcutters all work the single biggest woodline in territory.
  *   Verified by telemetry: effective vs theoretical gather rate (delivery
  *   events), reported in the status log (bar: wood >= 75%, grain >= 85%).
- * - Hunting (Louis's tips): animals are attacked from the side opposite the
- *   nearest dropsite so they flee toward it, and the starting cavalry herds
- *   animals to the CC for the civilians to collect.
+ * - Hunting (Louis's tips): slow animals (chicken/sheep/pig) are killed in
+ *   place and collected by the cavalry itself, one at a time; fast fleers
+ *   (deer/gazelle) are herded toward the nearest food dropsite — killed in
+ *   territory they are left to the civilians, outside the cavalry collects.
  * - Trade/barter stay available: a market is part of the town trio, and
  *   surplus wood is bartered for the stone/metal the city phase needs.
  *
@@ -184,9 +185,12 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.herdStartDist = Infinity;
 	this.herdBestDist = Infinity;
 	this.herdNoFlee = false;
+	this.herdFast = this.savedState?.herdFast || false;
+	this.herdLastPos = this.savedState?.herdLastPos;
 	// Cached in-territory fruit stock (updateWoodline refresh): berries out-
 	// rank fields while they last (Louis).
 	this.fruitStock = 0;
+	this.fruitStockSeenHigh = this.savedState?.fruitStockSeenHigh || false;
 	// Pinned mine per resource (Louis: concentrate all miners on ONE mine,
 	// like the woodline, until it is full — never spread over several).
 	this.mineId = this.savedState?.mineId || {};
@@ -404,6 +408,37 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 			return best;
 		// No served fruit: fall through to the generic path (fields).
 	}
+	// Louis (hunting): once the berries/fruit are gone (they were there, now
+	// they aren't), dead animals inside the territory outrank the fields —
+	// in-territory kills are the fast fleers' fallback, meat gathers faster
+	// than a fresh field, and carcasses rot if nobody takes them. Alive
+	// animals keep the generic path below.
+	if (resource === "food" && this.fruitStockSeenHigh && this.fruitStock <= 400)
+	{
+		let best, bestD = Infinity;
+		for (const s of this.gameState.getHuntableSupplies().values())
+		{
+			if (s.get("Health"))
+				continue;
+			const supplyPos = s.position();
+			if (!supplyPos || this.accessibility.getAccessValue(supplyPos) !== region)
+				continue;
+			if (!this.inOwnTerritory(supplyPos[0], supplyPos[1]))
+				continue;
+			if (!s.resourceSupplyAmount() || s.isFull())
+				continue;
+			if (!this.canGatherSupply(unit, s))
+				continue;
+			const d = SquareDistance(pos, supplyPos);
+			if (d < bestD)
+			{
+				bestD = d;
+				best = s;
+			}
+		}
+		if (best)
+			return best;
+	}
 	// Pinned mine first (Louis: concentrate miners on one mine until it is
 	// full — isFull() spills the surplus to the nearest other mine).
 	if ((resource === "stone" || resource === "metal") && this.mineId[resource] !== undefined)
@@ -496,22 +531,21 @@ BrennusBot.prototype.nearestFoodDropsite = function(pos)
 };
 
 /**
- * Louis: the starting cavalry herds wild animals toward the CC instead of
- * hunting them in place — position behind the animal (opposite the CC) and
- * attack from there, so its flight carries it toward the base; civilians
- * collect the kill. Which animals actually flee is source-verified
- * (UnitAI.js g_Stances, 0.28.0): every alive huntable animal has stance
- * passive or skittish, both respondFlee=true — ALL are ordered to flee when
- * attacked, and the FLEEING state runs (WalkSpeed x 1.67) away from the
- * attacker. What makes an animal effectively non-fleeing is dying before it
- * can move (maxHitpoints <= 20 dies to the first javelin: chicken/rabbit/
- * peacock/piglet), but treating those specially only regressed the boom
- * (v75) — the behavioral fallback stays: 30 s of attack without the animal
- * closing on the CC means stop repositioning and kill it where it stands. A
- * carcass outside the territory is gathered by the cavalry itself (rate 5)
- * — civilians never leave the territory for meat (Louis). One herder,
- * exempt from the gatherer shares until no animals remain in range (then it
- * joins the economy).
+ * Hunting, split by how fast the animal flees (Louis's strategy):
+ * - Slow animals (passive-stance domestics — chicken/sheep/pig — crawl when
+ *   fleeing, source-verified: flee speed = WalkSpeed x 1.67, so 1.6-4.7 m/s):
+ *   killed in place with no positioning, and the cavalry collects each
+ *   carcass fully BEFORE moving to the next — one at a time, never batch
+ *   kills left behind.
+ * - Fast fleers (skittish — deer/gazelle at 6.3 m/s): herded toward the
+ *   nearest food dropsite (not necessarily the CC) by attacking from the
+ *   side opposite it; killed inside the territory they are left to the
+ *   civilians, killed outside the cavalry gathers the carcass itself.
+ * Civilians collect in-territory carcasses once the fruit runs out
+ * (findSupply); they never leave the territory for meat (Louis).
+ * One herder, exempt from the gatherer shares until no animals remain in
+ * range (then it joins the economy). A 30 s behavioral fallback catches
+ * fast animals that won't close on the dropsite: kill in place.
  */
 BrennusBot.prototype.manageHerding = function()
 {
@@ -544,16 +578,49 @@ BrennusBot.prototype.manageHerding = function()
 	let target = this.herdTarget !== undefined ? gameState.getEntityById(this.herdTarget) : undefined;
 	if (target && (!target.position() || !target.isHuntable() || !target.resourceSupplyAmount()))
 		target = undefined;
+	if (!target && this.herdTarget !== undefined && this.herdLastPos)
+	{
+		// The animal died and the engine replaced it with a NEW corpse entity
+		// (the old id is gone — verified in-game): adopt the carcass by
+		// position so the kill can be collected before the next animal
+		// (Louis: one at a time, never batch kills left behind). Nearest dead
+		// huntable within 25 m of where the animal was last seen.
+		let best, bestD = Infinity;
+		for (const s of gameState.getHuntableSupplies().values())
+		{
+			if (s.get("Health") || !s.resourceSupplyAmount() || s.isFull())
+				continue;
+			const sp = s.position();
+			if (!sp || this.accessibility.getAccessValue(sp) !== region)
+				continue;
+			const d = SquareDistance(sp, this.herdLastPos);
+			if (d < bestD)
+			{
+				bestD = d;
+				best = s;
+			}
+		}
+		if (best && bestD < 25 * 25)
+		{
+			target = best;
+			this.herdTarget = target.id();
+			const tp = target.position();
+			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m adopted carcass ${target.templateName()} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} herdFast=${this.herdFast}\n`);
+		}
+	}
 	if (target && !target.get("Health"))
 	{
-		// Carcass: civilians collect only inside the territory; further out
-		// the walk costs more than the meat pays — the cavalry gathers it.
-		// (Having the cavalry also collect in-territory kills was probed in
-		// v76: seeds 3/5 pop300 +0.3/+0.5 — the herding time lost costs
-		// more than the meat pays. Reverted.)
-		if (this.inOwnTerritory(target.position()[0], target.position()[1]))
-			target = undefined;
-		else
+		if (!this.huntDbgLog)
+		{
+			this.huntDbgLog = true;
+			const tp = target.position();
+			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m carcass ${target.templateName()} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} herdFast=${this.herdFast} inTerr=${this.inOwnTerritory(tp[0], tp[1])}\n`);
+		}
+		// Carcass: slow kills are ALWAYS collected by the cavalry, fully,
+		// before the next animal (one at a time — Louis); fast kills only
+		// when they landed outside the territory (in-territory ones are the
+		// civilians' — see the findSupply carcass branch).
+		if (!this.herdFast || !this.inOwnTerritory(target.position()[0], target.position()[1]))
 		{
 			if (this.turn >= this.herdCmdTurn)
 			{
@@ -564,6 +631,7 @@ BrennusBot.prototype.manageHerding = function()
 			}
 			return;
 		}
+		target = undefined;
 	}
 	if (!target)
 	{
@@ -597,30 +665,51 @@ BrennusBot.prototype.manageHerding = function()
 		this.herdStartTurn = this.turn;
 		this.herdStartDist = Math.sqrt(bestD);
 		this.herdBestDist = this.herdStartDist;
-		// Source note (UnitAI.js g_Stances, 0.28.0): every alive huntable
-		// animal is passive or skittish → ALL are ordered to flee on attack;
-		// the FLEEING state runs at WalkSpeed x 1.67. "Non-fleeing" in
-		// practice = dying before it can move (maxHitpoints <= 20 dies to
-		// the first 18-pierce javelin: chicken/rabbit/peacock/piglet).
-		// Treating those specially was probed in v75 and regressed (see the
-		// carcass branch) — the behavioral fallback below stays the only
-		// detector.
 		this.herdNoFlee = false;
+		this.huntDbgLog = false;
+		// Fleer class by template stance (source-verified, 0.28.0): domestic
+		// animals (chicken/sheep/pig) are passive and crawl when fleeing
+		// (1.6-4.7 m/s); deer/gazelle are skittish and run (6.3 m/s). Rabbits
+		// are skittish too but die to the first javelin — herded like any
+		// fast animal, which is harmless: they die where they stand.
+		this.herdFast = target.get("UnitAI/DefaultStance") === "skittish";
+		this.herdLastPos = target.position();
+		{
+			const tp = target.position();
+			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m target ${target.templateName()} ${this.herdFast ? "fast" : "slow"} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} dist=${Math.sqrt(bestD).toFixed(0)}\n`);
+		}
 	}
+	if (!this.herdFast)
+	{
+		// Slow animal: kill in place, no positioning — it barely moves while
+		// dying, and the carcass branch above makes the cavalry collect it
+		// right after. Re-attack at most every 10 turns until it dies.
+		this.herdLastPos = target.position();
+		if (this.turn >= this.herdCmdTurn)
+		{
+			this.herdCmdTurn = this.turn + 10;
+			herder.attack(target.id(), false);
+		}
+		return;
+	}
+	// Fast fleer: herd it toward the nearest food dropsite (Louis: not
+	// necessarily the CC — a farmstead by the berries is just as good).
 	// Non-fleeing detection: 30 s (150 turns) of attack without the animal
-	// ending up 10 m closer to the CC → kill in place, no positioning.
+	// ending up 10 m closer to the dropsite → kill in place, no positioning.
 	const pos = target.position();
-	const dist = Math.hypot(pos[0] - ccPos[0], pos[1] - ccPos[1]);
+	this.herdLastPos = pos;
+	const drop = this.nearestFoodDropsite(pos);
+	const dist = Math.hypot(pos[0] - drop[0], pos[1] - drop[1]);
 	this.herdBestDist = Math.min(this.herdBestDist, dist);
 	if (!this.herdNoFlee && this.turn - this.herdStartTurn > 150 &&
 		this.herdBestDist > this.herdStartDist - 10)
 		this.herdNoFlee = true;
-	// Behind the animal (opposite the CC), then attack: it flees toward the
-	// CC and dies there. Commands re-issue at most every 10 turns.
+	// Behind the animal (opposite the dropsite), then attack: it flees toward
+	// the dropsite and dies there. Commands re-issue at most every 10 turns.
 	if (this.turn < this.herdCmdTurn)
 		return;
 	this.herdCmdTurn = this.turn + 10;
-	const dx = pos[0] - ccPos[0], dz = pos[1] - ccPos[1];
+	const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
 	const n = Math.hypot(dx, dz) || 1;
 	const bx = pos[0] + dx / n * 12, bz = pos[1] + dz / n * 12;
 	const hp = herder.position();
@@ -680,6 +769,12 @@ BrennusBot.prototype.updateWoodline = function()
 			}
 		}
 		this.fruitStock = stock;
+		// Latch: the carcass fallback (findSupply) may only engage once the
+		// berries were demonstrably plentiful and THEN ran out — the initial
+		// scan can read <= 400 while the first pickers are still walking out
+		// (v81: the false "berries gone" at game start stalled training ~2 min).
+		if (stock > 400)
+			this.fruitStockSeenHigh = true;
 	}
 	// Mine concentration (Louis: all miners on ONE mine per resource, like
 	// the woodline, until it can't take more gatherers — spreading miners
@@ -2198,6 +2293,9 @@ BrennusBot.prototype.Serialize = function()
 		"herdStartDist": this.herdStartDist,
 		"herdBestDist": this.herdBestDist,
 		"herdNoFlee": this.herdNoFlee,
+		"herdFast": this.herdFast,
+		"herdLastPos": this.herdLastPos,
+		"fruitStockSeenHigh": this.fruitStockSeenHigh,
 		"mineId": this.mineId
 	};
 };

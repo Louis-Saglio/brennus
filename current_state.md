@@ -44,6 +44,19 @@ seeds; v70 kept) and kept only when the batch improved:
 All outcomes + the flee-mechanics source dive are recorded in
 `docs/LESSONS_LEARNED.md` (round-3 section).
 
+## Goal 7 — hunting optimization (Louis's flee-speed strategy, v82)
+
+Implemented and verified after the goal-7 pass: slow animals
+(chicken/sheep/pig) killed in place and collected by the cav one at a time;
+fast fleers (deer/gazelle) herded to the nearest food dropsite, collected
+by the cav only when killed outside territory; civilians take in-territory
+carcasses before fields once the berries are gone (latched). Re-derived
+baseline first (seeds 1-5: 14.7/14.9, 14.3/14.9, 14.3/14.8, 13.7/13.6,
+14.5/14.3). v82 batch: 14.5/14.7, 14.4/14.8, 14.3/14.7, 13.3/13.4,
+13.8/14.4 — mean city -0.24, pop300 -0.10, zero JS errors, seed-1 rerun
+hash identical. Kept; details in `experiments/goal-07.md` (hunting
+experiment section).
+
 ## Next up (goal 8: defeat sandbox Petra < 40 in-game min)
 
 Tier 3 begins: `experiments/goal-08.md` doesn't exist yet — create it and

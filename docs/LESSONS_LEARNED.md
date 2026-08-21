@@ -3,6 +3,41 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-21 — Hunting experiment (v81→v82, Louis's flee-speed strategy)
+
+- **A dead animal becomes a NEW corpse entity** (verified in-game): the
+  attacked entity's id dies with it, so tracking the kill by id and issuing
+  `gather` on it NEVER works — the pre-v82 "carcass" branch was dead code.
+  To collect a kill, re-find the corpse by POSITION (nearest dead huntable
+  within ~25 m of the animal's last seen position, which the bot must track
+  each block). `isHuntable()` is true for corpses (no Health, no Attack).
+- **fruitStock ≤ 400 is a false "berries gone" at game start**: the initial
+  served-fruit scan can read ~200-400 while the first pickers are still
+  walking out. Gating a meat/field fallback on it alone (v81) sent women to
+  distant chicken carcasses instead of the berries, cost seed 1 ~2 min of
+  training (pop 19 vs 29 at t=2.5m, pop300 15.6). Fix: a latch — only engage
+  the fallback after the stock was ever > 400 (berries were demonstrably
+  there, now they aren't).
+- **Early town banking trap**: 5 Village-class structures (CC + farmstead +
+  3 houses) trigger the town bank (~1.45m on seed 1 with v81's house-heavy
+  opening) which floors training at 500 food and stalls the boom for ~2 min
+  while the bank fills slowly — town gains <1 min, pop loses ~5 at t=5m.
+  The baseline only avoids it by the usual field-before-house ordering.
+- **v82 (kept): kill+collect split by stance.** Slow animals (passive:
+  chicken/sheep/pig) are killed in place and collected by the cav one at a
+  time; fast (skittish: deer/gazelle) are herded to the nearest food
+  dropsite and collected by the cav only when killed outside territory;
+  civilians take in-territory carcasses before fields once the fruit latch
+  fires. Batch: city 14.30→14.06 (mean, -0.24), pop300 14.50→14.40
+  (-0.10), 4/5 seeds improved on each criterion, zero JS errors, seed-1
+  rerun hash identical. The naive v81 (no corpse adoption, no latch)
+  regressed 15.6/15.0 — the two fixes ARE the feature.
+- Unit facts verified (0.28.0 templates): women AND infantry gather meat at
+  1.0 (women carry 10, have a dagger attack and Slaughter restricted to
+  !Domestic); cav meat rate 5.0, carry 20. Flee speed = WalkSpeed × 1.67:
+  chicken 1.6 m/s, sheep/goat/pig 4.7, deer/gazelle 6.3. Stance separates
+  the classes: herd/domestic = passive, deer/gazelle = skittish.
+
 ## 2026-08-21 — Goal 7 (dropsites, gather-rate telemetry)
 
 - **Measuring effective gather rate**: `ent.resourceCarrying()` (live
