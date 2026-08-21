@@ -3,6 +3,26 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-21 — Extended herding range (probed, DISCARDED)
+
+- Louis's design: herd anywhere not near enemies, priority chickens →
+  close+mid herdables (<300 m) → close non-fleers (<160 m) → far herdables
+  → far non-fleers; always steer herdables to the base; collect only
+  accidental outside-territory kills. Mechanics verified: deer steered from
+  392 m to the base (kills land 9-50 m from a dropsite) — but every
+  measured variant REGRESSED vs v83 (baseline seed1 14.5/14.7, seed5
+  13.6/13.6): women-collect (r1: 14.3/15.6), CC-targeted steer (r2:
+  15.2/15.6 and 14.3/14.7), cav-collects-all (r3: 14.7/14.9, 14.1/13.9).
+  Economics: each far deer costs the cav 1.4-2.2 min (steer is bounded by
+  the animal's 6.3 m/s flee speed + building-ring stalls) for 100 meat
+  (~0.5-0.8 f/s) — while women collecting the delivered carcasses at rate
+  1.0 with 20-50 m walks ≈ 0.5 f/s displaces field work at 0.41 f/s with
+  bursty disruption (seed 5 t=13m: grain 4565→2193, meat 286→827, total
+  food -1831/2.5 min) → pop300 +1.1. Even with the cav collecting its own
+  kills (women undisturbed), the long steers still lost (+0.2/+0.3). The
+  35-160 m band + in-band steer (v83) stays. Far animals remain handled by
+  the post-herding findSupply hunting.
+
 ## 2026-08-21 — Wound-then-steer herding (v83, Louis's idea)
 
 - **FLEEING mechanics (UnitAI.js, 0.28.0), source-verified**: on the

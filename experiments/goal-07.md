@@ -90,3 +90,17 @@ dropsite, where the kill shot lands. Stall (stopped fleeing > 2 s, or
 Batch vs v82 baseline: seeds 1-4 byte-identical (no deer in the 35-160 m
 band on those seeds), seed 5 city 13.8→13.6, pop300 14.4→13.6, meat by
 t=8m 694→1049, zero JS errors, seed-1 rerun hash identical.
+
+### Extended herding range (probed, discarded)
+
+Louis's design: herd everywhere not near enemies, priority chickens →
+close+mid herdables (<300 m) → close non-fleers (<160 m) → far herdables →
+far non-fleers; always steer herdables to the base; collect only
+accidental outside-territory kills. The steering mechanics verified in
+game (deer brought from 392 m to the base), but all three collector
+variants regressed vs v83: women-collect seed1 14.3/15.6, CC-steer
+15.2/15.6 + seed5 14.3/14.7, cav-collects-all 14.7/14.9 + seed5
+14.1/13.9. Root cause: a far deer costs the cav 1.4-2.2 min (flee-speed
+bound + building-ring stalls) for 100 meat, and the collection displaces
+equivalent-or-better field work (seed 5 t=13m grain 4565→2193). The
+35-160 m band stays. Numbers in docs/LESSONS_LEARNED.md.
