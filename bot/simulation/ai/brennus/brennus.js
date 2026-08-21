@@ -1070,6 +1070,20 @@ BrennusBot.prototype.managePhaseUp = function()
 		if (!gameState.isResearched(fert) && !gameState.isResearching(fert) &&
 			gameState.canResearch(fert) && t >= 240000 && t < 540000)
 			return;
+		// Sticky-builder re-tune: hold the hard bank until the 2 bootstrap
+		// fields are COMPLETED while the served fruit is running down. The
+		// bank freezes all construction, and the sticky crews complete the
+		// houses fast enough to trigger it before wicker/fields get ordered
+		// (seed 1: bank at 1.5m, first field 3.9m, pop300 16.0). The fruit
+		// gate leaves berry-rich seeds on the houses-first path, and the
+		// t=5m fallback keeps a placement failure from stalling the phase.
+		const fieldType = gameState.applyCiv("structures/{civ}/field");
+		let bootstrapFields = 0;
+		for (const ent of gameState.getOwnStructures().values())
+			if (ent.templateName() === fieldType)
+				bootstrapFields++;
+		if (t < 300000 && bootstrapFields < 2 && this.fruitStock < 1500)
+			return;
 	}
 	const cost = this.phaseUpCost[tech];
 	if (tech === "phase_town_generic")
@@ -1305,10 +1319,11 @@ BrennusBot.prototype.manageConstruction = function()
 	// building (Louis's report). Now a unit claimed by one foundation is
 	// never re-targeted to another until the first is done or gone. The
 	// herder is excluded: its hunting orders override repair every block,
-	// so a claim on it would be a phantom builder. Known cost: the sticky
-	// crews stop returning to gathering between foundations and the boom
-	// loses ~1 min on pop300 (seed 1 14.7 -> 16.0) — accepted for now, to
-	// be re-tuned in a dedicated session (see LESSONS_LEARNED).
+	// so a claim on it would be a phantom builder. Sticky-builder re-tune:
+	// houses take 2 builders in village phase — the crews otherwise hold
+	// 3 workers off gathering exactly while the wood for wicker/fields is
+	// being accumulated — and 3 from town phase on (the sprint needs the
+	// house build rate; see LESSONS_LEARNED).
 	const assigned = this.builderAssignments;
 	for (const fId in assigned)
 	{
@@ -1327,7 +1342,7 @@ BrennusBot.prototype.manageConstruction = function()
 		const built = gameState.getBuiltTemplate(foundation.templateName());
 		const isField = built.hasClass("Field");
 		const isHouse = built.hasClass("House");
-		const target = (isField ? 2 : isHouse ? 3 : 4);
+		const target = (isField ? 2 : isHouse ? (this.gameState.currentPhase() === 1 ? 2 : 3) : 4);
 		let cur = assigned[foundation.id()];
 		if (!cur)
 			cur = assigned[foundation.id()] = [];

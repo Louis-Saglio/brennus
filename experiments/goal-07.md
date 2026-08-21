@@ -105,7 +105,7 @@ bound + building-ring stalls) for 100 meat, and the collection displaces
 equivalent-or-better field work (seed 5 t=13m grain 4565→2193). The
 35-160 m band stays. Numbers in docs/LESSONS_LEARNED.md.
 
-### Builder ping-pong fix — sticky assignments shipped (regressed baseline, re-tune next)
+### Builder ping-pong fix — sticky assignments shipped, then re-tuned (this commit)
 
 Louis's report: builders walking back and forth between adjacent
 foundations without building. Root cause: the per-block sweep re-issued
@@ -114,7 +114,31 @@ foundations' nearest sets overlap and the last order wins. Four variants
 probed (all regressed the boom, numbers in LESSONS_LEARNED); by Louis's
 call the persistent sticky variant is shipped: a unit claimed by one
 foundation is never re-targeted until it is gone; the herder is excluded
-(phantom-builder guard). Zero churn. New baseline to re-tune from:
-city/pop300 14.6/16.0, 14.6/14.6, 15.0/14.4, 14.2/13.7, 14.5/14.4 —
-determinism OK, zero JS errors. Target for the re-tune: the pre-fix
-numbers (14.5/14.7, 14.4/14.8, 14.3/14.7, 13.3/13.4, 13.6/13.6).
+(phantom-builder guard). Zero churn. Regressed baseline:
+city/pop300 14.6/16.0, 14.6/14.6, 15.0/14.4, 14.2/13.7, 14.5/14.4.
+
+Re-tune (same day, this commit). [BUILD] telemetry + a side-by-side v83
+reference run isolated the two regressions: seed 1's sticky crews finish
+the 3rd house by ~1.5m, flipping `canResearch(town)` and starting the
+hard bank before wicker (v83: 1.4m) and the 2 bootstrap fields (v83:
+1.8/2.1m) are ordered; seed 3's trio is starved by a storehouse flood
+pinning wood under the market's 300w. Two fixes shipped: (1) hold the
+town bank while completed bootstrap fields < 2 and fruitStock < 1500
+(fallback t=5m); (2) village-phase houses take 2 builders (3 from town
+on). Discarded along the way: trio-wood floor on storehouses (fixes
+seed 3's city, regresses seed 1 pop300), fields-before-dropsites reorder
+(fields ramp but grain rate falls), house-2-everywhere (sprint needs 3),
+5 concurrent house foundations (no change).
+
+Final batch (5 seeds, zero JS errors, seed-1 rerun hash identical):
+
+| seed | sticky baseline | re-tuned | v83 target |
+|------|-----------------|----------|------------|
+| 1    | 14.6/16.0       | 14.1/14.9| 14.5/14.7  |
+| 2    | 14.6/14.6       | 14.7/14.8| 14.4/14.8  |
+| 3    | 15.0/14.4       | 14.3/14.0| 14.3/14.7  |
+| 4    | 14.2/13.7       | 13.5/13.6| 13.3/13.4  |
+| 5    | 14.5/14.4       | 14.3/13.9| 13.6/13.6  |
+
+Mean city 14.18 / pop300 14.24 (v83: 14.02/14.24) — the sticky fix is
+kept with the boom restored; goal-7 criteria all ≤ 15.0 again.

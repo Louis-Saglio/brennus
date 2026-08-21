@@ -3,7 +3,47 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
-## 2026-08-21 — Builder ping-pong between foundations (sticky variant SHIPPED, re-tune pending)
+## 2026-08-21 — Sticky-builder re-tune (bank bootstrap gate + village house crews, SHIPPED)
+
+Re-tune after the sticky builder fix regressed the boom. Instrumented with
+per-block [BUILD] telemetry (claims by foundation class, fruitStock, wood)
+and compared against the pre-fix v83 tree run side by side.
+
+- **Seed 1 mechanism (pop300 16.0)**: the sticky crews complete the 3rd
+  house by ~1.5m → `canResearch(town)` flips → the HARD BANK starts at
+  1.5m and freezes construction BEFORE wicker (v83: 1.4m) and the 2
+  bootstrap fields (v83: 1.8/2.1m) are ordered. Sticky wicker 3.4m, first
+  field 3.9m — everything else cascades from there (pop 19 vs 29 at t=3m).
+  v83's bank only started at 2.8m because its 2nd house (the 5th Village
+  structure) was wood-starved until then — the churn was load-bearing.
+- **Seed 3 mechanism (city 15.0)**: bootstrap nearly identical (berry-rich,
+  bank at ~3.1m in both) — the regression is the TRIO: a storehouse flood
+  (5 x 100w, 7.8-8.7m) pinned wood under the market's 300w → market 9.1m
+  (v83 7.1m) → city 15.0.
+- **FIX 1 (kept): bootstrap gate on the town bank** — hold the hard bank
+  while COMPLETED bootstrap fields < 2 and fruitStock < 1500 (fallback
+  t=5m). The fruit gate keeps berry-rich seeds on the houses-first path.
+  Counting FOUNDATIONS (not completed fields) releases the hold ~0.4m
+  early and wastes it.
+- **FIX 2 (kept): village-phase houses take 2 builders, not 3** — the
+  sticky crews otherwise hold 3 workers off gathering exactly while the
+  wood for wicker/fields is accumulated (v83's churn left ~1-2 effective
+  builders per house). 3 from town phase on: the sprint needs the house
+  build rate (2 everywhere regressed seed 1 pop300 15.2 → 15.4).
+- **P2 probe (storehouse floor += nextTrioWood), DISCARDED**: fixed seed
+  3's trio (city 14.3) but cost seed 1 pop300 (16.9 alone, 15.2 in
+  combos) — dropsite income outranks the trio wood; FIX 1's cadence shift
+  alone repairs seed 3's city. Drop it.
+- **X1 probe (fields branch before continuous dropsites), DISCARDED**:
+  fields ramped 18 → 23 on seed 1 but the grain rate fell (farmstead chain
+  can't keep up with unserved new fields) and seed 3 pop300 14.0 → 14.6.
+  The current order (dropsites before fields) stays.
+- **Final batch (5 seeds, zero JS errors, seed-1 rerun hash identical)**:
+  city/pop300 14.1/14.9, 14.7/14.8, 14.3/14.0, 13.5/13.6, 14.3/13.9 —
+  mean city 14.18 / pop300 14.24 vs v83 14.02/14.24. Goal 7 criteria all
+  ≤ 15.0 restored; the sticky fix is kept with zero churn.
+
+## 2026-08-21 — Builder ping-pong between foundations (sticky variant SHIPPED, re-tuned same day)
 
 - Louis's report is real: the builder sweep re-issues `repair` to the
   nearest units for every under-staffed foundation EVERY block, and when

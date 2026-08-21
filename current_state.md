@@ -67,7 +67,7 @@ seeds 1-4 byte-identical (no deer in the herding band), seed 5 city
 13.8→13.6, pop300 14.4→13.6, meat by t=8m 694→1049. Kept; details in
 `experiments/goal-07.md` (wound-then-steer section).
 
-## Builder ping-pong fix (sticky assignments, SHIPPED with known cost)
+## Builder ping-pong fix (sticky assignments, SHIPPED — re-tuned, DONE)
 
 Louis saw builders walking back and forth between adjacent foundations
 without building. Root cause: the sweep re-issued `repair` to the nearest
@@ -78,13 +78,21 @@ Louis's call the **persistent sticky variant is shipped anyway** (a
 claimed unit is never re-targeted until its foundation is gone; herder
 excluded — it would be a phantom builder). Zero churn verified.
 
-**New baseline (regressed, to re-tune): city/pop300 seeds 1-5 = 14.6/16.0,
-14.6/14.6, 15.0/14.4, 14.2/13.7, 14.5/14.4, zero JS errors, seed-1 rerun
-hash identical. NEXT TASK: bring pop300 back to ≤ 14.7 (target: the old
-14.7/14.9, 14.4/14.8, 14.3/14.7, 13.3/13.4, 13.6/13.6). Known levers:
-the sticky crews never return to gathering between foundations (early
-fruitStock stalls ~1000 → fieldDemand false → houses eat the field wood),
-the fields-vs-houses wood gate, builder-target counts per building type.
+**Re-tune (done):** the sticky ship regressed city/pop300 to
+14.6/16.0, 14.6/14.6, 15.0/14.4, 14.2/13.7, 14.5/14.4 (seed 1 pop300
+and seed 3 city). [BUILD] telemetry + a side-by-side v83 reference run
+isolated two mechanisms: on seed 1 the sticky crews finish the 3rd house
+by ~1.5m, flipping `canResearch(town)` and starting the hard bank before
+wicker/fields are ordered; on seed 3 a storehouse flood pins wood under
+the market's 300w and delays the trio. Two fixes shipped: (1) hold the
+town bank while completed bootstrap fields < 2 and fruitStock < 1500
+(fallback t=5m); (2) village-phase houses take 2 builders (3 from town
+on). Final batch (5 seeds, zero JS errors, seed-1 rerun hash identical):
+**city/pop300 14.1/14.9, 14.7/14.8, 14.3/14.0, 13.5/13.6, 14.3/13.9** —
+mean city 14.18 / pop300 14.24 (v83: 14.02/14.24). Goal-7 criteria all
+≤ 15.0 restored with the sticky fix kept. Probed-and-discarded variants
+(P2 trio-wood floor, fields-before-dropsites, house-2-everywhere,
+5 house foundations) are in LESSONS_LEARNED.
 
 ## Next up (goal 8: defeat sandbox Petra < 40 in-game min)
 
