@@ -13,71 +13,64 @@ Pick-up document for the next session. Read `AGENTS.md` and
 | 4 | Town Phase < 12 in-game min | PASSED (5 seeds, published) | `953dd20` |
 | 5 | City Phase < 20 in-game min | PASSED (5 seeds, published) | `5e75362` |
 | 6 | Master the economy by 30 min | PASSED (5 seeds, published) | `e56c87b` |
-| 7 | City Phase AND 300 pop by 15 min | IN PROGRESS (city met, pop 0.5 over) | — |
+| 7 | City Phase AND 300 pop by 15 min | IN PROGRESS (4/5 seeds pass; seed 2 at 15.1) | — |
 
-## Goal 7 — where it stands (2026-08-21, Louis's dropsite/woodline tips session)
+## Goal 7 — where it stands (2026-08-21, Louis's round-2 playtest tips session)
 
 Target: `phase_city_generic` AND `population=300`, both ≤ 15.0 in-game min.
 
-**Louis's directives this session** (all implemented in the working tree):
-fields near farmsteads with free space; first farmstead at max food within
-30 m; all woodcutters on the ONE biggest woodline, migrate on depletion;
-destroy storehouses with no wood/metal/stone nearby; farmsteads for
-fruit/berry pickers + fruit rate/distance telemetry.
+**Louis's round-2 directives** (all implemented in the working tree, v55–v71):
+build storehouses near stone/metal mines when gathering them; collect berries
+near a farmstead in priority, then chain-build farmsteads at the next
+in-territory berry group; approach fleeing prey from the far side so it runs
+toward the CC; better: use starting cavalry to herd animals near a dropsite,
+civilians collect the carcass; civilians must never leave own territory for
+meat (cavalry only — some animals don't flee, detect that behaviorally);
+vary probe seeds to avoid overfitting (noted in AGENTS.md).
 
-Best single-seed-1 results (city / pop300): **v53/v54 ≈ 14.6–14.8 /
-15.5–15.6**. City is under deadline since v44 (13.6 best); pop is stuck
-~0.5 min over. Milestone history: v34 17.3/18.0 (pre-tips baseline with
-v34 delta), v37 16.7/15.7 (tips working), v44 13.6/16.9 (rate-matched
-mining), v48 14.9/15.6, v51 14.6/15.6 (fertility at t=4), v54 14.8/15.6
-(tavern in trio). No run has both ≤ 15 yet.
+**Batch status (post seed-3 fix, ~v67):** seed1 14.5/14.9 PASS,
+seed2 14.4/15.1 FAIL (0.1 over), seed3 14.4/14.7 PASS, seed4 13.1/13.7 PASS,
+seed5 13.9/14.2 PASS, determinism OK, zero errors. Seed 2 is berry-poor; its
+lag is a village pop-pin (pinned 24/25 until ~t=4 → town 5.0, all grain techs
+~1 min late) plus weak early meat (100 by t=3 vs 330 on seed 1).
+v68 (fertility gate 210000) and v69 (sprint cap t=9) both regressed the other
+way and were reverted. v70 (fieldDemand gate fruitStock<800) kept.
+**v71 = herding target band widened 35–160 → 30–200 m in `manageHerding`:
+WRITTEN, SYNTAX-CHECKED, NOT YET PROBED.** Next move: probe seeds 1 and 2
+(`bash tmp/goal7/run1.sh <seed> v71s<N>`), then the full batch if both pass.
 
-What is in the tree on top of the v33 base (all verified by probes):
+What round 2 added on top of the round-1 tree (all in brennus.js):
 
-- **Woodline concentration** (`updateWoodline`): wood supplies binned in
-  30 m cells, densest 90 m neighbourhood wins, zone = trees within 45 m of
-  its centre, kept until < 800 wood remains, then re-picked. Choppers only
-  gather zone trees (`findSupply` wood branch). First storehouse goes to
-  the zone centre.
-- **Storehouse lifecycle**: destruction when < 200 resources within 40 m
-  AND no gatherer working within 40 m (both guards needed — see
-  LESSONS_LEARNED).
-- **Fields**: placed next to the least-crowded farmstead with free space
-  (grid fallback); fieldCap 30.
-- **First farmstead**: max food in 30 m among in-territory reachable
-  patches, top 5 patches tried (`placeFirstFarmstead`).
-- **Fruit farmsteads** in `manageDropSites` (≥ 3 pickers > 18 m from a
-  food dropsite); `rates fruit=NN%` and `dist fruit=Nm` in logStatus.
-- **Rate-matched mining** (`currentShares(total)`): no mining before t=8,
-  then just enough miners to fill 750/750 + pending grain-tech metal by
-  t=13.5, zero once the city research starts; miners are also actively
-  stopped when the research starts (`minersFreed`).
-- **Tech sequencing**: grain techs + pop_house_01 may spend into the city
-  bank (miners pre-fill); the city research waits for them (hard fallback
-  13:20); a pending rate tech freezes discretionary houses
-  (`techPendingWood`); boomTechs order: wicker, plows, training, harvester,
-  ironaxes, pop_house_01, capacity, strongeraxes, pop_house_02, fertilizer.
-- **Gaul tavern in the trio** (`trioTypes`): forge+market+tavern
-  (100w+100s, +10 pop, class House) instead of the 300w temple.
-- Fertility Festival gate at t=4 (was t=5); sprint cap override: houses
-  ordered regardless of margin from t=10 while popLimit < max.
-
-**The remaining blocker is food volume**: pop300@15 needs ~15k food
-gathered by t=15; the bot gets ~11.5–12k. Grain rate telemetry is 80–86%
-(good), dist grain 1–3 m (good) — the deficit is raw worker×rate, not
-dropsites. The end sprint is food-limited (food stock ~0–100 always,
-~37 food/s at t=14 vs ~80/s trainer demand). Ideas not yet tried:
-
-- Tavern as the sprint cap building (+10 pop for 100w+100s; stone is
-  nearly free after the bank — converts stone to cap). Careful: 20x20
-  footprint, build time 200.
-- Trade income as food (market from ~t=7, traders buy food indirectly via
-  barter). Goal-6 code has trading removed from goal-7? — traders were
-  goal 6; the market exists from the trio. Untested in goal 7.
-- More fields than gatherers/3 (diminishing returns: 5/field = 0.82 avg
-  rate, 3/field = 0.90).
-- Earlier farming_training (fires 11.9–13.5 depending on wood/metal
-  pinch; each minute earlier ≈ +400 food).
+- **Mine storehouses** in `manageDropSites`: ≥ 2 underserved miners > 18 m
+  from a stone/metal dropsite edge → storehouse at their clump; stone/metal
+  added to rateStats telemetry.
+- **Served-fruit system**: `fruitStock` = fruit within 45 m of a food
+  dropsite, CC region, no enemies, refreshed every 25 turns. While
+  fruitStock > 400, food gatherers take nearest served fruit only; fields are
+  gated on `fruitStock < 4000 || t > 90000`; proactive farmstead chaining
+  when fruitStock < 600 (best in-territory unserved patch ≥ 250 score).
+- **Anti-drift sweep**: fruit gatherers whose bush is > 45 m from every
+  dropsite are stopped ONLY when in GATHER state AND empty-handed — stopping
+  a loaded returner caused the v58 collapse (see LESSONS_LEARNED).
+- **Territory rule for meat**: civilians skip `isHuntable()` supplies outside
+  own territory; carcasses outside territory are gathered by the cavalry
+  itself.
+- **Far-side hunting approach**: move behind the animal relative to
+  `nearestFoodDropsite`, then queued gather.
+- **Herding v2** (`manageHerding`): cavalry exempt from worker shares
+  (`herderId`); non-fleeing detection is behavioral (150 turns of attack
+  without closing 10 m to CC → `herdNoFlee`, kill in place); `herdingDone`
+  when no targets; new state serialized.
+- **Field-ramp deadlock fixes** (the big win): fields exempt from the
+  fertPending freeze (fields cost wood only, fertility needs food); the first
+  2 bootstrap fields outrank the house stream via `fieldDemand` when
+  fruitStock < 800 (v70). v61 deadlocked t=4–7.5 before this.
+- **Seed-3 phase deadlock fix** (`managePhaseUp`): when phaseReady and pop is
+  pinned at the cap, the CC queue can never drain → cancel it with
+  `stopProduction(item.id)`.
+- Throttled "house placement FAILED" debug print in tryHouse (every 750
+  turns) — kept intentionally, diagnoses a silent failure mode.
+- `logStatus` prints `fruitStock=` (kept, cheap).
 
 ## Verification protocol (Louis's instruction)
 
@@ -85,6 +78,10 @@ dropsites. The end sprint is food-limited (food stock ~0–100 always,
   ~40 s wall). Run the full 6-run batch (`tmp/goal7/run.sh`, 5 seeds +
   seed-1 determinism rerun, 2 parallel waves) only when the single run
   looks good.
+- **Vary the probe seed** while iterating (Louis, round 2): tuning against a
+  single seed overfits — seeds differ a lot (seed 2 is berry-poor, seed 3
+  hits the pop-cap queue deadlock). Probe at least seeds 1 and 2 before a
+  batch.
 - Analyze with `tmp/goal7/analyze.py` (city/pop300 milestone times vs the
   15.0m deadline, stats JSON, interestinglog ERRORs, determinism hash).
 - The tree is deterministic across probes: same code + seed 1 reproduces
@@ -92,14 +89,15 @@ dropsites. The end sprint is food-limited (food stock ~0–100 always,
 
 ## Known blemishes / ideas
 
-- `logStatus` still carries goal-6 debug fields (fieldFail, founds,
-  failedSpots) — cheap (every 750 turns); prune when they stop being
-  useful.
-- Fruit pickers still trek far when base berries run out before fields
-  ramp (fruit dist 100–200 m windows); farmstead-at-fruit fires rarely
-  because wood is pinned then anyway.
-- Trade income varies with route distance (map-dependent territory
-  shape): 1358–1921 across seeds at ~170–270 m routes (goal 6).
+- Goal-6 debug fields pruned from `logStatus`; `fruitStock=` kept. The
+  throttled "house placement FAILED" print in tryHouse stays on purpose.
+- Fruit pickers still trek far in windows where fruitStock collapses before
+  fields ramp; farmstead chaining (fruitStock < 600) helps but fires rarely
+  when wood is pinned.
+- Seed 2's village pop-pin (houses=1 at t=3, pinned 24/25 until ~t=4) is
+  the remaining known inefficiency; the fix candidates (ignore fieldDemand
+  for the first house when pinned, 2nd herder) were not tried — v63/v64
+  oscillated on exactly this trade.
 
 ## Operational notes
 
@@ -109,4 +107,5 @@ dropsites. The end sprint is food-limited (food stock ~0–100 always,
 - Engine facts and pitfalls are in `docs/LESSONS_LEARNED.md` — check it
   before investigating engine behavior.
 - Mod zip published after each commit:
-  `https://files.louissaglio.fr/brennus/brennus.zip` (this tree, v54).
+  `https://files.louissaglio.fr/brennus/brennus.zip` (stable name = latest
+  commit; commit-named archives alongside).

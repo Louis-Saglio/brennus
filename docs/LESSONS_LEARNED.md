@@ -278,3 +278,35 @@ and mistakes are not repeated. Short, dated, factual entries — newest first.
 - Food volume is the pop300 blocker: ~12k food gathered by t=15 vs ~15k
   needed; untried levers = tavern as sprint cap building, trade income as
   food, fields-per-gatherer ratio, earlier farming_training.
+
+## 2026-08-21 — Goal 7 round 2 (herding, berries→farm transition, v55–v71)
+
+- **Vary probe seeds when iterating a goal** (Louis). Seeds differ a lot:
+  seed 2 is berry-poor with a village pop-pin, seed 3 hits the pop-cap queue
+  deadlock. Tuning on one seed overfits; both v68 and v69 "fixes" passed on
+  one seed and regressed another.
+- Fauna all inherit DefaultStance passive — **non-fleeing animals cannot be
+  detected from `getStance()`**; detect behaviorally (attacked ~150 turns
+  without the carcass-to-CC distance closing by 10 m → kill in place and let
+  gatherers walk to it).
+- The engine's gather **autocontinue** drifts pickers to the next supply
+  without consulting the AI — pickers silently end up 100+ m from any
+  dropsite. A periodic sweep that re-targets out-of-range gatherers is
+  needed.
+- **Never `stopMoving()` a loaded returner** (v58 collapse): re-target only
+  units in GATHER state AND empty-handed; a stopped loaded unit drops its
+  carried resources on reassignment.
+- The bank/`fertPending` wood freezes block ALL construction orders from
+  t≈2.5–5.5. Bootstrap fields (wood-only, no food) must be ordered BEFORE
+  the freeze starts or explicitly exempted, else farming starts at t≈7.5
+  (v61 deadlock).
+- Emergency houses fire constantly in village phase on the queue-inflated
+  margin and hold wood < 100, starving field foundations. The first 2
+  bootstrap fields must outrank the house stream when fruit is nearly out
+  (`fieldDemand` + fruitStock gate).
+- **Pop-cap-pinned CC queue deadlocks phase research**: when pop == popLimit
+  the trainer queue never drains, so a queued phase tech never starts.
+  Cancel the training queue (`stopProduction(item.id)` per item) when
+  phaseReady and pinned (seed 3).
+- Replay `commands.txt` does not contain AI commands in a greppable form —
+  don't bother mining it for bot debugging; use in-mod telemetry prints.

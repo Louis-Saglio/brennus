@@ -18,11 +18,16 @@ import { BaseAI } from "simulation/ai/common-api/baseAI.js";
  *   techs once miners are out, and the two house-population techs.
  * - Drop sites go next to the resources they serve (Louis's tip), and keep
  *   following them: a farmstead by the berries, storehouses rebuilt at the
- *   receding woodline, farmsteads by each new field cluster, and depleted
- *   storehouses are destroyed. Fields go next to a farmstead with free
- *   space; woodcutters all work the single biggest woodline in territory.
+ *   receding woodline AND at the stone/metal mines, farmsteads by each new
+ *   field cluster, and depleted storehouses are destroyed. Berries and
+ *   fruits are picked before any field is built while they last, served
+ *   groups first. Fields go next to a farmstead with free space;
+ *   woodcutters all work the single biggest woodline in territory.
  *   Verified by telemetry: effective vs theoretical gather rate (delivery
  *   events), reported in the status log (bar: wood >= 75%, grain >= 85%).
+ * - Hunting (Louis's tips): animals are attacked from the side opposite the
+ *   nearest dropsite so they flee toward it, and the starting cavalry herds
+ *   animals to the CC for the civilians to collect.
  * - Trade/barter stay available: a market is part of the town trio, and
  *   surplus wood is bartered for the stone/metal the city phase needs.
  *
@@ -166,7 +171,22 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.lastDelivery = this.savedState?.lastDelivery || {}; // id -> sim ms of last drop-off
 	this.rateStats = this.savedState?.rateStats ||
 		{ "wood": { "amount": 0, "theo": 0 }, "grain": { "amount": 0, "theo": 0 },
-		  "fruit": { "amount": 0, "theo": 0 }, "meat": { "amount": 0, "theo": 0 } };
+		  "fruit": { "amount": 0, "theo": 0 }, "meat": { "amount": 0, "theo": 0 },
+		  "stone": { "amount": 0, "theo": 0 }, "metal": { "amount": 0, "theo": 0 } };
+	// Cavalry herding (Louis: the starting cavalry pushes wild animals toward
+	// the CC; civilians collect the kills). herderId is exempt from the
+	// gatherer shares until herdingDone (no more animals in range).
+	this.herderId = this.savedState?.herderId;
+	this.herdTarget = this.savedState?.herdTarget;
+	this.herdingDone = this.savedState?.herdingDone || false;
+	this.herdCmdTurn = 0;
+	this.herdStartTurn = 0;
+	this.herdStartDist = Infinity;
+	this.herdBestDist = Infinity;
+	this.herdNoFlee = false;
+	// Cached in-territory fruit stock (updateWoodline refresh): berries out-
+	// rank fields while they last (Louis).
+	this.fruitStock = 0;
 };
 
 BrennusBot.prototype.OnUpdate = function()
@@ -185,6 +205,7 @@ BrennusBot.prototype.OnUpdate = function()
 		this.constructionHold = false;
 		this.updateWoodline();
 		this.assignGatherers();
+		this.manageHerding();
 		this.sampleGatherRates();
 		this.managePhaseUp();
 		this.manageResearch();
@@ -231,9 +252,39 @@ BrennusBot.prototype.assignGatherers = function()
 				ent.stopMoving();
 	}
 
+	// Same persistence problem as the miners, but continuous: the engine's
+	// gather autocontinue drifts berry pickers to ever-farther unserved
+	// bushes without consulting findSupply (v57: pickers at 214 m, 20%
+	// rate). Stop fruit gatherers working > 45 m from every food dropsite —
+	// the shares reassign them to served fruit or the fields. Only while
+	// actively gathering and empty-handed: stopping a returner kills its
+	// whole loaded cycle (v58 food collapse).
+	{
+		const sites = this.foodDropsitePositions();
+		for (const ent of this.gameState.getOwnUnits().values())
+		{
+			if (this.assignments[ent.id()] !== "food" || !ent.isGatherer() ||
+				ent.isIdle() || !ent.position())
+				continue;
+			if (ent.unitAIState()?.split(".")[1] !== "GATHER")
+				continue;
+			if ((ent.resourceCarrying() || []).some(c => c.amount > 0))
+				continue;
+			const tgt = this.gatherTarget[ent.id()];
+			if (tgt?.generic !== "food" || tgt?.specific !== "fruit")
+				continue;
+			const anchor = this.gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
+			if (!sites.some(d => SquareDistance(anchor, d) < 45 * 45))
+				ent.stopMoving();
+		}
+	}
+
 	for (const ent of this.gameState.getOwnUnits().values())
 	{
 		if (!ent.isGatherer() || !ent.position())
+			continue;
+		// The herding cavalry is on animal duty, not in the shares (Louis).
+		if (ent.id() === this.herderId && !this.herdingDone)
 			continue;
 		if (ent.isIdle())
 		{
@@ -265,7 +316,20 @@ BrennusBot.prototype.assignGatherers = function()
 			const supply = this.findSupply(ent, resource);
 			if (!supply)
 				continue;
-			ent.gather(supply);
+			if (resource === "food" && supply.isHuntable() && supply.get("Health"))
+			{
+				// Louis: an attacked animal flees the attacker — approach from
+				// the side opposite the nearest dropsite so it runs TOWARD the
+				// base instead of away from it.
+				const sp = supply.position();
+				const drop = this.nearestFoodDropsite(sp);
+				const dx = sp[0] - drop[0], dz = sp[1] - drop[1];
+				const n = Math.hypot(dx, dz) || 1;
+				ent.move(sp[0] + dx / n * 10, sp[1] + dz / n * 10);
+				ent.gather(supply, true);
+			}
+			else
+				ent.gather(supply);
 			this.assignments[ent.id()] = resource;
 			counts[resource]++;
 			assigned = true;
@@ -306,11 +370,43 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 		if (best)
 			return best;
 	}
+	// Louis: berries before fields while they last — but only SERVED groups
+	// (within 40 m of a food dropsite): trekking 100+ m to unserved berries
+	// runs at ~20% rate, worse than the fields (v55). Unserved patches are
+	// made served by the farmstead chaining in manageDropSites.
+	if (resource === "food" && this.fruitStock > 400)
+	{
+		const dropsites = this.foodDropsitePositions();
+		const valid = supply => {
+			const supplyPos = supply.position();
+			return supplyPos && this.accessibility.getAccessValue(supplyPos) === region &&
+				!this.nearEnemy(supplyPos, 100, 60) &&
+				supply.resourceSupplyAmount() && !supply.isFull() &&
+				this.canGatherSupply(unit, supply) &&
+				dropsites.some(d => SquareDistance(supplyPos, d) < 40 * 40);
+		};
+		let best, bestD = Infinity;
+		for (const s of this.gameState.getResourceSupplies("food").values())
+		{
+			if (s.resourceSupplyType()?.specific !== "fruit" || !valid(s))
+				continue;
+			const d = SquareDistance(pos, s.position());
+			if (d < bestD)
+			{
+				bestD = d;
+				best = s;
+			}
+		}
+		if (best)
+			return best;
+		// No served fruit: fall through to the generic path (fields).
+	}
 	// filterNearest returns entities sorted nearest-first.
 	let candidates = this.gameState.getResourceSupplies(resource).filterNearest(pos, 10).toEntityArray();
 	if (resource === "food")
 		// byResource excludes huntable animals; add them explicitly.
 		candidates = candidates.concat(this.gameState.getHuntableSupplies().filterNearest(pos, 10).toEntityArray());
+	const foodSites = resource === "food" ? this.foodDropsitePositions() : null;
 
 	for (const supply of candidates)
 	{
@@ -323,9 +419,179 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 			continue;
 		if (!this.canGatherSupply(unit, supply))
 			continue;
+		// Louis: never trek across the map for unserved berries — a field by
+		// a farmstead beats a 100 m walk (v56: ~6 pickers idling at 17%
+		// effective rate 140+ m out once the fields filled up).
+		if (foodSites && supply.resourceSupplyType()?.specific === "fruit" &&
+			SquareDistance(pos, supplyPos) > 40 * 40 &&
+			!foodSites.some(d => SquareDistance(supplyPos, d) < 45 * 45))
+			continue;
+		// Louis: civilians never leave the territory for meat — the walk
+		// costs more than the carcass pays, and non-fleeing animals killed
+		// far out would pull them across the map. The cavalry herds animals
+		// in and gathers the outside-territory carcasses itself.
+		if (resource === "food" && supply.isHuntable() && !unit.hasClass("Cavalry") &&
+			!this.inOwnTerritory(supplyPos[0], supplyPos[1]))
+			continue;
 		return supply;
 	}
 	return undefined;
+};
+
+/** Positions of food-accepting dropsites, built or foundation. */
+BrennusBot.prototype.foodDropsitePositions = function()
+{
+	const gameState = this.gameState;
+	const farmType = gameState.applyCiv("structures/{civ}/farmstead");
+	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
+	const sites = [];
+	for (const ent of gameState.getOwnStructures().values())
+		if (ent.position() && (ent.hasClass("Farmstead") || ent.hasClass("CivCentre")))
+			sites.push(ent.position());
+	for (const f of gameState.getOwnFoundations().values())
+	{
+		if (!f.position())
+			continue;
+		const built = gameState.getBuiltTemplate(f.templateName()).templateName();
+		if (built === farmType || built === ccType)
+			sites.push(f.position());
+	}
+	return sites;
+};
+
+/** Nearest food-accepting dropsite position to pos (CC + farmsteads). */
+BrennusBot.prototype.nearestFoodDropsite = function(pos)
+{
+	let best = pos, bestD = Infinity;
+	for (const site of this.foodDropsitePositions())
+	{
+		const d = SquareDistance(pos, site);
+		if (d < bestD)
+		{
+			bestD = d;
+			best = site;
+		}
+	}
+	return best;
+};
+
+/**
+ * Louis: the starting cavalry herds wild animals toward the CC instead of
+ * hunting them in place — position behind the animal (opposite the CC) and
+ * attack from there, so its flight carries it toward the base; civilians
+ * collect the kill. Some animals don't flee when attacked (templates give
+ * no reliable tell — every fauna inherits stance "passive"), so detect it
+ * behaviorally: 30 s of attack without the animal getting closer to the CC
+ * means stop repositioning and just kill it where it stands. A carcass
+ * outside the territory is gathered by the cavalry itself (rate 5) —
+ * civilians never leave the territory for meat (Louis). One herder, exempt
+ * from the gatherer shares until no animals remain in range (then it joins
+ * the economy).
+ */
+BrennusBot.prototype.manageHerding = function()
+{
+	const gameState = this.gameState;
+	if (this.herdingDone)
+		return;
+	const cc = this.getCivicCentre();
+	if (!cc)
+		return;
+	const ccPos = cc.position();
+	const region = this.accessibility.getAccessValue(ccPos);
+	let herder = this.herderId !== undefined ? gameState.getEntityById(this.herderId) : undefined;
+	if (herder && (!herder.position() || !herder.isGatherer()))
+		herder = undefined;
+	if (!herder)
+	{
+		for (const ent of gameState.getOwnUnits().values())
+			if (ent.position() && ent.isGatherer() && ent.hasClass("Cavalry"))
+			{
+				herder = ent;
+				break;
+			}
+		this.herderId = herder?.id();
+		if (!herder)
+		{
+			this.herdingDone = true;
+			return;
+		}
+	}
+	let target = this.herdTarget !== undefined ? gameState.getEntityById(this.herdTarget) : undefined;
+	if (target && (!target.position() || !target.isHuntable() || !target.resourceSupplyAmount()))
+		target = undefined;
+	if (target && !target.get("Health"))
+	{
+		// Carcass: civilians collect only inside the territory; further out
+		// the walk costs more than the meat pays — the cavalry gathers it.
+		if (this.inOwnTerritory(target.position()[0], target.position()[1]))
+			target = undefined;
+		else
+		{
+			if (this.turn >= this.herdCmdTurn)
+			{
+				this.herdCmdTurn = this.turn + 25;
+				const st = herder.unitAIState() || "";
+				if (st.indexOf("GATHER") === -1 && st.indexOf("RETURNRESOURCE") === -1)
+					herder.gather(target);
+			}
+			return;
+		}
+	}
+	if (!target)
+	{
+		// Next animal: nearest to the CC, between 30 and 200 m out (160 m
+		// missed early game animals on sparser maps — seed 2 meat t=0-3 was
+		// 100 vs 330 on seed 1).
+		let best, bestD = Infinity;
+		for (const s of gameState.getHuntableSupplies().values())
+		{
+			const pos = s.position();
+			if (!pos || !s.get("Health") || !s.isHuntable())
+				continue;
+			if (this.accessibility.getAccessValue(pos) !== region || this.nearEnemy(pos, 100, 60))
+				continue;
+			const d = SquareDistance(pos, ccPos);
+			if (d < 30 * 30 || d > 200 * 200 || d >= bestD)
+				continue;
+			bestD = d;
+			best = s;
+		}
+		target = best;
+		this.herdTarget = target?.id();
+		if (!target)
+		{
+			// Nothing left to herd: the cavalry joins the economy.
+			this.herdingDone = true;
+			this.herderId = undefined;
+			return;
+		}
+		this.herdCmdTurn = 0;
+		this.herdStartTurn = this.turn;
+		this.herdStartDist = Math.sqrt(bestD);
+		this.herdBestDist = this.herdStartDist;
+		this.herdNoFlee = false;
+	}
+	// Non-fleeing detection: 30 s (150 turns) of attack without the animal
+	// ending up 10 m closer to the CC → kill in place, no positioning.
+	const pos = target.position();
+	const dist = Math.hypot(pos[0] - ccPos[0], pos[1] - ccPos[1]);
+	this.herdBestDist = Math.min(this.herdBestDist, dist);
+	if (!this.herdNoFlee && this.turn - this.herdStartTurn > 150 &&
+		this.herdBestDist > this.herdStartDist - 10)
+		this.herdNoFlee = true;
+	// Behind the animal (opposite the CC), then attack: it flees toward the
+	// CC and dies there. Commands re-issue at most every 10 turns.
+	if (this.turn < this.herdCmdTurn)
+		return;
+	this.herdCmdTurn = this.turn + 10;
+	const dx = pos[0] - ccPos[0], dz = pos[1] - ccPos[1];
+	const n = Math.hypot(dx, dz) || 1;
+	const bx = pos[0] + dx / n * 12, bz = pos[1] + dz / n * 12;
+	const hp = herder.position();
+	if (!this.herdNoFlee && Math.hypot(hp[0] - bx, hp[1] - bz) > 8 && dist > 25)
+		herder.move(bx, bz);
+	else
+		herder.attack(target.id(), false);
 };
 
 /** Whether the unit has a non-zero gather rate for this supply's subtype. */
@@ -354,6 +620,31 @@ BrennusBot.prototype.updateWoodline = function()
 	if (this.turn < (this.woodlineRefresh || 0))
 		return;
 	this.woodlineRefresh = this.turn + 25;
+	// Served fruit stock (Louis: berries outrank fields while they last;
+	// fields start only when this runs low). SERVED = within 45 m of a food
+	// dropsite — distant fruit nobody should walk to must not hold the
+	// fields back (v55). CC-region, no enemies.
+	{
+		const cc = this.getCivicCentre();
+		let stock = 0;
+		if (cc)
+		{
+			const region = this.accessibility.getAccessValue(cc.position());
+			const sites = this.foodDropsitePositions();
+			for (const s of this.gameState.getResourceSupplies("food").values())
+			{
+				if (s.resourceSupplyType()?.specific !== "fruit")
+					continue;
+				const pos = s.position();
+				if (pos && s.resourceSupplyAmount() > 30 &&
+					this.accessibility.getAccessValue(pos) === region &&
+					!this.nearEnemy(pos, 100, 60) &&
+					sites.some(d => SquareDistance(pos, d) < 45 * 45))
+					stock += s.resourceSupplyAmount();
+			}
+		}
+		this.fruitStock = stock;
+	}
 	if (this.woodline)
 	{
 		let remaining = 0;
@@ -503,7 +794,8 @@ BrennusBot.prototype.sampleGatherRates = function()
 						mult = (1 - Math.pow(tgt.dr, n)) / (1 - tgt.dr) / n;
 				}
 				const cls = prev.type === "wood" && tgt.specific === "tree" ? "wood" :
-					prev.type === "food" && ["grain", "fruit", "meat"].includes(tgt.specific) ? tgt.specific : undefined;
+					prev.type === "food" && ["grain", "fruit", "meat"].includes(tgt.specific) ? tgt.specific :
+					prev.type === "stone" || prev.type === "metal" ? prev.type : undefined;
 				if (cls && rate)
 				{
 					this.rateStats[cls].amount += prev.amount;
@@ -593,6 +885,14 @@ BrennusBot.prototype.managePhaseUp = function()
 		cc.research(tech);
 		this.constructionHold = true;
 	}
+	else if (cc && gameState.getPopulation() >= gameState.getPopulationLimit())
+		// Pinned at the pop cap: the queued batch can never progress, so the
+		// queue never drains and the phase research waits forever — a full
+		// deadlock while banking freezes construction (seed 3: pop 30/30,
+		// town never researched, resources piling to 5000). Cancel the queue
+		// (refunded) so the research starts.
+		for (const item of cc.trainingQueue() || [])
+			cc.stopProduction(item.id);
 };
 
 BrennusBot.prototype.getCivicCentre = function()
@@ -828,12 +1128,6 @@ BrennusBot.prototype.manageConstruction = function()
 	if (this.banking)
 		return;
 
-	// Fertility Festival freeze: while the research is wanted but
-	// unaffordable, construction pauses so wood accumulates for it (the
-	// training half is the fertFloor in trainWorkers).
-	if (this.fertPending)
-		return;
-
 	const houseType = gameState.applyCiv("structures/{civ}/house");
 	const fieldType = gameState.applyCiv("structures/{civ}/field");
 	const reserve = this.phaseReserve || {};
@@ -852,6 +1146,8 @@ BrennusBot.prototype.manageConstruction = function()
 	const tryHouse = () => {
 		if (this.tryConstruct(houseType, "house"))
 			resources.subtract({ "wood": houseCost });
+		else if (this.turn % 750 === 0)
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m house placement FAILED (margin=${margin})\n`);
 		return true; // one order per block either way
 	};
 
@@ -913,10 +1209,15 @@ BrennusBot.prototype.manageConstruction = function()
 	if (this.manageDropSites(foundations, reserve))
 		return;
 
-	// 3. Emergency houses when the population is truly pinned.
+	// 3. Emergency houses when the population is truly pinned. They leave the
+	// bootstrap field's 100 wood (the queue-inflated margin fires this branch
+	// most early blocks and would otherwise hold wood under 100 forever —
+	// v63/v65: fields=0 until t=5.5). Safe because fieldDemand is bootstrap-
+	// only (2 fields): the pin lasts ~1 min, not the whole game (v64: demand
+	// for 5 fields delayed town to 5.6).
 	if (margin < 2 && houseFoundations < this.maxHouseFoundations &&
 		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
-		resources.wood >= houseCost)
+		resources.wood >= houseCost + (this.fieldDemand ? 100 : 0))
 		return tryHouse();
 
 	// Rate techs outrank discretionary construction: while one is wanted but
@@ -937,32 +1238,26 @@ BrennusBot.prototype.manageConstruction = function()
 		break;
 	}
 
-	// 4. Fields: once berries fade or the food workforce grows, keep one
-	// field per five food gatherers. Exempt from every wood reserve (phase,
-	// trio): fields are the food income that pays for the women the houses
-	// produce — starving them flatlines food within minutes (v3, v5). In
-	// village, cap at 3 so they don't drain the 500-wood town bank (v7).
+	// 4. Fields: Louis — pickers take the berries first while they last (the
+	// assignment priority handles that; early fields stand empty, they don't
+	// steal pickers). But they must STAND before the fruit runs out: the
+	// town bank + fertility freeze block all construction from ~t=2.5 to
+	// ~t=5.5 (v59: gate opened at t=2.5, first field only after the freeze,
+	// 10 pickers piled onto 1 field at 22% rate). So open at t=1:30 or when
+	// the served stock drops under ~4 minutes of runway. Exempt from every
+	// wood reserve (phase, trio) — starving fields flatlines food within
+	// minutes (v3, v5). In village, cap at 4 so they don't drain the
+	// 500-wood town bank (v7).
 	const cc = this.getCivicCentre();
 	if (!cc)
 		return;
 	const ccPos = cc.position();
-	let bushes = 0;
-	for (const supply of gameState.getResourceSupplies("food").values())
-	{
-		if (supply.resourceSupplyType()?.specific !== "fruit")
-			continue;
-		const pos = supply.position();
-		if (pos && supply.resourceSupplyAmount() > 30 &&
-			SquareDistance(pos, ccPos) < 100 * 100)
-			bushes++;
-	}
 	let foodGatherers = 0;
 	for (const res of Object.values(this.assignments))
 		if (res === "food")
 			foodGatherers++;
-	const started = gameState.getTimeElapsed() > 120000;
 	const fieldCap = gameState.currentPhase() === 1 ? 4 : 30;
-	const desiredFields = started || bushes < 2 || foodGatherers >= 10 ?
+	const desiredFields = this.fruitStock < 4000 || gameState.getTimeElapsed() > 90000 ?
 		Math.min(fieldCap, Math.max(2, Math.ceil(foodGatherers / 3) + 1)) : 0;
 	let fields = 0;
 	for (const ent of gameState.getOwnStructures().values())
@@ -970,6 +1265,15 @@ BrennusBot.prototype.manageConstruction = function()
 			fields++;
 	const fieldFoundations = foundations.filter(f =>
 		gameState.getBuiltTemplate(f.templateName()).templateName() === fieldType).length;
+	// Bootstrap reserve only: the FIRST 2 fields outrank the house stream,
+	// and only when the served fruit is nearly out (v62 deadlock: berries
+	// gone at t=3.5 with zero fields). When berries abound, houses come
+	// first — pinning the 25-cap to save wood for unneeded fields stalls
+	// the village boom (seed 2: houses=1 at t=3, town 5.0). Demanding ALL
+	// desired fields would pin the cap for minutes (v64: town 5.6) and
+	// throttle the sprint houses (v65: cap 195 at t=15).
+	this.fieldDemand = (fields + fieldFoundations) < Math.min(2, desiredFields) &&
+		this.fruitStock < 800;
 	if (fields < desiredFields && fieldFoundations < 2 &&
 		resources.wood >= 100)
 	{
@@ -1000,6 +1304,15 @@ BrennusBot.prototype.manageConstruction = function()
 		return;
 	}
 
+	// Fertility Festival freeze: while the research is wanted but
+	// unaffordable, construction pauses so wood accumulates for it (the
+	// training half is the fertFloor in trainWorkers). BELOW the fields on
+	// purpose: fields cost wood only, and they are the food income that pays
+	// fertility's 250 food — freezing them deadlocks the freeze itself (v61:
+	// berries out at t=3.5, fert=1 from t=4 to t=7.5, zero fields).
+	if (this.fertPending)
+		return;
+
 	// 6. Discretionary houses, at raw cost: the boom wants the cap growing
 	// always. But leave the trio's wood untouched (the v11 stall: houses at
 	// 75 a pop kept the stock under the 300 the market needed); the
@@ -1016,7 +1329,7 @@ BrennusBot.prototype.manageConstruction = function()
 	if ((margin < this.houseMargin || sprintCap) && houseFoundations < this.maxHouseFoundations &&
 		!this.techPendingWood &&
 		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
-		resources.wood >= (reserve.wood || 0) + this.nextTrioWood() + (this.dropsiteDemand ? 100 : 0) + houseCost)
+		resources.wood >= (reserve.wood || 0) + this.nextTrioWood() + (this.dropsiteDemand ? 100 : 0) + (this.fieldDemand ? 100 : 0) + houseCost)
 		return tryHouse();
 };
 
@@ -1211,6 +1524,47 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		}
 	}
 
+	// Stone/metal (Louis: miners need a storehouse at the mine — watch their
+	// effective rate). Same underserved-anchor clump logic as the woodline;
+	// storehouses accept stone and metal too, so the wood sites list applies.
+	if (storeCount < 18)
+	{
+		let worst, worstDist = 18;
+		const underserved = [];
+		for (const ent of gameState.getOwnUnits().values())
+		{
+			if (!ent.isGatherer() || ent.isIdle() || !ent.position())
+				continue;
+			const tgt = this.gatherTarget[ent.id()];
+			if (tgt?.generic !== "stone" && tgt?.generic !== "metal")
+				continue;
+			const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
+			const d = minEdgeDist(anchor, woodSites);
+			if (d > 18)
+				underserved.push(anchor);
+			if (d > worstDist)
+			{
+				worstDist = d;
+				worst = anchor;
+			}
+		}
+		if (underserved.length >= 2)
+		{
+			this.dropsiteDemand = true;
+			const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
+			const center = centroid(clump);
+			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 30);
+			const pos = resources.wood >= woodFloor && !planned &&
+				this.tryConstruct(storeType, "dropsite", center);
+			if (pos)
+			{
+				resources.subtract({ "wood": 100 });
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for mine ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved)\n`);
+				return true;
+			}
+		}
+	}
+
 	// Grain: a farmstead by each field cluster. A field is underserved when
 	// its edge is over 15 m from the nearest farmstead/CC edge (field half-
 	// diagonal is 15.5 m). Target one local cluster (same clump logic as
@@ -1298,10 +1652,48 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			return true;
 		}
 	}
+	// Fruit chaining (Louis: when the served berry groups run out, look for
+	// the next group in the territory, build a farmstead by it, then collect
+	// it — the farmstead goes up BEFORE the pickers trek over, so they never
+	// walk the round trip). Best patch = most fruit within 30 m, unserved =
+	// no food dropsite within 45 m.
+	if (this.fruitStock < 600 && farmCount < 12 && resources.wood >= woodFloor)
+	{
+		const region = this.accessibility.getAccessValue(cc.position());
+		const fruits = gameState.getResourceSupplies("food").toEntityArray()
+			.filter(s => s.resourceSupplyType()?.specific === "fruit" && s.position() &&
+				s.resourceSupplyAmount() > 30 && !this.nearEnemy(s.position(), 100, 60) &&
+				this.inOwnTerritory(s.position()[0], s.position()[1]) &&
+				this.accessibility.getAccessValue(s.position()) === region &&
+				!foodSites.some(site => SquareDistance(s.position(), site.pos) < 45 * 45));
+		let best, bestScore = 250;
+		for (const f of fruits)
+		{
+			let score = 0;
+			for (const g of fruits)
+				if (SquareDistance(f.position(), g.position()) < 30 * 30)
+					score += g.resourceSupplyAmount();
+			if (score > bestScore)
+			{
+				bestScore = score;
+				best = f.position();
+			}
+		}
+		if (best)
+		{
+			this.dropsiteDemand = true;
+			const planned = farmFoundations.some(p => Math.hypot(p[0] - best[0], p[1] - best[1]) < 25);
+			const pos = !planned && this.tryConstruct(farmType, "dropsite", best);
+			if (pos)
+			{
+				resources.subtract({ "wood": 100 });
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for next fruit patch ${best[0].toFixed(0)},${best[1].toFixed(0)} (stock ${Math.round(this.fruitStock)})\n`);
+				return true;
+			}
+		}
+	}
 	return false;
 };
-
-// ---------------------------------------------------------------- barter
 
 /**
  * Barter converts whatever piles up into whatever is scarce — the market
@@ -1626,7 +2018,7 @@ BrennusBot.prototype.logStatus = function()
 		const s = this.rateStats[cls];
 		return s.theo > 0 ? `${Math.round(100 * s.amount / s.theo)}%` : "-";
 	};
-	const rates = `wood=${rate("wood")} grain=${rate("grain")} fruit=${rate("fruit")}`;
+	const rates = `wood=${rate("wood")} grain=${rate("grain")} fruit=${rate("fruit")} stone=${rate("stone")} metal=${rate("metal")}`;
 	// Food composition of the window (delivered amounts by subtype).
 	const foodmix = ["fruit", "grain", "meat"].map(c => `${c}=${Math.round(this.rateStats[c].amount)}`).join(" ");
 	for (const s of Object.values(this.rateStats))
@@ -1647,6 +2039,7 @@ BrennusBot.prototype.logStatus = function()
 		`foodmix ${foodmix} ` +
 		`dist wood=${dropsiteDist.wood}m grain=${dropsiteDist.grain}m fruit=${dropsiteDist.fruit}m ` +
 		`founds=${gameState.getOwnFoundations().toEntityArray().length} failedSpots=${(this.failedSpots || []).length} ` +
+		`fruitStock=${Math.round(this.fruitStock)} ` +
 		`stock ${Math.floor(res.food)}/${Math.floor(res.wood)}/${Math.floor(res.stone)}/${Math.floor(res.metal)}\n`);
 };
 
@@ -1727,7 +2120,14 @@ BrennusBot.prototype.Serialize = function()
 		"carry": this.carry,
 		"gatherTarget": this.gatherTarget,
 		"lastDelivery": this.lastDelivery,
-		"rateStats": this.rateStats
+		"rateStats": this.rateStats,
+		"herderId": this.herderId,
+		"herdTarget": this.herdTarget,
+		"herdingDone": this.herdingDone,
+		"herdStartTurn": this.herdStartTurn,
+		"herdStartDist": this.herdStartDist,
+		"herdBestDist": this.herdBestDist,
+		"herdNoFlee": this.herdNoFlee
 	};
 };
 

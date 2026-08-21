@@ -82,6 +82,13 @@ than strictly necessary:
 - Never leave a run going "just in case": if the check you need has already
   printed what you need, stop the process.
 
+## Iterating on goals
+
+- **Vary the probe seed while iterating** (Louis): tuning against a single
+  seed overfits behavior to that map (e.g. seed 1 mainland is unusually
+  poor in berries). Rotate seeds for iteration probes; validate with the
+  full multi-seed batch.
+
 ## Parallel runs
 
 Pyrogenesis is mostly single-threaded: one running match saturates roughly
