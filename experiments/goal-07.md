@@ -60,3 +60,17 @@ errors, seed-1 rerun hash identical):
 
 Mean city 14.30→14.06 (-0.24), mean pop300 14.50→14.40 (-0.10). Consistent
 improvement; kept.
+
+### Tip 3 revisited — farmstead by carcass clumps (discarded again, with data)
+
+Trigger conditions (30 m link radius, 15 m margin from every huntable so
+the foundation never crushes a carcass) instrumented first: over the 5
+seeds, the largest unserved in-territory clump is 200 food (seed 5, two
+herded deer ~8 m apart at 38-53 m from the nearest dropsite), seed 2 has
+146, everything else ≤ 100. So a 300 threshold never fires. With a 120
+threshold the farmstead fires once on seeds 2 and 5 (t≈5.2/5.7m) and:
+seed 2 city 14.4→14.7, pop300 14.8→14.6; seed 5 city 13.8→14.5, pop300
+14.4→14.3. The 100 wood + builders land in the town-trio window and delay
+city more than the meat gain (~220 s of walk savings per 200-food clump)
+pays. Gated behind the trio it never fires (clumps are gone by then).
+Discarded; tree kept at v82.

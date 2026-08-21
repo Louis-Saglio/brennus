@@ -5,6 +5,23 @@ and mistakes are not repeated. Short, dated, factual entries — newest first.
 
 ## 2026-08-21 — Hunting experiment (v81→v82, Louis's flee-speed strategy)
 
+- **Tip 3 revisited (farmstead by in-territory carcass clumps): DISCARDED
+  again, now with data.** Telemetry over the 5 seeds: the largest unserved
+  in-territory clump ever seen is **200 food** (seed 5, two herded deer ~8 m
+  apart, 38-53 m from the nearest dropsite); seed 2 has 146; everything else
+  ≤ 100. So a 300-food threshold **never fires** (the original noop verdict
+  was structurally right). A threshold that does fire (~120) was probed on
+  the two seeds where it can: the farmstead (100 wood + 4 builders, ordered
+  right in the t≈5-6m town-trio wood window) delayed the trio and pushed
+  **city +0.3 (seed 2) and +0.7 (seed 5)** — the wood oscillation around the
+  forge/market costs (100-200) makes 100 wood ≈ 1.5 min of trio delay —
+  while pop300 only gained 0.1-0.2 (the walk savings are ~220 s of
+  woman-time per 200-food clump). Gating it behind the trio (build only
+  when done) makes it never fire: the clumps are gone by then. No profitable
+  threshold exists on mainland/temperate 192; a map with big in-territory
+  kills far from the base might change the arithmetic. Building on a unit
+  deletes it, so placement must keep ≥15 m from every huntable (farmstead
+  half-diagonal ~11.7 m).
 - **A dead animal becomes a NEW corpse entity** (verified in-game): the
   attacked entity's id dies with it, so tracking the kill by id and issuing
   `gather` on it NEVER works — the pre-v82 "carcass" branch was dead code.
