@@ -285,10 +285,24 @@ and mistakes are not repeated. Short, dated, factual entries — newest first.
   seed 2 is berry-poor with a village pop-pin, seed 3 hits the pop-cap queue
   deadlock. Tuning on one seed overfits; both v68 and v69 "fixes" passed on
   one seed and regressed another.
-- Fauna all inherit DefaultStance passive — **non-fleeing animals cannot be
-  detected from `getStance()`**; detect behaviorally (attacked ~150 turns
-  without the carcass-to-CC distance closing by 10 m → kill in place and let
-  gatherers walk to it).
+- **Which animals flee, source-verified (UnitAI.js, 0.28.0)**: every alive
+  huntable animal is stance `passive` (herd/domestic) or `skittish`
+  (hunt_skittish); both have `respondFlee: true`, so ALL are ordered to flee
+  on attack (`INDIVIDUAL."Attacked"` → `RespondToTargetedEntities`, no
+  vision/range check), and the FLEEING state runs at WalkSpeed×1.67
+  (RunMultiplier). Retaliators (boar/wolf/bear/lion/elephant/…) are
+  defensive/passive-defensive and are excluded from `getHuntableSupplies`
+  anyway (they have Attack). So "doesn't flee" = dies before it can move:
+  maxHitpoints ≤ 20 dies to the first 18-pierce javelin (chicken/rabbit/
+  peacock/piglet); slow domestics (sheep/goat/pig, mul 0.45 → ~4.7 m/s
+  flee) crawl 10-40 m while dying. Deer/gazelle (25 HP, 6.3 m/s) truly
+  flee. Temperate mainland: startingAnimal=chicken (~9 m from the CC),
+  main=deer, secondary=sheep. Treating one-hit animals as non-fleeing
+  (kill+collect in place) was probed in v74/v75 and REGRESSED both ways
+  (seed 1 pop300 14.9→16.1; seed 2 unchanged) — the cav loses more herding
+  time collecting far kills than the meat pays; the civilians' far-side
+  dance also beats chasing crawl-fleers. Keep the 150-turn behavioral
+  fallback as the only no-flee detector.
 - The engine's gather **autocontinue** drifts pickers to the next supply
   without consulting the AI — pickers silently end up 100+ m from any
   dropsite. A periodic sweep that re-targets out-of-range gatherers is
@@ -310,3 +324,44 @@ and mistakes are not repeated. Short, dated, factual entries — newest first.
   phaseReady and pinned (seed 3).
 - Replay `commands.txt` does not contain AI commands in a greppable form —
   don't bother mining it for bot debugging; use in-mod telemetry prints.
+
+## 2026-08-21 — Louis's round-3 tips (audited one by one, kept only what paid)
+
+Protocol: implement each tip alone on the re-derived baseline (v71 band
+reverted, v70 kept: seed1 14.5/14.9, seed2 14.4/15.1, seed3 14.3/15.0,
+seed4 13.7/13.6, seed5 13.7/14.7), probe seeds 1-2, full batch when good.
+The session-start batch dirs were pre-v70, so their seed-3/5 numbers
+(14.4/14.7, 13.9/14.2) are not comparable — always re-derive the baseline
+from the current tree.
+
+- **Tip 1 (no-flee kill+collect): DISCARDED.** Making the cav collect its
+  in-place no-flee kills cost seed 1 pop300 14.9 → 16.1; the 150-turn
+  fallback fires on far kills whose collection eats more herding time than
+  the meat pays. Exempting one-hit animals (≤ 20 HP) from the civilians'
+  far-side dance also regressed (14.9 → 15.7): those crawl-fleers are best
+  herded like everything else. Keep the behavioral fallback as the only
+  no-flee detector.
+- **Tip 2 (cav collects its own kill before the next target): DISCARDED.**
+  Seeds 1-2 byte-identical (all kills are outside territory, already
+  collected), but seeds 3/5 pop300 +0.3/+0.5 — the lost herding time costs
+  more than the meat pays.
+- **Tip 3 (farmstead by a ≥300-food carcass clump in territory):
+  DISCARDED.** The trigger never fired on any of the 5 seeds — on mainland
+  temperate, starting chickens die at ~9 m from the CC (a food dropsite
+  already serves them), and herded kills get collected. Keep an eye out if
+  the map/biome changes.
+- **Tip 4 (concentrate miners on ONE mine per resource): KEPT — goal 7
+  now passes 5/5.** Pinned mine = nearest to the CC with supply, re-picked
+  when depleted/lost; findSupply prefers it until isFull() (24 gatherers
+  on large mines) spills to the nearest other. Effect: seed2 15.1→14.9,
+  seed3 15.0→14.8, seed5 pop 14.7→14.3, seed1 14.7/14.9, seed4 same —
+  city/pop300 all ≤ 15.0, determinism OK. The concentrated clump also
+  makes the mine-storehouse logic build ONE well-placed storehouse.
+- **Tip 5 (spread field workers to the least-crowded field): DISCARDED.**
+  Global least-crowded: seed1 pop300 14.9 → 15.1 (fails the deadline),
+  seeds 2/3 pop300 -0.3/-0.4 but goal NOT MET. A 25 m cluster-window
+  version was worse (city +0.7 on both probes). The extra walk to a
+  slightly emptier field costs more than the DR (0.9^n) gain; nearest-first
+  stays. The engine's gather autocontinue may still pile workers onto one
+  field after the AI's initial assignment — the fix, if any, belongs in
+  the anti-drift sweep, not in findSupply.

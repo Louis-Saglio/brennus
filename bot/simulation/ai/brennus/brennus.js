@@ -187,6 +187,9 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	// Cached in-territory fruit stock (updateWoodline refresh): berries out-
 	// rank fields while they last (Louis).
 	this.fruitStock = 0;
+	// Pinned mine per resource (Louis: concentrate all miners on ONE mine,
+	// like the woodline, until it is full — never spread over several).
+	this.mineId = this.savedState?.mineId || {};
 };
 
 BrennusBot.prototype.OnUpdate = function()
@@ -401,6 +404,18 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 			return best;
 		// No served fruit: fall through to the generic path (fields).
 	}
+	// Pinned mine first (Louis: concentrate miners on one mine until it is
+	// full — isFull() spills the surplus to the nearest other mine).
+	if ((resource === "stone" || resource === "metal") && this.mineId[resource] !== undefined)
+	{
+		const mine = this.gameState.getEntityById(this.mineId[resource]);
+		const minePos = mine?.position();
+		if (minePos && mine.resourceSupplyAmount() && !mine.isFull() &&
+			this.accessibility.getAccessValue(minePos) === region &&
+			!this.nearEnemy(minePos, 100, 60) &&
+			this.canGatherSupply(unit, mine))
+			return mine;
+	}
 	// filterNearest returns entities sorted nearest-first.
 	let candidates = this.gameState.getResourceSupplies(resource).filterNearest(pos, 10).toEntityArray();
 	if (resource === "food")
@@ -408,6 +423,11 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 		candidates = candidates.concat(this.gameState.getHuntableSupplies().filterNearest(pos, 10).toEntityArray());
 	const foodSites = resource === "food" ? this.foodDropsitePositions() : null;
 
+	// Note (Louis tip 5, v79/v80, discarded): spreading field workers to the
+	// least-crowded field was probed — global spread gave seed 1 pop300
+	// 14.9 -> 15.1, and a 25 m cluster-window version pushed city back ~0.7
+	// on both probe seeds. The extra walk costs more than the diminishing-
+	// returns gain; nearest-first stays.
 	for (const supply of candidates)
 	{
 		const supplyPos = supply.position();
@@ -479,14 +499,19 @@ BrennusBot.prototype.nearestFoodDropsite = function(pos)
  * Louis: the starting cavalry herds wild animals toward the CC instead of
  * hunting them in place — position behind the animal (opposite the CC) and
  * attack from there, so its flight carries it toward the base; civilians
- * collect the kill. Some animals don't flee when attacked (templates give
- * no reliable tell — every fauna inherits stance "passive"), so detect it
- * behaviorally: 30 s of attack without the animal getting closer to the CC
- * means stop repositioning and just kill it where it stands. A carcass
- * outside the territory is gathered by the cavalry itself (rate 5) —
- * civilians never leave the territory for meat (Louis). One herder, exempt
- * from the gatherer shares until no animals remain in range (then it joins
- * the economy).
+ * collect the kill. Which animals actually flee is source-verified
+ * (UnitAI.js g_Stances, 0.28.0): every alive huntable animal has stance
+ * passive or skittish, both respondFlee=true — ALL are ordered to flee when
+ * attacked, and the FLEEING state runs (WalkSpeed x 1.67) away from the
+ * attacker. What makes an animal effectively non-fleeing is dying before it
+ * can move (maxHitpoints <= 20 dies to the first javelin: chicken/rabbit/
+ * peacock/piglet), but treating those specially only regressed the boom
+ * (v75) — the behavioral fallback stays: 30 s of attack without the animal
+ * closing on the CC means stop repositioning and kill it where it stands. A
+ * carcass outside the territory is gathered by the cavalry itself (rate 5)
+ * — civilians never leave the territory for meat (Louis). One herder,
+ * exempt from the gatherer shares until no animals remain in range (then it
+ * joins the economy).
  */
 BrennusBot.prototype.manageHerding = function()
 {
@@ -523,6 +548,9 @@ BrennusBot.prototype.manageHerding = function()
 	{
 		// Carcass: civilians collect only inside the territory; further out
 		// the walk costs more than the meat pays — the cavalry gathers it.
+		// (Having the cavalry also collect in-territory kills was probed in
+		// v76: seeds 3/5 pop300 +0.3/+0.5 — the herding time lost costs
+		// more than the meat pays. Reverted.)
 		if (this.inOwnTerritory(target.position()[0], target.position()[1]))
 			target = undefined;
 		else
@@ -539,9 +567,9 @@ BrennusBot.prototype.manageHerding = function()
 	}
 	if (!target)
 	{
-		// Next animal: nearest to the CC, between 30 and 200 m out (160 m
-		// missed early game animals on sparser maps — seed 2 meat t=0-3 was
-		// 100 vs 330 on seed 1).
+		// Next animal: nearest to the CC, between 35 and 160 m out. (200 m
+		// probed as v71: both seeds regressed ~0.2 min — the long walks cost
+		// more than the extra targets pay.)
 		let best, bestD = Infinity;
 		for (const s of gameState.getHuntableSupplies().values())
 		{
@@ -551,7 +579,7 @@ BrennusBot.prototype.manageHerding = function()
 			if (this.accessibility.getAccessValue(pos) !== region || this.nearEnemy(pos, 100, 60))
 				continue;
 			const d = SquareDistance(pos, ccPos);
-			if (d < 30 * 30 || d > 200 * 200 || d >= bestD)
+			if (d < 35 * 35 || d > 160 * 160 || d >= bestD)
 				continue;
 			bestD = d;
 			best = s;
@@ -569,6 +597,14 @@ BrennusBot.prototype.manageHerding = function()
 		this.herdStartTurn = this.turn;
 		this.herdStartDist = Math.sqrt(bestD);
 		this.herdBestDist = this.herdStartDist;
+		// Source note (UnitAI.js g_Stances, 0.28.0): every alive huntable
+		// animal is passive or skittish → ALL are ordered to flee on attack;
+		// the FLEEING state runs at WalkSpeed x 1.67. "Non-fleeing" in
+		// practice = dying before it can move (maxHitpoints <= 20 dies to
+		// the first 18-pierce javelin: chicken/rabbit/peacock/piglet).
+		// Treating those specially was probed in v75 and regressed (see the
+		// carcass branch) — the behavioral fallback below stays the only
+		// detector.
 		this.herdNoFlee = false;
 	}
 	// Non-fleeing detection: 30 s (150 turns) of attack without the animal
@@ -644,6 +680,40 @@ BrennusBot.prototype.updateWoodline = function()
 			}
 		}
 		this.fruitStock = stock;
+	}
+	// Mine concentration (Louis: all miners on ONE mine per resource, like
+	// the woodline, until it can't take more gatherers — spreading miners
+	// over several mines spreads the storehouses thin too). The pin is the
+	// nearest mine to the CC; re-picked only when it is depleted or lost.
+	{
+		const cc = this.getCivicCentre();
+		if (cc)
+		{
+			const ccPos = cc.position();
+			for (const resource of ["stone", "metal"])
+			{
+				const pinned = this.mineId[resource] !== undefined ?
+					this.gameState.getEntityById(this.mineId[resource]) : undefined;
+				const pinnedPos = pinned?.position();
+				if (pinnedPos && pinned.resourceSupplyAmount() > 0 &&
+					!this.nearEnemy(pinnedPos, 100, 60))
+					continue;
+				let best, bestD = Infinity;
+				for (const s of this.gameState.getResourceSupplies(resource).values())
+				{
+					const pos = s.position();
+					if (!pos || !s.resourceSupplyAmount() || this.nearEnemy(pos, 100, 60))
+						continue;
+					const d = SquareDistance(pos, ccPos);
+					if (d < bestD)
+					{
+						bestD = d;
+						best = s.id();
+					}
+				}
+				this.mineId[resource] = best;
+			}
+		}
 	}
 	if (this.woodline)
 	{
@@ -2127,7 +2197,8 @@ BrennusBot.prototype.Serialize = function()
 		"herdStartTurn": this.herdStartTurn,
 		"herdStartDist": this.herdStartDist,
 		"herdBestDist": this.herdBestDist,
-		"herdNoFlee": this.herdNoFlee
+		"herdNoFlee": this.herdNoFlee,
+		"mineId": this.mineId
 	};
 };
 
