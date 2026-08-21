@@ -18,19 +18,21 @@ Goal 6 final numbers (details in `experiments/goal-06.md`): town 6.0–8.4,
 city 13.9–16.3, 26/26 techs at 27.1–28.9, traders 14–17, tradeIncome
 1358–1921, barter 500/356–393, pop 300, zero errors, determinism OK.
 
-**Next: goal 7 — defeat a sandbox Petra in under 40 in-game minutes.**
-The bot has no military logic at all yet (no barracks, no soldiers beyond
-the starting ones, no attacks). Sandbox Petra does not attack but DOES
-defend; `conquest_civic_centers` requires destroying/capturing its CC.
+**Next: goal 7 — boom: City Phase AND 300 population by 15 in-game
+minutes.** Trade/barter/full econ techs no longer required, but the bot
+keeps those abilities and may use them when they speed up the boom.
+Military goals were renumbered to 8+ in `docs/GOALS.md`.
+Harness changes: time-limit trigger 30 → 18 in-game min; new one-shot
+`[HARNESS] t=…m population=300` line (stats JSON has no timestamps).
 
 ## Verification protocol (Louis's instruction)
 
-- Iterate with a SINGLE seed run (`tmp/goal6/run1.sh <seed> [tag]`,
-  ~40 s wall). Run the full 6-run batch (`tmp/goal6/run.sh`, 5 seeds +
+- Iterate with a SINGLE seed run (`tmp/goal7/run1.sh <seed> [tag]`,
+  ~50 s wall). Run the full 6-run batch (`tmp/goal7/run.sh`, 5 seeds +
   seed-1 determinism rerun, 2 parallel waves) only when the single run
   looks good.
-- Analyze with `tmp/goal6/analyze.py` (stats JSON, HARNESS lines,
-  interestinglog ERRORs, determinism hash).
+- Analyze with `tmp/goal7/analyze.py` (city/pop300 milestone times vs the
+  15.0m deadline, stats JSON, interestinglog ERRORs, determinism hash).
 
 ## Known blemishes / ideas
 

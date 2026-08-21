@@ -218,7 +218,7 @@ BrennusBot.prototype.OnUpdate = function()
 		this.managePhaseUp();
 		this.manageTrade();
 		this.manageBarter();
-		// The time-limit trigger ends the game before the t=30m logStatus,
+		// The time-limit trigger ends the game before the final logStatus,
 		// so report completion of the tech tree as soon as it happens.
 		if (!this.allTechsLogged && this.econTechs.every(t => this.gameState.isResearched(t)))
 		{
@@ -231,6 +231,13 @@ BrennusBot.prototype.OnUpdate = function()
 	{
 		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m phase=${this.gameState.getPhaseName(phase)}\n`);
 		this.lastPhase = phase;
+	}
+	// Goal-7 telemetry: the boom deadline is measured on this line and the
+	// phase line above (end-of-game statistics carry no timestamps).
+	if (!this.pop300Logged && this.gameState.getPopulation() >= 300)
+	{
+		this.pop300Logged = true;
+		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m population=300\n`);
 	}
 	if (this.turn % 1500 === 0)
 		this.logStatus();
