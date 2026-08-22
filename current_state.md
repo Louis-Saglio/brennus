@@ -135,6 +135,22 @@ determinism OK. Confirmation on 10 fresh seeds (11-20): city 14.17 vs
 breaks ≤ 15.0. Details: `experiments/goal-07.md` (combined food pool
 sections) + LESSONS_LEARNED.
 
+## Herding distance re-probed — SHIPPED 200 m band, nearest-first
+
+Louis asked to extend the herdable distance again (the food pool should
+make it free) and find the herd/collect compromise. Three knobs added to
+`manageHerding`: `herdMax=200` (probed 200/240/280 — 200 is the sweet
+spot: meat gains with no measurable boom cost; beyond, metrics go
+flat-to-worse), `herdCutoff=200` (herding wins at EVERY distance: chasing
+a far skittish pushes the kill ~50 m further out and the cavalry's
+collection round trips dwarf the steer — 1 vs 6 far deer on seed 5; only
+non-fleeing animals are collect-mode), `herdPrefer=false` (preferring
+herdables over nearer chickens cost seed 5 city +0.5). Fresh-seed paired
+deltas (11-20): city -0.03 ± 0.28, pop300 +0.02 ± 0.42 — v71's pre-pool
+regression is gone. Seed 11 outlier (pop300 15.2): one 182 m sheep →
+town-bank cascade; seeds 1-5 all ≤ 15.0. Details:
+`experiments/goal-07.md` (herding distance section) + LESSONS_LEARNED.
+
 ## Next up (goal 8: defeat sandbox Petra < 40 in-game min)
 
 Tier 3 begins: `experiments/goal-08.md` doesn't exist yet — create it and

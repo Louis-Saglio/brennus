@@ -31,7 +31,10 @@ import { BaseAI } from "simulation/ai/common-api/baseAI.js";
  *   place and collected by the cavalry itself, one at a time; fast fleers
  *   (deer/gazelle) are wounded once, then steered toward the nearest food
  *   dropsite and killed there — in-territory kills go to the civilians,
- *   outside-territory ones the cavalry collects itself.
+ *   outside-territory ones the cavalry collects itself. The band reaches
+ *   200 m from the CC (probed 200/240/280; 200 is the sweet spot): the
+ *   food pool makes far kills pay, and herding beats collecting at every
+ *   distance (see the herdMax/herdCutoff/herdPrefer constants).
  * - Trade/barter stay available: a market is part of the town trio, and
  *   surplus wood is bartered for the stone/metal the city phase needs.
  *
@@ -158,6 +161,25 @@ BrennusBot.prototype.houseMargin = 16;
  * 3, not more: each foundation pulls 4 gatherers as builders, and the house
  * order rate must stay below the wood income so trio/techs see a surplus. */
 BrennusBot.prototype.maxHouseFoundations = 4;
+/** Furthest animal the herder targets, from the CC (m). Probed 200/240/280
+ * (2026-08-22): 200 captures the meat gains at no measurable boom cost;
+ * beyond, the extra targets pay but the metrics go flat-to-worse (seed 3
+ * city 14.1/14.3/14.6 at 200/240/280). v71's 200 m regression (-0.2 min)
+ * was BEFORE the food pool — in-territory kills now feed civilians
+ * immediately, which is what makes the extension cheap. */
+BrennusBot.prototype.herdMax = 200;
+/** Skittish animals beyond this distance (m) are not herded: killed in place
+ * and collected by the cavalry, like the non-fleeing animals. Probed (140/
+ * 160/200 vs 280): herding WINS at every distance — the chase pushes the
+ * carcass ~50 m farther out and the cavalry's collection round trips cost
+ * far more than the steer (1 vs 6 far deer processed on seed 5). Set equal
+ * to herdMax: everything in the band is herded. */
+BrennusBot.prototype.herdCutoff = 200;
+/** Prefer herdable targets (skittish within the cutoff) over nearer
+ * collectable ones. Probed (2026-08-22): the preference redirected the
+ * herder from 37 m chickens to 127 m deer and cost seed 5 city +0.5 min —
+ * nearest-first stays. */
+BrennusBot.prototype.herdPrefer = false;
 
 BrennusBot.prototype.CustomInit = function(gameState)
 {
@@ -196,6 +218,7 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.herdBestDist = Infinity;
 	this.herdWoundTurn = this.savedState?.herdWoundTurn || 0;
 	this.herdFast = this.savedState?.herdFast || false;
+	this.herdKill = this.savedState?.herdKill || false;
 	this.herdLastPos = this.savedState?.herdLastPos;
 	// Cached in-territory fruit stock (updateWoodline refresh): berries out-
 	// rank fields while they last (Louis).
@@ -526,29 +549,35 @@ BrennusBot.prototype.nearestFoodDropsite = function(pos)
 };
 
 /**
- * Hunting, split by how fast the animal flees (Louis's strategy):
- * - Slow animals (passive-stance domestics — chicken/sheep/pig — crawl when
- *   fleeing, source-verified: flee speed = WalkSpeed x 1.67, so 1.6-4.7 m/s):
- *   killed in place with no positioning, and the cavalry collects each
- *   carcass fully BEFORE moving to the next — one at a time, never batch
- *   kills left behind.
- * - Fast fleers (skittish — deer/gazelle at 6.3 m/s): wound-then-steer
- *   (Louis's idea). A wounded animal flees directly away from its attacker
- *   and keeps fleeing while the attacker stays within the flee distance
- *   (UnitAI.js FLEEING: distanceToFlee = distance at wound time +
- *   FleeDistance 24, fixed at enter — the order only finishes when the
- *   animal reaches that range). So the cav shoots ONCE from the far side,
- *   then follows closely without attacking: the animal's flight carries it
- *   to the nearest food dropsite, where the kill shot lands (a deer is left
- *   at 7/25 HP by the first javelin). Killed inside the territory they are
- *   left to the civilians, killed outside the cavalry gathers the carcass
- *   itself.
+ * Hunting, two target classes (Louis's strategy):
+ * - Herd (preferred): skittish animals (deer/gazelle at 6.3 m/s) up to the
+ *   herd cutoff. Wound-then-steer (Louis's idea): a wounded animal flees
+ *   directly away from its attacker and keeps fleeing while the attacker
+ *   stays within the flee distance (UnitAI.js FLEEING: distanceToFlee =
+ *   distance at wound time + FleeDistance 24, fixed at enter — the order
+ *   only finishes when the animal reaches that range). So the cav shoots
+ *   ONCE from the far side, then follows closely without attacking: the
+ *   animal's flight carries it to the nearest food dropsite, where the kill
+ *   shot lands (a deer is left at 7/25 HP by the first javelin). Killed
+ *   inside the territory they are left to the civilians (the food pool
+ *   collects them like berries), killed outside the cavalry gathers the
+ *   carcass itself. Stall detection (stopped fleeing, or 30 s without
+ *   closing on the dropsite) falls back to killing in place.
+ * - Collect: non-fleeing animals (passive-stance domestics — chicken/sheep/
+ *   pig — crawl when fleeing, source-verified: flee speed = WalkSpeed x
+ *   1.67, so 1.6-4.7 m/s) anywhere in the band, AND skittish animals
+ *   beyond the herd cutoff (too far to steer home — Louis: prefer
+ *   collecting when the herdable is too far). Killed in place with no
+ *   positioning (the attack pursuit chases the far fleer down) and the
+ *   cavalry collects each carcass fully BEFORE moving to the next — one at
+ *   a time, never batch kills left behind.
  * Civilians collect served in-territory carcasses exactly like berries
  * (findSupply's combined food pool); they never leave the territory for
  * meat (Louis).
  * One herder, exempt from the gatherer shares until no animals remain in
- * range (then it joins the economy). Stall detection (stopped fleeing, or
- * 30 s without closing on the dropsite) falls back to killing in place.
+ * range (then it joins the economy). Targets are picked in two passes:
+ * nearest herdable first, nearest collectable otherwise — herding wins
+ * unless every skittish animal sits beyond the cutoff.
  */
 BrennusBot.prototype.manageHerding = function()
 {
@@ -608,7 +637,7 @@ BrennusBot.prototype.manageHerding = function()
 			target = best;
 			this.herdTarget = target.id();
 			const tp = target.position();
-			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m adopted carcass ${target.templateName()} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} herdFast=${this.herdFast}\n`);
+			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m adopted carcass ${target.templateName()} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} mode=${this.herdKill ? "collect" : "herd"}\n`);
 		}
 	}
 	if (target && !target.get("Health"))
@@ -617,13 +646,14 @@ BrennusBot.prototype.manageHerding = function()
 		{
 			this.huntDbgLog = true;
 			const tp = target.position();
-			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m carcass ${target.templateName()} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} herdFast=${this.herdFast} inTerr=${this.inOwnTerritory(tp[0], tp[1])}\n`);
+			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m carcass ${target.templateName()} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} mode=${this.herdKill ? "collect" : "herd"} inTerr=${this.inOwnTerritory(tp[0], tp[1])}\n`);
 		}
-		// Carcass: slow kills are ALWAYS collected by the cavalry, fully,
-		// before the next animal (one at a time — Louis); fast kills only
-		// when they landed outside the territory (in-territory ones are the
-		// civilians' — see the findSupply carcass branch).
-		if (!this.herdFast || !this.inOwnTerritory(target.position()[0], target.position()[1]))
+		// Carcass: collect-mode kills (non-fleeing animals, far skittish) are
+		// ALWAYS collected by the cavalry, fully, before the next animal (one
+		// at a time — Louis); herd-mode kills only when they landed outside
+		// the territory (in-territory ones are the civilians' — see the
+		// findSupply food pool).
+		if (this.herdKill || !this.inOwnTerritory(target.position()[0], target.position()[1]))
 		{
 			if (this.turn >= this.herdCmdTurn)
 			{
@@ -638,24 +668,38 @@ BrennusBot.prototype.manageHerding = function()
 	}
 	if (!target)
 	{
-		// Next animal: nearest to the CC, between 35 and 160 m out. (200 m
-		// probed as v71: both seeds regressed ~0.2 min — the long walks cost
-		// more than the extra targets pay.)
-		let best, bestD = Infinity;
-		for (const s of gameState.getHuntableSupplies().values())
-		{
-			const pos = s.position();
-			if (!pos || !s.get("Health") || !s.isHuntable())
-				continue;
-			if (this.accessibility.getAccessValue(pos) !== region || this.nearEnemy(pos, 100, 60))
-				continue;
-			const d = SquareDistance(pos, ccPos);
-			if (d < 35 * 35 || d > 160 * 160 || d >= bestD)
-				continue;
-			bestD = d;
-			best = s;
-		}
-		target = best;
+		// Next animal. Two classes (Louis: prefer herding in general, collect
+		// when the herdable is too far): herdables = skittish animals within
+		// the herd cutoff (wound-then-steer); collectables = non-fleeing
+		// animals anywhere in the band and skittish beyond the cutoff (killed
+		// in place, cavalry collects). With herdPrefer the nearest herdable
+		// wins over nearer collectables; otherwise it is plain nearest-first
+		// and the cutoff only picks the treatment. The band is 35 to herdMax m
+		// from the CC. (200 m was probed as v71 and regressed ~0.2 min —
+		// before the food pool, when in-territory kills sat uncollected until
+		// the berries ran out.)
+		const nearest = herdableOnly => {
+			let best, bestD = Infinity;
+			for (const s of gameState.getHuntableSupplies().values())
+			{
+				const pos = s.position();
+				if (!pos || !s.get("Health") || !s.isHuntable())
+					continue;
+				if (this.accessibility.getAccessValue(pos) !== region || this.nearEnemy(pos, 100, 60))
+					continue;
+				const d = SquareDistance(pos, ccPos);
+				if (d < 35 * 35 || d > this.herdMax * this.herdMax || d >= bestD)
+					continue;
+				const skittish = s.get("UnitAI/DefaultStance") === "skittish";
+				if (herdableOnly &&
+					!(skittish && d <= this.herdCutoff * this.herdCutoff))
+					continue;
+				bestD = d;
+				best = s;
+			}
+			return best;
+		};
+		target = (this.herdPrefer ? nearest(true) : undefined) || nearest(false);
 		this.herdTarget = target?.id();
 		if (!target)
 		{
@@ -666,7 +710,7 @@ BrennusBot.prototype.manageHerding = function()
 		}
 		this.herdCmdTurn = 0;
 		this.herdStartTurn = this.turn;
-		this.herdStartDist = Math.sqrt(bestD);
+		this.herdStartDist = Math.sqrt(SquareDistance(target.position(), ccPos));
 		this.herdBestDist = this.herdStartDist;
 		this.herdWoundTurn = 0;
 		this.huntDbgLog = false;
@@ -676,17 +720,19 @@ BrennusBot.prototype.manageHerding = function()
 		// are skittish too but die to the first javelin — herded like any
 		// fast animal, which is harmless: they die where they stand.
 		this.herdFast = target.get("UnitAI/DefaultStance") === "skittish";
+		this.herdKill = !this.herdFast || this.herdStartDist > this.herdCutoff;
 		this.herdLastPos = target.position();
 		{
 			const tp = target.position();
-			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m target ${target.templateName()} ${this.herdFast ? "fast" : "slow"} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} dist=${Math.sqrt(bestD).toFixed(0)}\n`);
+			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m target ${target.templateName()} ${this.herdKill ? "collect" : "herd"} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} dist=${this.herdStartDist.toFixed(0)}\n`);
 		}
 	}
-	if (!this.herdFast)
+	if (this.herdKill)
 	{
-		// Slow animal: kill in place, no positioning — it barely moves while
-		// dying, and the carcass branch above makes the cavalry collect it
-		// right after. Re-attack at most every 10 turns until it dies.
+		// Collect mode: kill in place, no positioning — a non-fleeing animal
+		// barely moves while dying, a far skittish is chased down by the
+		// attack pursuit. The carcass branch above makes the cavalry collect
+		// it right after. Re-attack at most every 10 turns until it dies.
 		this.herdLastPos = target.position();
 		if (this.turn >= this.herdCmdTurn)
 		{
@@ -695,13 +741,13 @@ BrennusBot.prototype.manageHerding = function()
 		}
 		return;
 	}
-	// Fast fleer: wound-then-steer (Louis). The wounded animal flees away
-	// from the attacker and keeps fleeing while the attacker stays within
-	// the flee distance — so shoot once from the far side, then follow
-	// closely without attacking, and kill once the animal is near the
-	// nearest food dropsite. One javelin leaves a deer at 7/25 HP: the kill
-	// shot is the last re-aim. Stall (stopped fleeing, or 30 s without
-	// closing 10 m on the dropsite) → kill in place.
+	// Herd mode: skittish within the cutoff, wound-then-steer (Louis). The
+	// wounded animal flees away from the attacker and keeps fleeing while
+	// the attacker stays within the flee distance — so shoot once from the
+	// far side, then follow closely without attacking, and kill once the
+	// animal is near the nearest food dropsite. One javelin leaves a deer
+	// at 7/25 HP: the kill shot is the last re-aim. Stall (stopped fleeing,
+	// or 30 s without closing 10 m on the dropsite) → kill in place.
 	const pos = target.position();
 	this.herdLastPos = pos;
 	const drop = this.nearestFoodDropsite(pos);
@@ -2441,6 +2487,7 @@ BrennusBot.prototype.Serialize = function()
 		"herdBestDist": this.herdBestDist,
 		"herdWoundTurn": this.herdWoundTurn,
 		"herdFast": this.herdFast,
+		"herdKill": this.herdKill,
 		"herdLastPos": this.herdLastPos,
 		"mineId": this.mineId
 	};

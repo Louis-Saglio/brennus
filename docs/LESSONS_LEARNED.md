@@ -3,6 +3,39 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-22 — Herding distance re-probed: 200 m band, herding beats collecting at every distance (SHIPPED)
+
+Louis: extend the herdable distance again (v71's 200 m probe regressed
+~0.2 min pre-food-pool) and find the herd-vs-collect compromise. Matrix:
+herdMax ∈ {200, 240, 280} × herdCutoff ∈ {140, 160, 200, 240, 280} ×
+herdPrefer {true, false}, seeds 1-5 + fresh 11-20. Verdicts:
+
+- **v71 reversed — the food pool made the extension cheap.** Nearest-first
+  at 200 m: paired fresh-seed deltas city -0.03 ± 0.28, pop300 +0.02 ± 0.42
+  (n=10) — no measurable boom cost, big meat gains (seed 3: 30→38 hunt
+  events at 200 m, seed 4: 24→54). 240/280 add more meat but the metrics go
+  flat-to-worse (seed 3 city 14.1 / 14.3 / 14.6 at 200/240/280).
+- **Herding wins at EVERY distance — the collect-far-skittish cutoff loses.**
+  A chased skittish flees ~50 m FURTHER out before dying (kill at 235 m from
+  a 201 m target, seed 5), and the cavalry's collection = capacity-20 trips
+  (5 × 250 m round trips) while a steer walks the animal home in ~0.25 min
+  with the kill in-territory → civilians. Seed 5: cutoff=200 processed ONE
+  far deer vs SIX herded at 200-257 m — all six steered kills landed
+  inTerr=true and fed the pool. Slow animals stay collect-mode (they crawl,
+  the kill stays put).
+- **herdPrefer (herdables over nearer collectables) loses.** It redirected
+  the herder from 37 m chickens to 127 m deer and cost seed 5 city +0.5 min
+  (14.2 vs 13.7) with pop300 only -0.1. Nearest-first stays.
+- Seed 11 is the extension's outlier: 14.3/14.1 → 14.8/15.2 at 200 m (and
+  14.9/15.2 at 240). Mechanism: ONE sheep at 182 m; the extra meat shifted
+  the town bank to 5.9 m (vs 6.5), the trio drained wood to 98, the field
+  branch starved (fields 4 vs 6 at t=8), grain collapsed (t=13 window
+  -43%), pop300 15.2. Same hard-bank cascade class as the seed-4 pure-pool
+  case; the 5-seed goal-7 batch is unaffected (seed 1-5 all ≤ 15.0).
+- Cavalry gather facts: meat rate 5.0, capacity 20 (template_unit_cavalry)
+  — 5 round trips per 100-meat carcass; this is why collection walks are
+  the expensive half, not the kill.
+
 ## 2026-08-22 — Combined food pool: fruit + in-territory carcasses (Louis's rule, SHIPPED with herder carve-out)
 
 Engine facts verified against the pinned 0.28.0 copy first:

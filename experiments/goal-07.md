@@ -270,3 +270,40 @@ mean 14.17 vs the recorded 14.21 baseline (-0.04), pop300 13.74 vs 13.82
 worst pop300 14.1). The rule ships at no measurable cost on unseen seeds.
 Run tags: `carve-s1/s5` (probes), `carve-seed1..5` + `carve-seed1-rerun`
 (batch), `carve-fresh-11..20` (fresh-seed confirmation).
+
+## Herding distance re-probe (2026-08-22): 200 m band, herd-vs-collect verdict (SHIPPED)
+
+Louis: extend the herdable distance again — the food pool should make it
+free now — and find the herd/collect compromise by distance. `manageHerding`
+gained three knobs: `herdMax` (band), `herdCutoff` (skittish beyond it are
+killed+collected instead of steered) and `herdPrefer` (herdables over
+nearer collectables).
+
+Matrix probed (seeds 1 & 5 first, then focused runs; zero JS errors
+everywhere, determinism verified):
+
+- Pure extension, nearest-first: 200 m is the sweet spot. Seeds 1-5:
+  city/pop300 14.6/15.1, 14.5/14.4, 14.1/13.6, 12.7/13.9, 13.7/13.5
+  (baseline 14.6/15.1, 14.5/14.4, 14.4/13.6, 13.3/13.6, 13.7/13.5) — mean
+  city -0.18, pop300 +0.06, hunt events 34→38 (s3), 24→54 (s4). 240/280
+  add meat but flat-to-worse metrics (s3 city 14.1/14.3/14.6).
+- herdPrefer=true: seed 5 city 14.2 (+0.5 vs 13.7) — the herder left the
+  37 m chickens for the 127 m deer; discarded, nearest-first stays.
+- herdCutoff < herdMax (collect far skittish): LOSES. Seed 5, cutoff 200:
+  ONE far deer processed vs SIX herded — the chase pushes the kill ~50 m
+  farther out and the cavalry's 5 × capacity-20 collection trips dwarf the
+  steer (which walks the animal home in ~0.25 min, kill in-territory →
+  civilians). Herding wins at every distance; the cutoff stays equal to
+  herdMax (only non-fleeing animals are collect-mode).
+
+Paired fresh-seed confirmation (11-20, never iterated, c4 = 200 m
+nearest-first vs the carve-fresh baseline): city deltas +0.5/0.0/+0.1/
+0.0/-0.5/-0.1/0.0/+0.1/0.0/0.0 (mean -0.03 ± 0.28), pop300 +1.1/0.0/
+-0.5/-0.3/-0.4/0.0/0.0/+0.2/0.0/+0.1 (mean +0.02 ± 0.42) — no measurable
+boom impact, more meat everywhere. Seed 11 is the outlier (14.8/15.2 vs
+14.3/14.1): a single sheep at 182 m shifted the town bank to 5.9 m, the
+trio drained wood under the field branch (fields 4 vs 6 at t=8), grain
+collapsed, pop300 15.2 — the known hard-bank cascade class, not a
+systematic cost. The goal-7 batch (seeds 1-5) holds ≤ 15.0 everywhere.
+Run tags: `a1/a2/a3`, `b1/b2/b3`, `c1..c4` (+ `-sN`, `-fresh-NN`).
+
