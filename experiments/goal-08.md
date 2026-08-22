@@ -75,14 +75,14 @@ Zero JS errors on all 5 seeds; boom bars intact (city 12.9-15.0, pop300
 
 | seed | city | pop300 | map% | food | wood | stone | metal |
 |---|---|---|---|---|---|---|---|
-| 1 | 14.6 | 14.6 | 93 | 52491 | 39351 | 19876 | 19815 |
-| 2 | 15.0 | 14.1 | 77 | 86353 | 35719 | 14772 | 20183 |
-| 3 | 14.3 | 14.0 | 86 | 60765 | 38779 | 19234 | 19508 |
-| 4 | 12.9 | 14.0 | 74 | 68364 | 40695 | 15068 | 16005 |
-| 5 | 14.2 | 13.4 | 93 | 89149 | 36682 | 11968 | 12360 |
+| 1 | 14.6 | 14.6 | 93 | 51971 | 40652 | 19447 | 19726 |
+| 2 | 15.0 | 14.1 | 77 | 86293 | 36638 | 14757 | 19444 |
+| 3 | 14.3 | 14.0 | 86 | 61461 | 39737 | 19149 | 19381 |
+| 4 | 12.9 | 14.0 | 74 | 68279 | 42786 | 14761 | 15409 |
+| 5 | 14.2 | 13.4 | 93 | 89324 | 38771 | 12575 | 12670 |
 
 **Territory: PASSED (≥ 70% on all 5 seeds, 74-93%). Boom: PASSED.
-Determinism: PASSED. Resources: food ✓ 50k+ everywhere; wood ~36-41k;
+Determinism: PASSED. Resources: food ✓ 50k+ everywhere; wood ~37-43k;
 stone ~12-20k; metal ~12-20k — the 50000 bars are NOT met, and the
 stone/metal ones cannot be: the map holds ~28k stone / ~40k metal in
 total (see the census above), so even mining every deposit plus the

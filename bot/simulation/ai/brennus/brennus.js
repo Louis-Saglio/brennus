@@ -3104,9 +3104,12 @@ BrennusBot.prototype.expansionShares = function(total)
 		shares[res] = Math.min(0.31, served[res] / (rate * timeLeft) / total);
 		mining += shares[res];
 	}
-	if (mining > 0.46)
+	// The mining cap is the wood lever: the map's deposits (~28k stone /
+	// ~40k metal) are far under the 50k bars anyway, so every worker moved
+	// from mining to wood trades unreachable stockpile for reachable one.
+	if (mining > 0.42)
 	{
-		const scale = 0.46 / mining;
+		const scale = 0.42 / mining;
 		shares.stone *= scale;
 		shares.metal *= scale;
 		mining = 0.46;
