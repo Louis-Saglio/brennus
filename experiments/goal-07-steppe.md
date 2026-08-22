@@ -396,3 +396,20 @@ Remaining churn (mineClump/destroyed spikes on s4/f11-f13) is all
 post-metric (t > 15 m): the 300-pop wood/miner spread eats clusters
 faster than storehouses can be built — a separate late-game phenomenon.
 
+## Rush-build the woodline storehouses (Louis, 2026-08-22) — SHIPPED
+
+Louis, watching the bot: the storehouse isn't rebuilt closer when the
+woodline moves away — because choppers always walk over the new
+foundation and its construction can never start. Engine-verified: an
+uncommitted foundation's `Commit()` fails while units stand on it
+(`Foundation.js` / `GetEntitiesBlockingConstruction`), and a busy
+woodline starves it indefinitely. Fix: the rebuilds' foundations get
+the wood choppers as builders (up to 8, nearest first) — traffic stops,
+build goes up fast. The initial storehouse is NOT rushed (t=0 has no
+traffic; probed, regressed temperate s1 pop300 +0.4).
+
+Validation (sh10 tags, zero JS errors, deterministic): temperate
+14.6/14.6, 15.0/14.1, 14.3/14.2, 12.9/14.1, 14.4/13.4 (bar holds);
+steppe tuned mean max **14.72** (15.4, 14.3, 14.5, 14.3, 15.1); fresh
+11-15 mean **14.68** (13.8, 14.8, 14.2, 14.3, 16.3) — neutral-to-
+slightly-positive vs the pre-rush state (14.90/14.64).

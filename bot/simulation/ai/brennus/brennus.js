@@ -208,6 +208,11 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.builderAssignments = this.savedState?.builderAssignments || {};
 	// Construct orders awaiting their foundation: [{template, x, z, turn}].
 	this.pendingBuilds = this.savedState?.pendingBuilds || [];
+	// Woodline storehouses that want the choppers as builders (Louis): the
+	// commit of a foundation is blocked while units stand on it, and a busy
+	// woodline always has a chopper crossing it — ordering the choppers to
+	// build stops the traffic AND builds fast. [{x, z, turn}].
+	this.rushBuilds = this.savedState?.rushBuilds || [];
 	// [x, z] spots where a construct command failed; never retried.
 	this.failedSpots = this.savedState?.failedSpots || [];
 	// Gather-rate telemetry (Louis's dropsite verification: effective rate
@@ -1522,12 +1527,19 @@ BrennusBot.prototype.manageConstruction = function()
 	for (const ids of Object.values(assigned))
 		for (const id of ids)
 			taken.add(id);
+	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
 	for (const foundation of foundations)
 	{
 		const built = gameState.getBuiltTemplate(foundation.templateName());
 		const isField = built.hasClass("Field");
 		const isHouse = built.hasClass("House");
-		const target = (isField ? 2 : isHouse ? (this.gameState.currentPhase() === 1 ? 2 : 3) : 4);
+		const fpos = foundation.position();
+		// Louis (2026-08-22): a woodline storehouse foundation whose commit is
+		// starved by chopper traffic — units standing on a foundation block
+		// its construction start (Foundation.js Commit). The wood choppers
+		// become its builders: the traffic stops AND it goes up fast.
+		const rush = this.rushBuilds.some(r => Math.abs(r.x - fpos[0]) < 6 && Math.abs(r.z - fpos[1]) < 6);
+		const target = (isField ? 2 : isHouse ? (this.gameState.currentPhase() === 1 ? 2 : 3) : rush ? 8 : 4);
 		let cur = assigned[foundation.id()];
 		if (!cur)
 			cur = assigned[foundation.id()] = [];
@@ -1537,8 +1549,11 @@ BrennusBot.prototype.manageConstruction = function()
 		const builders = gameState.getOwnUnits()
 			.filter(ent => ent.isGatherer() && ent.isBuilder() && ent.position() &&
 				!(ent.id() === this.herderId && !this.herdingDone) &&
-				!taken.has(ent.id()))
-			.filterNearest(foundation.position(), needed);
+				!taken.has(ent.id()) &&
+				(!rush || this.assignments[ent.id()] === "wood"))
+			.filterNearest(fpos, needed);
+		if (rush && !cur.length)
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m rush-building storehouse at ${fpos[0].toFixed(0)},${fpos[1].toFixed(0)} (${needed} wood choppers)\n`);
 		for (const unit of builders.values())
 		{
 			cur.push(unit.id());
@@ -1546,6 +1561,14 @@ BrennusBot.prototype.manageConstruction = function()
 			unit.repair(foundation);
 		}
 	}
+	// Rush markers die with their storehouse (built structure at the spot)
+	// or after 200 turns (the order failed; failedSpots blacklists the spot).
+	this.rushBuilds = this.rushBuilds.filter(r => {
+		const done = gameState.getOwnStructures().toEntityArray().some(s =>
+			s.templateName() === storeType && s.position() &&
+			Math.abs(s.position()[0] - r.x) < 6 && Math.abs(s.position()[1] - r.z) < 6);
+		return !done && this.turn - r.turn < 200;
+	});
 
 	// Track construct orders: success once the foundation exists at the
 	// ordered spot; on timeout blacklist the spot (rejected orders used to
@@ -2013,7 +2036,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 30) ||
 				storePending(center);
 			const pos = resources.wood >= woodFloor + trioWood && !planned &&
-				this.tryConstruct(storeType, "dropsite", center);
+				this.tryConstruct(storeType, "dropsite", center, true);
 			if (pos)
 			{
 				resources.subtract({ "wood": 100 });
@@ -2303,7 +2326,11 @@ BrennusBot.prototype.manageBarter = function()
 BrennusBot.prototype.placeWoodStorehouse = function(type)
 {
 	const spot = this.woodlineDropSpot();
-	return spot ? this.tryConstruct(type, "dropsite", spot) : false;
+	// No rush for the first storehouse: at bootstrap time there is no
+	// chopper traffic to block the commit, and drafting every chopper at
+	// t=0 delayed the whole boom (temperate s1 pop300 14.6 -> 15.0). The
+	// rebuilds (manageDropSites wood branch) are the traffic cases.
+	return spot ? this.tryConstruct(type, "dropsite", spot, false) : false;
 };
 
 /**
@@ -2422,7 +2449,7 @@ BrennusBot.prototype.findMinimaxSpot = function(templateType, points, region)
 	return best;
 };
 
-BrennusBot.prototype.tryConstruct = function(templateType, kind, center)
+BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 {
 	const cc = this.getCivicCentre();
 	if (!cc)
@@ -2453,17 +2480,21 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center)
 		pos = this.findBuildingPosition(templateType, ccPos, 12, 120, true, region);
 	if (!pos)
 		return false;
-	return this.placeOrder(templateType, pos) ? pos : false;
+	return this.placeOrder(templateType, pos, rush) ? pos : false;
 };
 
-/** Send the nearest unit to build templateType at pos; track the order. */
-BrennusBot.prototype.placeOrder = function(templateType, pos)
+/** Send the nearest unit to build templateType at pos; track the order.
+ * rush: the choppers will be drafted as builders once the foundation exists
+ * (woodline storehouses — see rushBuilds). */
+BrennusBot.prototype.placeOrder = function(templateType, pos, rush)
 {
 	const builder = this.gameState.getOwnUnits().filterNearest(pos, 1).toEntityArray()[0];
 	if (!builder)
 		return false;
 	builder.construct(templateType, pos[0], pos[1], this.getPlacementAngle(), undefined);
 	this.pendingBuilds.push({ "template": templateType, "x": pos[0], "z": pos[1], "turn": this.turn });
+	if (rush)
+		this.rushBuilds.push({ "x": pos[0], "z": pos[1], "turn": this.turn });
 	return true;
 };
 

@@ -3,6 +3,40 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-22 — Foundation commit blocked by unit traffic; rush-build the woodline storehouses (Louis, SHIPPED)
+
+Louis's in-game observation: the woodline storehouse is not rebuilt when
+the woodline moves away. He guessed why: choppers constantly walk over
+the new foundation, so construction never starts — and proposed
+drafting the woodline choppers as its builders. Engine-verified and
+implemented:
+
+- **The mechanic is real** (`public/simulation/components/Foundation.js`):
+  an uncommitted foundation blocks NO movement (line 10), but
+  `Foundation.Build` calls `Commit()` on every builder work tick, and
+  `Commit()` returns false while `GetEntitiesBlockingConstruction()`
+  finds units on the footprint (C++ `CCmpObstruction.cpp` — unit shapes
+  with FLAG_BLOCK_CONSTRUCTION). Each failed commit orders the blockers
+  off (`Order.LeaveFoundation`, 4 m) — but on a busy woodline another
+  chopper is already crossing, so the commit can be starved
+  indefinitely. Builders themselves don't block (the sweep sends the
+  choppers `repair`, they stand at the foundation and build).
+- **Fix (rush-build)**: wood-branch storehouse rebuilds are marked
+  `rushBuilds`; once the foundation exists, the builder sweep drafts up
+  to 8 wood-assigned choppers as its crew. Traffic stops AND the build
+  finishes fast. Markers die with the built structure or after 200
+  turns.
+- **Do NOT rush the initial storehouse**: probed, regressed temperate s1
+  pop300 14.6 → 15.0 — at t=0 there is no traffic to unblock, and
+  drafting every chopper delays the whole bootstrap. Rebuilds only.
+- The foundation entity exists from the moment the construct command is
+  placed (the rush print at t=0.0 confirms), not when the first builder
+  arrives — the bot's 50-turn construct timeout measures builder
+  arrival/commit, not foundation creation.
+- Batch (sh10): temperate all ≤ 15.0 (mean 14.24/14.08), steppe tuned
+  mean max 14.72, fresh 14.68 — neutral-to-slightly-positive, zero JS
+  errors, deterministic.
+
 ## 2026-08-22 — Storehouse remarks 4/5/6 (Louis, SHIPPED)
 
 Follow-ups: rebuild on the receding woodline (composes out of rules
