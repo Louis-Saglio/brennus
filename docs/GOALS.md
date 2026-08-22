@@ -63,35 +63,47 @@ wall time.
    a score of 14.5 for the metric, and temperate must keep the goal-7 bar:
    pop300 AND city ≤ 15 min on its own 5-seed batch.
 
-## Tier 3 — Basic military (single opponent)
+## Tier 3 — Territory expansion (opponent: sandbox)
 
-8. **Defeat a sandbox Petra** (difficulty 0) in under 40 in-game minutes.
-9. **Survive 60 in-game minutes** against a very easy Petra (difficulty 1)
-   without losing the civic center.
-10. **Defeat a very easy Petra** in under 60 in-game minutes.
-11. **Defeat a very easy Petra** in under 30 in-game minutes.
+8. **Expand the base**: boom first — **City Phase AND 300 population by 15
+   in-game minutes** (the goal-7 bar: `max(pop300, city) ≤ 15`), then spread
+   across the map. By **30 in-game minutes**, control **at least 70% of the
+   map** (statistics `percentMapControlled`, the share of passable map
+   connected to the bot's roots) and have **at least 50000 stockpiled of
+   each resource** — food, wood, stone, metal (statistics `resourcesCount`).
+   Stockpiles and borders are not monotone, so the match must end at the
+   30-minute mark (in-mod time-limit trigger): the end-of-game statistics
+   then snapshot the 30-minute state.
 
-## Tier 4 — Escalating difficulty (single opponent)
+## Tier 4 — Basic military (single opponent)
 
-12. **Survive 60 in-game minutes** against an easy Petra (difficulty 2).
-13. **Defeat an easy Petra** in under 60, then under 30 in-game minutes.
-14. **Survive 60 in-game minutes** against a medium Petra (difficulty 3).
-15. **Defeat a medium Petra** in under 60, then under 30 in-game minutes.
-16. **Survive 60 in-game minutes** against a hard Petra (difficulty 4).
-17. **Defeat a hard Petra** in under 60, then under 30 in-game minutes.
-18. **Survive 60 in-game minutes** against a very hard Petra (difficulty 5).
-19. **Defeat a very hard Petra** in under 60 in-game minutes.
-20. **Defeat a very hard Petra** in under 30 in-game minutes.
+9. **Defeat a sandbox Petra** (difficulty 0) in under 40 in-game minutes.
+10. **Survive 60 in-game minutes** against a very easy Petra (difficulty 1)
+    without losing the civic center.
+11. **Defeat a very easy Petra** in under 60 in-game minutes.
+12. **Defeat a very easy Petra** in under 30 in-game minutes.
 
-## Tier 5 — Outnumbered (allied opponents)
+## Tier 5 — Escalating difficulty (single opponent)
+
+13. **Survive 60 in-game minutes** against an easy Petra (difficulty 2).
+14. **Defeat an easy Petra** in under 60, then under 30 in-game minutes.
+15. **Survive 60 in-game minutes** against a medium Petra (difficulty 3).
+16. **Defeat a medium Petra** in under 60, then under 30 in-game minutes.
+17. **Survive 60 in-game minutes** against a hard Petra (difficulty 4).
+18. **Defeat a hard Petra** in under 60, then under 30 in-game minutes.
+19. **Survive 60 in-game minutes** against a very hard Petra (difficulty 5).
+20. **Defeat a very hard Petra** in under 60 in-game minutes.
+21. **Defeat a very hard Petra** in under 30 in-game minutes.
+
+## Tier 6 — Outnumbered (allied opponents)
 
 Opponents are Petra bots on the same team (`-autostart-team=2:2` …), all at
 the stated difficulty, all rome.
 
-21. **Defeat two allied medium Petra bots** (1v2) in under 60 in-game minutes.
-22. **Defeat two allied very hard Petra bots** (1v2) in under 90 in-game
+22. **Defeat two allied medium Petra bots** (1v2) in under 60 in-game minutes.
+23. **Defeat two allied very hard Petra bots** (1v2) in under 90 in-game
     minutes.
-23. **Defeat three allied very hard Petra bots** (1v3).
+24. **Defeat three allied very hard Petra bots** (1v3).
 
 ## Notes
 
