@@ -184,6 +184,25 @@ city -0.02 ± 0.19, pop300 -0.14 ± 0.26 (7/10 improved, seed 11 pop300
 (cavalry-idle section) + LESSONS_LEARNED. The 13a6137 watchdog was
 reverted per Louis (faster-horse fix to be redesigned later).
 
+## Goal 7-S — steppe boom (IN PROGRESS, Louis's side goal)
+
+Minimize max(pop300, city) on `generic/steppe` (seeds 1-5, 30 min cap)
+while temperate keeps the goal-7 bar (≤ 15.0 both metrics). Biome facts,
+harness (`tmp/goal7/run1-steppe.sh`) and baseline in
+`experiments/goal-07-steppe.md`. Baseline max per seed: 19.4, 18.0, 15.2,
+14.8, >30 (s5 never reaches city) — mean 19.5. Target: all seeds reach
+both, mean max ≤ 16.5.
+
+Storehouse-churn piste (Louis) investigated: the churn is real (7-16
+destroyed storehouses/game, some doomed at birth), but a build-gate
+(threshold 500/800/2000) trades seeds — s2/s3/s5 improve, s1/s4 collapse
+(s4: dist 25→106 m, rate 76%→33%) — discarded; a trio reserve on wood
+storehouses changes nothing. **The real s5 city killer found: the field
+stream** — fields (exempt from every reserve by design) eat every 100 w
+window (~2000 w on s5) while the trio waits 12 min for 300 w. First
+lever: trio-aware / meat-aware fields on wood-poor biomes (steppe food =
+horses, not grain).
+
 ## Next up (goal 8: defeat sandbox Petra < 40 in-game min)
 
 Tier 3 begins: `experiments/goal-08.md` doesn't exist yet — create it and
