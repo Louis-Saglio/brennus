@@ -204,3 +204,13 @@ the extra builders cost more than the faster ramp); bootstrap meat guard
 foundation-counting town-bank gate (no-op, the t=5m fallback dominates).
 Run tags: `sti-s1..5`, `sti-t1`, `stf4-s1/5`, `stb-s1..5`, `sto-s1/5`,
 `stbk-s1/5`.
+
+## Discarded — extended field wood demand (2026-08-22)
+
+s1's sprint field stream stalls when the wood stock hovers under 100 (ONE
+field built in t=15-18 while wood sat at 78). Probing `fieldDemand` past
+the bootstrap (houses leave the 100 w window): full demand gives s1
+16.5/18.5 (max -1.5) but s5 15.4/20.6 (+2.9); half-target demand s1
+14.3/18.1 but s5 still 20.6 — the house stream IS s5's pop engine, and
+any demand pause throttles it. The s1/s5 asymmetry has no clean static
+discriminator yet. Reverted; sti remains the shipped state.
