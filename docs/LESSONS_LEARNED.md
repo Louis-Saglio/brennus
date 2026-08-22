@@ -3,6 +3,48 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-22 — Herder kill-shot accuracy + micro-pause fixes (Louis's reports, SHIPPED)
+
+Two fixes, both diagnosed from engine source + instrumented runs
+(`[DRIFT]` telemetry, seed 5: 697 stops in 18 min before).
+
+- **Kill shot missed (spread vs distance).** The gaul cavalry javelin has
+  MaxRange 30 and Projectile/Spread 4 — deviation grows linearly with
+  distance, and the wound-then-steer standoff kept the herder 12 m behind
+  the animal, so the kill shot fired from ~12 m and often missed (a miss =
+  1.5 s re-aim while the animal keeps fleeing). Fix: the steer and wound
+  standoffs are 6 m, and the kill branch first approaches to ~2 m on the
+  far side and only attacks from within 5 m — the animal keeps fleeing
+  TOWARD the dropsite during the approach, so the kill still lands served.
+  Cost: wound→kill interval grows ~0.1-0.2 min/deer; batch-neutral.
+- **Micro-pauses on the walk back to a carcass — TWO mechanisms.**
+  1. The herder carries a stale turn-0 "food" assignment (assignGatherers
+     runs before manageHerding picks the cavalry), and the food-pool change
+     extended the drift stop from fruit to meat — so the drift stop
+     `stopMoving()`ed the herder EVERY block while it collected carcasses
+     beyond 45 m of every dropsite (74 stops on seed 5; each stop wipes the
+     gather order and the unit re-accelerates). Fix: exempt the active
+     herder from the drift stop + clear the stale assignment when the
+     herder is picked.
+  2. Civilians looped too (533 stops on seed 5, spikes t=13-17): the engine
+     autocontinue drifts pickers to the nearest same-type supply, and
+     `findSupply`'s generic path could RETURN an unserved fruit/meat
+     supply (fruit had a 40 m-from-unit escape hatch; meat had no serving
+     rule at all) — the drift stop then killed the assignment on the next
+     block: stop → reassign → drift → stop, every second. Fix: the generic
+     path now returns fruit/meat only when within 45 m of a food dropsite
+     (fields exempt — farmstead chaining serves them). After: 81 stops,
+     max 4 per unit, no loops (the leftovers are the intended one-shot
+     stops of patch-edge drifters).
+
+Verification: seed 5 drift stops 697 → 81, herder stops 74 → 0. 5-seed
+batch vs baseline: city +0.10, pop300 +0.12 (mean, noise-level), all
+≤ 15.0. Fresh seeds 11-20 paired: city +0.06 ± 0.25, pop300 +0.15 ± 0.41,
+no bar breaks, zero JS errors, seed-5 rerun hash identical. Engine facts
+used: UnitAI gather states (walk-back = INDIVIDUAL.GATHER.APPROACHING —
+contains "GATHER", so the bot's own gather re-issue was NOT the cause),
+FLEEING distanceToFlee fixed at enter, cavalry meat rate 5.0 / capacity 20.
+
 ## 2026-08-22 — Building footprints differ per civilisation (documented in game_description/*/buildings/, SHIPPED)
 
 Verified in the pinned 0.28.0 templates: **yes, building sizes vary across

@@ -307,3 +307,33 @@ collapsed, pop300 15.2 — the known hard-bank cascade class, not a
 systematic cost. The goal-7 batch (seeds 1-5) holds ≤ 15.0 everywhere.
 Run tags: `a1/a2/a3`, `b1/b2/b3`, `c1..c4` (+ `-sN`, `-fresh-NN`).
 
+
+## Kill-shot accuracy + micro-pause fixes (2026-08-22, SHIPPED)
+
+Louis reported two problems: (1) the herder keeps too much distance from
+the wounded animal and the kill shot near the dropsite often misses
+(spread grows with distance); (2) the cavalry micro-pauses on the walk
+back to a carcass, and other workers may too.
+
+Diagnosis (engine source + [DRIFT] instrumentation, seed 5):
+- Javelin MaxRange 30, Spread 4 — the 12 m steer standoff made the kill
+  shot fire from ~12 m. Fix: standoffs at 6 m; the kill branch approaches
+  to ~2 m on the far side and shoots only from within 5 m (the animal
+  keeps fleeing toward the dropsite during the approach). Wound→kill
+  interval +0.1-0.2 min/deer; batch-neutral.
+- Micro-pauses: 697 drift stops in 18 min — 74 on the herder (stale turn-0
+  food assignment + the drift stop extended to meat by the food-pool
+  commit → stopped every block on carcasses beyond 45 m of a dropsite)
+  and 533 on civilians (permanent loops: findSupply's generic path could
+  return unserved fruit/meat, the drift stop killed it next block →
+  stop/reassign/drift/stop every second). Fixes: exempt the active herder
+  + clear its stale assignment; generic path returns fruit/meat only
+  within 45 m of a dropsite. After: 81 stops, max 4 per unit, no loops.
+
+Verification: 5-seed batch (zero JS errors, seed-5 rerun hash identical):
+city/pop300 14.9/15.0, 14.8/14.5, 14.4/13.9, 12.7/14.1, 14.2/13.3 vs
+baseline 14.6/15.1, 14.5/14.4, 14.4/13.6, 13.3/13.6, 13.7/13.5 — mean
+city +0.10, pop300 +0.12 (noise-level), all ≤ 15.0. Fresh seeds 11-20
+paired: city +0.06 ± 0.25, pop300 +0.15 ± 0.41, no bar breaks. Run tags:
+`pause-before-s5` (instrumented), `fix-seed1..5`, `fix-seed5-rerun`,
+`fix-fresh-11..20`.

@@ -306,6 +306,12 @@ BrennusBot.prototype.assignGatherers = function()
 			if (this.assignments[ent.id()] !== "food" || !ent.isGatherer() ||
 				ent.isIdle() || !ent.position())
 				continue;
+			// The herding cavalry carries a stale turn-0 "food" assignment
+			// and works carcasses beyond 45 m of every dropsite: exempt it,
+			// or the drift stop halts it on every walk back to the carcass
+			// (the micro-pauses Louis saw).
+			if (ent.id() === this.herderId && !this.herdingDone)
+				continue;
 			if (ent.unitAIState()?.split(".")[1] !== "GATHER")
 				continue;
 			if ((ent.resourceCarrying() || []).some(c => c.amount > 0))
@@ -492,11 +498,17 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 			continue;
 		if (!this.canGatherSupply(unit, supply))
 			continue;
-		// Louis: never trek across the map for unserved berries — a field by
-		// a farmstead beats a 100 m walk (v56: ~6 pickers idling at 17%
-		// effective rate 140+ m out once the fields filled up).
-		if (foodSites && supply.resourceSupplyType()?.specific === "fruit" &&
-			SquareDistance(pos, supplyPos) > 40 * 40 &&
+		// Louis: never trek across the map for unserved food — a field by a
+		// farmstead beats a 100 m walk (v56: ~6 pickers idling at 17%
+		// effective rate 140+ m out once the fields filled up). Served-only
+		// for fruit AND meat (v84): the drift stop halts any food worker
+		// whose supply sits beyond 45 m of every dropsite, so returning an
+		// unserved supply here loops the unit (stop → reassign → drift →
+		// stop, every block — the micro-pauses Louis saw). Fields (grain)
+		// are exempt: the farmstead chaining serves them.
+		if (foodSites &&
+			(supply.resourceSupplyType()?.specific === "fruit" ||
+				supply.resourceSupplyType()?.specific === "meat") &&
 			!foodSites.some(d => SquareDistance(supplyPos, d) < 45 * 45))
 			continue;
 		// Louis: civilians never leave the territory for meat — the walk
@@ -601,6 +613,10 @@ BrennusBot.prototype.manageHerding = function()
 				break;
 			}
 		this.herderId = herder?.id();
+		if (herder)
+			// Clear the stale turn-0 gatherer assignment so the food
+			// telemetry never mistakes the herder for a food worker.
+			delete this.assignments[herder.id()];
 		if (!herder)
 		{
 			this.herdingDone = true;
@@ -770,13 +786,16 @@ BrennusBot.prototype.manageHerding = function()
 	if (!target.isHurt())
 	{
 		// Position on the far side, then shoot until the first hit connects
-		// (misses wound nothing, so keep trying).
+		// (misses wound nothing, so keep trying). 6 m, not more: the javelin
+		// spread scales with distance and the wound shot must land reliably
+		// (Louis's report: from the old 12 m standoff the kill shot often
+		// missed).
 		this.herdCmdTurn = this.turn + 10;
 		const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
 		const n = Math.hypot(dx, dz) || 1;
-		const bx = pos[0] + dx / n * 12, bz = pos[1] + dz / n * 12;
+		const bx = pos[0] + dx / n * 6, bz = pos[1] + dz / n * 6;
 		const hp = herder.position();
-		if (Math.hypot(hp[0] - bx, hp[1] - bz) > 8 && dist > 25)
+		if (Math.hypot(hp[0] - bx, hp[1] - bz) > 6 && dist > 25)
 			herder.move(bx, bz);
 		else
 			herder.attack(target.id(), false);
@@ -790,17 +809,30 @@ BrennusBot.prototype.manageHerding = function()
 		(this.turn - this.herdStartTurn > 150 && this.herdBestDist > this.herdStartDist - 10))
 	{
 		this.herdCmdTurn = this.turn + 10;
+		// Close in before the kill shot (Louis): attacking from the standoff
+		// fires at the javelin's long-range spread and misses — approach to
+		// ~2 m on the far side first (the animal keeps fleeing TOWARD the
+		// dropsite while we do), shoot only from within 5 m.
+		const hp = herder.position();
+		if (Math.hypot(hp[0] - pos[0], hp[1] - pos[1]) > 5)
+		{
+			const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
+			const n = Math.hypot(dx, dz) || 1;
+			herder.move(pos[0] + dx / n * 2, pos[1] + dz / n * 2);
+			return;
+		}
 		herder.attack(target.id(), false);
 		return;
 	}
 	// Steer: stay on the far side, close enough that the animal never
-	// reaches its flee distance (fixed at wound time: ~dist + 24 m).
+	// reaches its flee distance (fixed at wound time: ~dist + 24 m), and
+	// close enough that the kill shot won't miss (6 m, Louis's report).
 	this.herdCmdTurn = this.turn + 10;
 	const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
 	const n = Math.hypot(dx, dz) || 1;
-	const bx = pos[0] + dx / n * 12, bz = pos[1] + dz / n * 12;
+	const bx = pos[0] + dx / n * 6, bz = pos[1] + dz / n * 6;
 	const hp = herder.position();
-	if (Math.hypot(hp[0] - bx, hp[1] - bz) > 8)
+	if (Math.hypot(hp[0] - bx, hp[1] - bz) > 5)
 		herder.move(bx, bz);
 	else
 		herder.stopMoving();

@@ -151,6 +151,23 @@ regression is gone. Seed 11 outlier (pop300 15.2): one 182 m sheep →
 town-bank cascade; seeds 1-5 all ≤ 15.0. Details:
 `experiments/goal-07.md` (herding distance section) + LESSONS_LEARNED.
 
+## Kill-shot accuracy + micro-pause fixes — SHIPPED
+
+Louis's two reports, both fixed and verified. (1) Kill shot: standoffs
+reduced 12→6 m and the kill branch approaches to ~2 m on the far side,
+shooting only from ≤5 m — the javelin spread (Spread 4, MaxRange 30)
+no longer makes the finisher miss. (2) Micro-pauses: instrumented seed 5
+showed 697 drift stops in 18 min — 74 on the herder (stale turn-0 food
+assignment + the drift stop extended to meat by the food-pool commit
+stopped it every block beyond 45 m of a dropsite) and 533 civilian
+permanent loops (findSupply's generic path could return unserved
+fruit/meat, which the drift stop killed next block). Fixed: herder exempt
++ assignment cleared; generic path serves-only for fruit/meat. After: 81
+stops, max 4/unit, no loops. Batch vs baseline: city +0.10, pop300 +0.12
+(noise-level), all ≤ 15.0; fresh seeds 11-20 paired city +0.06 ± 0.25,
+pop300 +0.15 ± 0.41. Details: `experiments/goal-07.md` (fixes section) +
+LESSONS_LEARNED.
+
 ## Next up (goal 8: defeat sandbox Petra < 40 in-game min)
 
 Tier 3 begins: `experiments/goal-08.md` doesn't exist yet — create it and
