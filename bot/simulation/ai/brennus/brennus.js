@@ -1322,7 +1322,14 @@ BrennusBot.prototype.manageResearch = function()
 		return;
 	}
 
-	for (const tech of this.boomTechs)
+	// On wood-poor biomes the wood rate is the whole economy: ironaxes
+	// (+25% wood) jumps ahead of the grain-rate techs (goal 7-S) — the
+	// grain techs feed the pop stream, but wood pays for everything.
+	const techOrder = this.woodPoor ?
+		["gather_wicker_baskets", "gather_lumbering_ironaxes",
+			...this.boomTechs.filter(t => t !== "gather_wicker_baskets" && t !== "gather_lumbering_ironaxes")] :
+		this.boomTechs;
+	for (const tech of techOrder)
 	{
 		if (gameState.isResearched(tech) || gameState.isResearching(tech))
 			continue;

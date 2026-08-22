@@ -181,3 +181,26 @@ Mean max 17.60 → 16.92 (baseline 19.5, target 16.5). s5's horse kills
 land in territory again (13 vs 3). s1 is the new outlier (pop300 20.2).
 Temperate: byte-identical (spot-checked seeds 1/3/5). Run tags:
 `stw2-s1..5`, `stw3-s1/5` (wall, discarded), `stk-s1..5`, `stk-t1/3/5`.
+
+## Lever 4 — ironaxes first on wood-poor biomes (SHIPPED)
+
+On wood-poor maps the wood rate is the whole economy: the +25% wood tech
+(gather_lumbering_ironaxes) jumps ahead of the grain-rate techs in the
+research order. Landed at 8.7-10.0m instead of ~12-14m. Steppe results
+(30 min cap, zero JS errors; `stk` = levers 1-3):
+
+| seed | stk max | sti max | delta |
+|------|---------|---------|-------|
+| 1 | 20.2 | 20.0 | -0.2 |
+| 2 | 16.6 | 16.4 | -0.2 |
+| 3 | 14.9 | 15.0 | +0.1 |
+| 4 | 15.1 | 15.4 | +0.3 |
+| 5 | 17.8 | 17.7 | -0.1 |
+
+Mean max 16.92 → 16.90. Temperate s1 byte-identical. Probed and discarded
+this round: 4 concurrent field foundations on woodPoor (s1 20.2, s5 18.0 —
+the extra builders cost more than the faster ramp); bootstrap meat guard
+(wash: s1/s5 better, s3/s4 worse); trio-ordered gate release (no-op);
+foundation-counting town-bank gate (no-op, the t=5m fallback dominates).
+Run tags: `sti-s1..5`, `sti-t1`, `stf4-s1/5`, `stb-s1..5`, `sto-s1/5`,
+`stbk-s1/5`.
