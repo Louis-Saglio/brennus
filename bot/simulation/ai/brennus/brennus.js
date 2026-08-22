@@ -286,6 +286,7 @@ BrennusBot.prototype.OnUpdate = function()
 		this.manageConstruction();
 		this.manageBarter();
 		this.manageExpansion();
+		this.manageTrade();
 	}
 	const phase = this.gameState.currentPhase();
 	if (phase !== this.lastPhase)
@@ -1604,16 +1605,17 @@ BrennusBot.prototype.manageConstruction = function()
 		const isField = built.hasClass("Field");
 		const isHouse = built.hasClass("House");
 		const isCC = built.hasClass("CivCentre");
+		const isWonder = built.hasClass("Wonder");
 		const fpos = foundation.position();
 		// Louis (2026-08-22): a woodline storehouse foundation whose commit is
 		// starved by chopper traffic — units standing on a foundation block
 		// its construction start (Foundation.js Commit). The wood choppers
 		// become its builders: the traffic stops AND it goes up fast.
 		const rush = this.rushBuilds.some(r => Math.abs(r.x - fpos[0]) < 6 && Math.abs(r.z - fpos[1]) < 6);
-		// Goal 8: expansion CCs take 10 builders — their 500 s build time and
-		// the long walk there are the expansion's critical path.
+		// Goal 8: expansion CCs take 10 builders, the wonder 12 — their long
+		// build times are the expansion's critical path.
 		const target = (isField ? 2 : isHouse ? (this.gameState.currentPhase() === 1 ? 2 : 3) :
-			isCC ? 10 : rush ? 8 : 4);
+			isCC ? 10 : isWonder ? 16 : rush ? 8 : 4);
 		let cur = assigned[foundation.id()];
 		if (!cur)
 			cur = assigned[foundation.id()] = [];
@@ -2093,10 +2095,12 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		}
 		if (underserved.length >= 4 && !(this.expansionOn() &&
 			(this.turn - (this.lastWoodStoreTurn || -1000) < 150 ||
-				// Store-ring zones already have their dropsite (the ring is
+				// Store-ring zones already have a dropsite (the ring is
 				// defined around one): a second storehouse for the same ring
-				// is the storehouse flood seen on seed 1.
-				this.woodline?.kind === "store")))
+				// was the storehouse flood on seed 1. Rich rings get ONE
+				// extra on the far side — the walk to the ring edge is what
+				// holds the wood rate at ~55%.
+				(this.woodline?.kind === "store" && (this.woodline.total || 0) < 2000))))
 		{
 			this.dropsiteDemand = true;
 			const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
@@ -2121,7 +2125,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			const pos = resources.wood >= woodFloor + trioWood && !planned &&
 				(this.expansionOn() ?
 					this.findExpansionWoodStorehouse(storeType, center) :
-					this.tryConstruct(storeType, "dropsite", center, true));
+					this.tryConstruct(storeType, "dropsite", center, !this.expansionOn()));
 			if (pos)
 			{
 				this.lastWoodStoreTurn = this.turn;
@@ -3011,7 +3015,49 @@ BrennusBot.prototype.meanDropsiteDistances = function()
 BrennusBot.prototype.findExpansionWoodStorehouse = function(storeType, center)
 {
 	const pos = this.findBuildingPosition(storeType, center, 10, 90, true, this.expansionRegion);
-	return pos && this.placeOrder(storeType, pos, true) ? pos : false;
+	return pos && this.placeOrder(storeType, pos, false) ? pos : false;
+};
+
+/** Wonder spot: rings around the base CC (12-95 m — deep inside its own
+ * territory disk, immune to the AI's occasionally stale territory grid)
+ * and then around each far CC (12-60 m — a root's disk interior is just
+ * as solidly ours). The engine rejects the wonder — an own-territory-only
+ * template — in neutral/unconnected territory; the 8-order flood on seed 1
+ * was spots at the border (stale grid) plus floors below the 1500-stone
+ * cost. */
+BrennusBot.prototype.findWonderSpot = function(wonderType)
+{
+	const template = this.gameState.getTemplate(wonderType);
+	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
+	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
+	const angle = this.getPlacementAngle();
+	const pass = this.gameState.getPassabilityMap();
+	const mask = this.gameState.getPassabilityClassMask("building-land");
+	const terr = this.territoryMap;
+	const ccType = this.gameState.applyCiv("structures/{civ}/civil_centre");
+	const anchors = [];
+	const cc = this.getCivicCentre();
+	if (cc)
+		anchors.push([cc.position(), 95]);
+	for (const ent of this.gameState.getOwnStructures().values())
+		if (ent.templateName() === ccType && ent.position() && ent.id() !== cc?.id())
+			anchors.push([ent.position(), 60]);
+	for (const anchor of anchors)
+		for (let r = 12; r <= anchor[1]; r += 2)
+			for (let a = 0; a < 64; ++a)
+			{
+				const ang = a * 2 * Math.PI / 64;
+				const x = anchor[0][0] + r * Math.cos(ang);
+				const z = anchor[0][1] + r * Math.sin(ang);
+				if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
+					continue;
+				if (this.nearEnemy([x, z], 100, 60))
+					continue;
+				if (!this.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
+					continue;
+				return [x, z];
+			}
+	return undefined;
 };
 
 // ---------------------------------------------------------------- expansion
@@ -3048,11 +3094,10 @@ BrennusBot.prototype.mineServeDist = 130;
  * floor: the goal-8 stockpile bar is 50k and the floors keep spending
  * strictly above it. */
 BrennusBot.prototype.expBarterTarget = 52000;
-/** Trader fleet (goal-6 mechanic, restored): trained at markets, shuttling
- * the farthest pair. Small on purpose — with the population hard-capped at
- * 300, every trader is a miner not mining; the fleet demonstrates the
- * ability and tops up the market income without eating the stockpiles. */
-BrennusBot.prototype.targetTraders = 10;
+/** Trader fleet (goal-6 mechanic, restored at scale): trained at markets,
+ * shuttling the farthest pair. The population cap is the currency — the
+ * fleet is 40 traders, and idle civilians are dismissed to make room. */
+BrennusBot.prototype.targetTraders = 40;
 BrennusBot.prototype.traderType = "units/{civ}/support_trader";
 /** Number of extra markets to plant at the far end of the map. */
 BrennusBot.prototype.expMarkets = 2;
@@ -3060,13 +3105,15 @@ BrennusBot.prototype.expMarkets = 2;
 /**
  * Expansion gatherer shares: size the stone/metal crews to deplete every
  * SERVED mine (within mineServeDist m of a CC/storehouse dropsite) by the
- * 30-minute mark at the post-tech rate (~0.62/s). Mining is capped at 62%
- * of the workforce so food/wood income never collapses; the rest splits
- * food/wood 3:2 for the stockpiles, the woman stream and the barter
- * surplus. Served-only on purpose: a miner on an unserved mine round-trips
- * to the base at ~15% rate — better as a field worker until a CC or a
- * proactive storehouse covers the mine. Also refreshes the served-mine id
- * cache that findSupply gates on.
+ * 30-minute mark at the post-tech rate. Mining is capped at 26% of the
+ * workforce — the map's deposits cannot carry the 50k bars, so every
+ * worker moved to the fields/woodline trades unreachable stockpile for
+ * reachable one. The rest splits food/wood 52/48: food feeds the 50k
+ * bar, the +60 wonder pop and the trader fleet. Served-only on purpose:
+ * a miner on an unserved mine round-trips to the base at ~15% rate —
+ * better as a field worker until a CC or a proactive storehouse covers
+ * the mine. Also refreshes the served-mine id cache that findSupply
+ * gates on.
  */
 BrennusBot.prototype.expansionShares = function(total)
 {
@@ -3104,22 +3151,24 @@ BrennusBot.prototype.expansionShares = function(total)
 		shares[res] = Math.min(0.31, served[res] / (rate * timeLeft) / total);
 		mining += shares[res];
 	}
-	// The mining cap is the wood lever: the map's deposits (~28k stone /
-	// ~40k metal) are far under the 50k bars anyway, so every worker moved
-	// from mining to wood trades unreachable stockpile for reachable one.
-	if (mining > 0.42)
+	// The mining cap is the food/wood lever: the map's deposits (~28k stone
+	// / ~40k metal) are far under the 50k bars anyway, so workers moved
+	// from mining to the fields/woodline trade unreachable stockpile for
+	// reachable one. Food gets the slightly larger half — it feeds the
+	// 50k bar, the +60 wonder pop and the trader fleet.
+	if (mining > 0.26)
 	{
-		const scale = 0.42 / mining;
+		const scale = 0.26 / mining;
 		shares.stone *= scale;
 		shares.metal *= scale;
-		mining = 0.46;
+		mining = 0.26;
 	}
 	const rest = 1 - mining;
-	// Wood is the tightest stockpile: fields run at ~95% effective (food
-	// overshoots its bar) while the woodline walks hold wood at ~55%, so
-	// wood gets the larger half of the remainder.
-	shares.food = rest * 0.42;
-	shares.wood = rest * 0.58;
+	// The fields run at ~95% effective and the woodline at ~55-80% (with
+	// sharpaxes + the storehouse coverage): food gets the larger half — it
+	// feeds the 50k bar, the +60 wonder pop and the trader fleet.
+	shares.food = rest * 0.52;
+	shares.wood = rest * 0.48;
 	return shares;
 };
 
@@ -3429,6 +3478,97 @@ BrennusBot.prototype.manageExpansion = function()
 	const gameState = this.gameState;
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const plan = this.expPlan;
+	// The wonder: Glorious Expansion (+20% max population), a territory
+	// root and a 0.5/s trickle of every resource. Ordered once the first
+	// expansion CC stands, BEFORE the CC stream (the CC block returns on
+	// every order and would otherwise monopolise the stone until the plan
+	// is done — seen: wonder ordered at t=27.9). Its tech sits in the
+	// expansion list and researches itself once the wonder exists.
+	if (!plan.wonderDone && plan.next >= 1)
+	{
+		const wonderType = gameState.applyCiv("structures/{civ}/wonder");
+		const builtWonder = gameState.getOwnStructures().toEntityArray()
+			.some(ent => ent.templateName() === wonderType);
+		if (builtWonder)
+			plan.wonderDone = true;
+		else if (gameState.getOwnFoundations().toEntityArray().some(f =>
+			gameState.getBuiltTemplate(f.templateName()).templateName() === wonderType))
+		{
+			// Foundation placed, builders on it — wait for the structure.
+		}
+		else if (!this.pendingBuilds.some(pb => pb.template === wonderType) &&
+			!this.constructionHold)
+		{
+			const res = gameState.getResources();
+			// Floors above the 1000/1500/1000 cost: the floor must COVER the
+			// cost — a lower floor orders on credit and the engine rejects on
+			// cost every time (seed 1: 8 failed wonder orders at stone < 1500).
+			if (res.canAfford({ "wood": 1100, "stone": 1550, "metal": 1100 }))
+			{
+				const spot = this.findWonderSpot(wonderType);
+				if (spot && this.placeOrder(wonderType, spot))
+				{
+					res.subtract({ "wood": 1000, "stone": 1500, "metal": 1000 });
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wonder order at ${spot[0].toFixed(0)},${spot[1].toFixed(0)}\n`);
+					return;
+				}
+			}
+		}
+	}
+	// Markets at the far end of the map for the trader fleet: ordered as
+	// soon as a far CC owns territory (placement retries until then), so
+	// the routes are long and early. BEFORE the CC stream — the CC block
+	// returns on every one of its paths and would otherwise starve this
+	// block until the whole plan is done (seed 1: first market at t=28).
+	// Early blocks find no completed far CC anchor and fall through
+	// harmlessly.
+	if ((plan.marketsPlaced || 0) < this.expMarkets)
+	{
+		const marketType = gameState.applyCiv("structures/{civ}/market");
+		const base = this.getCivicCentre()?.position() || [384, 384];
+		const marketSpots = [];
+		// foundationProgress() !== undefined is required: foundations are
+		// Structure-class entities and appear in getOwnStructures too —
+		// without the guard a market is counted twice (structure + its
+		// foundation) and the block thinks the map is full of markets.
+		for (const ent of gameState.getOwnStructures().values())
+			if (ent.hasClass("Market") && ent.position() && ent.foundationProgress() === undefined)
+				marketSpots.push(ent.position());
+		for (const f of gameState.getOwnFoundations().values())
+			if (f.position() && gameState.getBuiltTemplate(f.templateName()).hasClass("Market"))
+				marketSpots.push(f.position());
+		if (marketSpots.length >= 1 + this.expMarkets) // the town-trio market is #1
+			plan.marketsPlaced = this.expMarkets;
+		else if (!this.pendingBuilds.some(pb => pb.template === marketType &&
+				SquareDistance([pb.x, pb.z], base) > 150 * 150) &&
+			!this.constructionHold)
+		{
+			const res = gameState.getResources();
+			if (res.wood >= 600)
+			{
+				// Far anchors = the farthest COMPLETED CCs without a market
+				// nearby. (Anchoring on the planned far spots stalled the
+				// order to t=28 on seed 1: their territory only exists once
+				// the LAST CCs — built last — go up.)
+				const ccType2 = gameState.applyCiv("structures/{civ}/civil_centre");
+				const anchors = gameState.getOwnStructures().toEntityArray()
+					.filter(ent => ent.templateName() === ccType2 && ent.position() &&
+						!marketSpots.some(m => SquareDistance(m, ent.position()) < 150 * 150))
+					.sort((a, b) => SquareDistance(b.position(), base) - SquareDistance(a.position(), base))
+					.slice(0, this.expMarkets);
+				for (const anchor of anchors)
+				{
+					const pos = this.findBuildingPosition(marketType, anchor.position(), 20, 80, true, this.expansionRegion);
+					if (pos && this.placeOrder(marketType, pos))
+					{
+						res.subtract({ "wood": 300 });
+						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m market at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for the trade routes\n`);
+						return;
+					}
+				}
+			}
+		}
+	}
 	if (plan.next < plan.spots.length)
 	{
 		const spot = plan.spots[plan.next];
@@ -3502,47 +3642,17 @@ BrennusBot.prototype.manageExpansion = function()
 		print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC order at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} (${plan.next + 1}/${plan.spots.length})\n`);
 		return;
 	}
-	// Markets at the far end of the map for the trader fleet.
-	if (!plan.marketsPlaced)
-	{
-		const base = this.getCivicCentre()?.position() || [384, 384];
-		const far = [...plan.spots]
-			.sort((a, b) => SquareDistance(b, base) - SquareDistance(a, base))
-			.slice(0, this.expMarkets);
-		const marketType = gameState.applyCiv("structures/{civ}/market");
-		const marketCount = gameState.getOwnStructures().toEntityArray()
-			.filter(ent => ent.hasClass("Market")).length;
-		const wanted = 1 + this.expMarkets; // the town-trio market is #1
-		if (marketCount < wanted)
-		{
-			const spot = far[marketCount - 1]; // base market is #1
-			if (spot)
-			{
-				const res = gameState.getResources();
-				if (res.wood >= 400)
-				{
-					const pos = this.findBuildingPosition(marketType, spot, 20, 80, true, this.expansionRegion);
-					if (pos && this.placeOrder(marketType, pos))
-					{
-						res.subtract({ "wood": 300 });
-						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m market at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for the trade routes\n`);
-					}
-				}
-			}
-			else
-				plan.marketsPlaced = true;
-		}
-		else
-			plan.marketsPlaced = true;
-	}
 };
 
 /**
- * Trade (goal-6 mechanic, restored): traders shuttle between the two
- * farthest completed markets — the gain grows with the square of the route
- * distance, and each completed trip credits the trip's good (goods cycle
- * evenly across the four resources). Fleet is trained at the markets;
- * spending stays above the stockpile floors.
+ * Trade (goal-6 mechanic, restored, goal 8 at scale): traders shuttle
+ * between the two farthest completed markets — the gain grows with the
+ * square of the route distance, and each completed trip credits the trip's
+ * good (goods cycle evenly across the four resources). The fleet is
+ * trained at the markets; when the population cap pins, an idle civilian
+ * is dismissed per block to make room (Louis: traders produce stone/metal
+ * from nothing after the mines run dry — a woman has no deposit left to
+ * work, a trader always has the route).
  */
 BrennusBot.prototype.manageTrade = function()
 {
@@ -3560,7 +3670,19 @@ BrennusBot.prototype.manageTrade = function()
 	if (traders < this.targetTraders)
 	{
 		const res = gameState.getResources();
-		if (res.food >= this.expBarterTarget + 100 && res.metal >= 3000)
+		// Pop management: the cap is hard (300, or 360 with Glorious
+		// Expansion). When it's pinned, dismiss an idle woman (never a
+		// working one, never the herder) to make room for a trader.
+		if (gameState.getPopulation() >= gameState.getPopulationLimit())
+			for (const ent of gameState.getOwnUnits().values())
+				if (ent.isGatherer() && !ent.hasClass("Cavalry") && ent.isIdle() &&
+					!(ent.id() === this.herderId && !this.herdingDone))
+				{
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m dismissing idle civilian for a trader\n`);
+					ent.destroy();
+					break;
+				}
+		if (res.food >= 40000 + 100 && res.metal >= 1200)
 			for (const market of markets)
 				if ((market.trainingQueue()?.length || 0) <= 1)
 				{
@@ -3594,10 +3716,11 @@ BrennusBot.prototype.manageTrade = function()
 };
 
 /**
- * Post-city techs (goal 8): the stone/metal mining rates +25% each and the
- * trade gains. They never touch the boom's tech order — this list is only
- * walked after the city research is done. The stone costs pay back in miner
- * time within a minute; food is cheap past the boom.
+ * Post-city techs (goal 8): the full economic tree — mining rates +25%
+ * each, the wood-rate techs, carry capacity, trade gains and the wonder's
+ * Glorious Expansion (+20% max population per wonder). They never touch
+ * the boom's tech order — this list is only walked after the city research
+ * is done.
  */
 BrennusBot.prototype.expansionTechs = [
 	"gather_mining_servants",       // stone +25% (village)
@@ -3606,9 +3729,16 @@ BrennusBot.prototype.expansionTechs = [
 	"gather_mining_wedgemallet",    // metal +25% (village)
 	"gather_mining_shaftmining",    // metal +25% (town)
 	"gather_mining_silvermining",   // metal +25% (city)
+	"gather_lumbering_sharpaxes",   // wood +25% (city) — the wood bar
 	"gather_capacity_wheelbarrow",  // +5 carry: fewer walk trips
+	"gather_capacity_carts",        // +5 carry (city)
 	"trade_gain_01",                // traders +15%
-	"trade_gain_02"                 // traders +15%
+	"trade_gain_02",                // traders +15%
+	"trade_commercial_treaty",      // market international bonus +0.1
+	"trader_health",
+	"gather_animals_stockbreeding",
+	"health_civilians_01",
+	"wonder_population_cap"         // +20% max pop (needs the wonder)
 ];
 
 BrennusBot.prototype.manageExpansionTechs = function()
@@ -3617,6 +3747,16 @@ BrennusBot.prototype.manageExpansionTechs = function()
 		return false;
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
+	// Parallelize: the facilities (storehouse, farmstead, market, house,
+	// CC, wonder) research independently — keep up to 3 expansion techs in
+	// flight at once, otherwise the 16-tech list would take ~20 min
+	// serialized (each tech is 40-120 s of research time).
+	let researching = 0;
+	for (const tech of this.expansionTechs)
+		if (gameState.isResearching(tech))
+			researching++;
+	if (researching >= 3)
+		return false;
 	for (const tech of this.expansionTechs)
 	{
 		if (gameState.isResearched(tech) || gameState.isResearching(tech))
@@ -3646,7 +3786,6 @@ BrennusBot.prototype.manageExpansionTechs = function()
 			this.constructionHold = true;
 			return true;
 		}
-		return false;
 	}
 	return false;
 };
@@ -3673,10 +3812,10 @@ BrennusBot.prototype.manageExpansionBarter = function(market)
 		const woodRatio = ratio("wood");
 		const sell = foodRatio >= woodRatio ? "food" : "wood";
 		const bestRatio = Math.max(foodRatio, woodRatio);
-		// Floor 30k + one deal per 3 blocks: the drain (33/s) stays below the
+		// Floor 45k + one deal per 3 blocks: the drain (33/s) stays below the
 		// food/wood income so the stock still climbs toward the 50k bar while
 		// the market works, and the spacing lets the prices recover.
-		if (bestRatio >= 0.35 && res[sell] >= 30000 && this.turn % 15 === 0)
+		if (bestRatio >= 0.35 && res[sell] >= 45000 && this.turn % 15 === 0)
 		{
 			market.barter(want, sell, 500);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${sell} -> ${want} (ratio ${bestRatio.toFixed(2)})\n`);
