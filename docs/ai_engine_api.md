@@ -782,3 +782,100 @@ MyBot.prototype.Deserialize = function(data, sharedScript)
 
 (Structure after `public/simulation/ai/petra/_petrabot.js:1-27` and
 `public/simulation/ai/common-api/baseAI.js`.)
+
+---
+
+## 11. Scripting pitfalls
+
+Gotchas verified while developing the bot. Each cross-references the section
+that documents the underlying API; where a claim is not already cited there,
+the source is given inline.
+
+- **`BaseAI.this.timeElapsed` is stale.** It is set once in `Init` and never
+  refreshed (`baseAI.js:41-47`); read live time via `gameState.getTimeElapsed()`
+  (§4.3).
+- **`currentPhase()` returns an integer index** — 1 = village, 2 = town,
+  3 = city (§4.3, `gamestate.js:176-211`) — not a tech-name string. A
+  `=== "phase_village"` comparison never matches.
+- **`filters.byResource` / `getResourceSupplies(resource)` excludes huntable
+  animals** (§4.6 `:194`, §4.3): use `getHuntableSupplies()` or the
+  `isHuntable()` filter for meat. `isHuntable()` already excludes retaliating
+  animals (lions/wolves), and the resource filter also excludes sea creatures.
+- **`getOwnStructures()` includes foundations** — a foundation carries the
+  built template's classes (§4.3 `:482-498`, §4.4). Exclude them with
+  `foundationProgress() === undefined` (§4.4 `:639`); a fresh foundation
+  reports progress `0`, so a falsy `!foundationProgress()` test lets it
+  through.
+- **`getEnemyEntities()` includes gaia** — gaia is a diplomatic enemy, so
+  every tree/bush matches (§4.3 `:510-551`). Filter `ent.owner() === 0` out;
+  keep gaia animals with an `Attack` component (they kill gatherers).
+- **`playerData.statistics` is only `GetBasicStatistics()`** —
+  `resourcesGathered` and `percentMapExplored` (§3,
+  `GuiInterface.js:97-135`). There is no `tradeIncome`/`resourcesSold`: the bot
+  must count its own barter deals; the full per-player statistics appear only
+  in the end-of-game stdout JSON (§12).
+- **Passability bits are inverted vs intuition** — a SET bit means IMPASSABLE
+  for that class: `IS_PASSABLE(item, mask) = (item & mask) == 0`
+  (`source/source/simulation2/helpers/Pathfinding.h:130`). An inverted check
+  makes every building spot look blocked. Petra's `createObstructionMap`
+  follows this convention.
+- **`passabilityClasses` masks are assigned alphabetically** (std::map
+  iteration), not in XML order (§3). Always use
+  `gameState.getPassabilityClassMask(name)` (§4.3 `:302-307`), never a
+  hardcoded bit.
+- **`entity.construct(...)` posts `autorepair: false`** (§4.4 `:957`): the
+  foundation is created instantly at command processing but NO builder is
+  sent — order `repair(foundation)` separately the next cycle.
+- **The `construct` command is validated at processing time** against
+  BuildRestrictions + entity limits + tech requirements + the REAL stock cost
+  (§5). A rejection is **silent** — the AI only learns via its own
+  `pendingBuilds` timeout. Ordering a construct and a research/barter in the
+  same block races the stock (both see the same snapshot): keep cost floors
+  and a one-block `constructionHold`.
+- **The AI territory grid can disagree with the engine's** for a few turns
+  (dirty-ID updates, §3). Re-validate building spots against the live state
+  right before ordering, and plan more spots than needed.
+- **`stopMoving()` posts a `"stop"` command** (§4.4 `:813`) — it goes through
+  the normal one-turn command delay (§5), it is not an instant state change.
+- **`angle()` returns the yaw in radians** — `cmpPosition.GetRotation().y`
+  (`public/simulation/components/AIProxy.js:233`; §4.4 `:601-602`).
+- **`resourceCarrying()` returns `[{ type, amount, max }]`** (§4.4
+  `:669-689`); a drop from `> 0` to `0` is a delivery. `amount /
+  time-between-deliveries` = effective gather rate per gather-walk-drop cycle.
+
+---
+
+## 12. Trigger scripts and end-of-game output
+
+Map/scenario JavaScript runs through the map **trigger** system, separate from
+the AI API above. A bot mod uses it for per-match scripting and to end a
+headless game cleanly.
+
+### 12.1 Trigger scripts
+
+- A map can ship a `maps/scripts/NonVisualTrigger.js`; the engine registers it
+  as a custom trigger script in every `-autostart-nonvisual` game
+  (`public/maps/scripts/NonVisualTrigger.js`). A mod copy mounted after
+  `public` wins — the way a bot mod injects per-match scripting.
+- `cmpTrigger.DoAfterDelay(ms, "MethodName", {})` schedules a call to
+  `Trigger.prototype.MethodName` after `ms` of simulation time
+  (`public/simulation/components/Trigger.js:287`); one turn = 200 ms.
+- To end a match from a trigger:
+  `EndGameManager.MarkPlayersAsWon([1], victoryString, defeatString)`
+  (`public/simulation/components/EndGameManager.js:85`). The engine exits 0
+  and writes `metadata.json` and the per-player statistics JSON. A wall-clock
+  SIGTERM skips both.
+
+### 12.2 End-of-game output
+
+- The per-player statistics JSON on stdout comes from
+  `StatisticsTracker.GetStatisticsJSON()`
+  (`public/simulation/components/StatisticsTracker.js:170`). In 0.28.0 it has
+  **no `timeElapsed` field** (simulation time is in the replay `metadata.json`,
+  `timeElapsed` in ms), and it is **pretty-printed** (`"playerState": "won"`
+  with a space) — account for both when grepping.
+- The replay `metadata.json` `playerStates[]` carries `phase` (usable to
+  verify phase goals), but `researchedTechs` is always `{}` — do not use it to
+  verify researched techs; count them from the bot's own logs.
+- The stats JSON's `unitsLost.total` can be `0` while the per-class breakdown
+  is nonzero — read the breakdown.

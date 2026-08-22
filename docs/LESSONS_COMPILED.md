@@ -4,11 +4,11 @@ A thematic re-compile of the lessons learned while developing the bot. The
 **source of truth remains `docs/LESSONS_LEARNED.md`** (chronological log,
 newest first — new lessons still get written THERE, not here). This file
 regroups the same content by topic for reading and lookup, merging duplicate
-findings and keeping per-bullet provenance. **Pure game mechanics are not
-here**: on 2026-08-22 they were extracted to `docs/game_description/mechanics/`
-(one file per mechanic) and to the entity/biome data files — consult
-`docs/game_description/` for engine facts, this file for bot lessons. If the
-two files ever disagree, `LESSONS_LEARNED.md` wins.
+findings and keeping per-bullet provenance. **Reference material is not here**:
+game mechanics live in `docs/game_description/mechanics/`, entity data in
+`docs/game_description/{generic,gauls,romans}/`, and the engine API / scripting
+facts in `docs/ai_engine_api.md` (all extracted 2026-08-22). This file keeps
+only bot-development lessons. If files disagree, `LESSONS_LEARNED.md` wins.
 
 All dates are 2026-08; bullets are tagged `[08-2X]` (day only). "SHIPPED" /
 "DISCARDED" verdicts are the final state at compile time.
@@ -21,15 +21,14 @@ Compile date: 2026-08-22.
 
 1. [Methodology & verification](#1-methodology--verification)
 2. [Harness, telemetry & tooling](#2-harness-telemetry--tooling)
-3. [Engine API & scripting facts](#3-engine-api--scripting-facts)
-4. [The food economy](#4-the-food-economy)
-5. [Hunting & herding](#5-hunting--herding)
-6. [Construction & placement](#6-construction--placement)
-7. [Phases, population & research](#7-phases-population--research)
-8. [Trade & market economy](#8-trade--market-economy)
-9. [Boom sensitivity & tuning discipline](#9-boom-sensitivity--tuning-discipline)
-10. [Performance](#10-performance)
-11. [Appendix A — provenance map](#appendix-a--provenance-map)
+3. [The food economy](#3-the-food-economy)
+4. [Hunting & herding](#4-hunting--herding)
+5. [Construction & placement](#5-construction--placement)
+6. [Phases, population & research](#6-phases-population--research)
+7. [Trade & market economy](#7-trade--market-economy)
+8. [Boom sensitivity & tuning discipline](#8-boom-sensitivity--tuning-discipline)
+9. [Performance](#9-performance)
+10. [Appendix A — provenance map](#appendix-a--provenance-map)
 
 ---
 
@@ -72,26 +71,6 @@ Compile date: 2026-08-22.
 
 ## 2. Harness, telemetry & tooling
 
-- **`maps/scripts/NonVisualTrigger.js` override works**: the engine registers
-  it as a custom trigger script in every `-autostart-nonvisual` game, and the
-  brennus copy (mounted after `public`) wins. `[08-20]`
-- **Clean game end**: a no-op bot vs sandbox Petra never ends a
-  `conquest_civic_centers` game on its own; a time-limit trigger calling
-  `EndGameManager.MarkPlayersAsWon([1], ...)` ends it cleanly (exit 0,
-  `metadata.json` + statistics JSON written). `[08-20]`
-- **Trigger scheduling**: `cmpTrigger.DoAfterDelay(ms, "MethodName", {})`
-  calls `Trigger.prototype.MethodName`; simulation ms (200 ms/turn). `[08-20]`
-- **`StatisticsTracker.GetStatisticsJSON()`** (stdout per-player JSON) has NO
-  `timeElapsed` field in 0.28.0; simulation time lives in the replay's
-  `metadata.json` (`timeElapsed`, ms). The stdout JSON is pretty-printed
-  (`"playerState": "won"` with a space) — grep patterns must account for
-  that. `[08-20]`
-- **`metadata.json` playerStates**: `phase` works ("city"), but
-  `researchedTechs` is always `{}` — verify techs from bot logs instead.
-  End-of-game `metadata.json` IS usable to verify phase goals without
-  parsing bot logs. `[08-20]`
-- **Stats JSON `unitsLost.total` can be 0** while the per-class breakdown is
-  nonzero — read the breakdown. `[08-20]`
 - **Replay `commands.txt` does not contain AI commands** in a greppable form
   — don't mine it for bot debugging; use in-mod telemetry prints. `[08-21]`
 - **Telemetry pattern**: tagged `print()` lines (`[HARNESS]`, `[BUILD]`,
@@ -107,65 +86,7 @@ Compile date: 2026-08-22.
   `tools/` directory referenced by `docs/game_description/README.md` no
   longer exists in the repo. `[08-22]`
 
-## 3. Engine API & scripting facts
-
-- **`BaseAI.this.timeElapsed`** is set once at `Init` and never updated — use
-  `gameState.getTimeElapsed()` for live sim time. `[08-20]`
-- **`gameState.currentPhase()` returns a NUMBER** (1=village, 2=town,
-  3=city), not a tech-name string. A `=== "phase_village"` comparison
-  silently never fired in goal-3 code (Fertility Festival was never
-  researched in those runs — CC-only training still passed). `[08-20]`
-- **`filters.byResource` / `getResourceSupplies("food")` excludes huntable
-  animals** — use `getHuntableSupplies()` for meat. `isHuntable()` already
-  excludes retaliating animals (lions/wolves) and the filter excludes sea
-  creatures. `[08-20]`
-- **`getOwnStructures()` includes foundations** (they carry the built
-  template's classes — a market foundation passes `hasClass("Market")`).
-  Exclude with `ent.foundationProgress() === undefined`: a fresh foundation
-  reports progress **0**, so a falsy `!ent.foundationProgress()` test lets it
-  through (caused "Called train on non-training entity" errors; goal 8's "3
-  markets" ghost count was the same trap). `[08-20]`, `[08-22]`
-- **`getEnemyEntities()` includes gaia** (a diplomatic enemy): every
-  tree/bush matches. Filter `ent.owner() === 0` out; keep gaia animals with
-  an `Attack` component (they kill gatherers). `[08-20]`
-- **AI-visible `playerData.statistics`** = `GetBasicStatistics()` only
-  (resourcesGathered, percentMapExplored). No tradeIncome/resourcesSold —
-  the bot must count its own barter deals; full stats only in the
-  end-of-game stdout JSON. `[08-20]`
-- **Passability grid bit semantics are inverted vs intuition**: bit SET =
-  IMPASSABLE for that class (`IS_PASSABLE(item, mask) = (item & mask) == 0`,
-  `CCmpPathfinder.cpp` / `helpers/Pathfinding.h:130`). An inverted check
-  makes every building spot look blocked. Petra's `createObstructionMap`
-  matches this convention. `[08-20]`
-- **`passabilityClasses` masks are assigned alphabetically** (std::map
-  iteration), not in XML order. Always use
-  `gameState.getPassabilityClassMask(name)`. `[08-20]`
-- **`entity.construct(...)` sends `autorepair: false`**: the foundation is
-  created instantly at command processing and NO builder is sent — order
-  `unit.repair(foundation)` separately the next cycle. `[08-20]`
-- **The construct command is validated at PROCESS `PostCommand`**:
-  BuildRestrictions + entity limits + tech requirements + the REAL stock
-  cost. The engine rejects silently; the bot only learns via the
-  `pendingBuilds` timeout. Ordering a construct and a research/barter in the
-  same block races the engine's stock — keep cost floors (CC: 750s/550m)
-  and a one-block `constructionHold`. `[08-22]`
-- **The AI territory grid can disagree with the engine's** for a few turns
-  (dirty-ID updates) — re-validate building spots against the live state
-  right before ordering, and plan MORE spots than needed so failures/stale
-  spots are absorbed (goal-8 seed 2: 4 of 6 spots failed/stale). `[08-22]`
-- **`stopMoving()` posts a "stop" command** (`common-api/entity.js`).
-  `[08-22]`
-- **`stopProduction(item.id)`** per queued item cancels a training queue.
-  `[08-21]`
-- **`entity.angle()`** (`common-api/entity.js:602`) returns the CCmpPosition
-  yaw in radians via `AIProxy.js:233` (`cmpPosition.GetRotation().y`).
-  `construct(template, x, z, angle, metadata)` takes the yaw directly.
-  `[08-21]`
-- **`ent.resourceCarrying()`** returns `[{type, amount, max}]`; a drop from
-  >0 to 0 = a delivery. amount / time-between-deliveries = effective gather
-  rate per full gather-walk-drop cycle. `[08-21]`
-
-## 4. The food economy
+## 3. The food economy
 
 - **Gaul start (mainland)**: CC + 4 women + 2 spearmen + 2 javelineers +
   1 cavalry javelineer (pop 9/20). `[08-20]`
@@ -244,7 +165,7 @@ Compile date: 2026-08-22.
   state is `INDIVIDUAL.GATHER.APPROACHING` — it contains "GATHER", so the
   bot's own gather re-issue was NOT the cause. `[08-22]`
 
-## 5. Hunting & herding
+## 4. Hunting & herding
 
 - **Steer discipline (SHIPPED)**: a wounded animal flees away from the
   attacker's live position, so the steer works by keeping the herder BEYOND
@@ -354,7 +275,7 @@ Compile date: 2026-08-22.
   city 14.30→14.06, pop300 14.50→14.40. The naive v81 (no corpse adoption,
   no latch) regressed 15.6/15.0 — the two fixes ARE the feature. `[08-21]`
 
-## 6. Construction & placement
+## 5. Construction & placement
 
 - **Building footprints differ per civilisation** (documented per-civ in
   `docs/game_description/*/buildings/`): don't assume a footprint from the
@@ -525,7 +446,7 @@ Compile date: 2026-08-22.
   cover the cost (an 800 floor vs a 1500 cost orders on credit and the
   engine rejects on cost every block). `[08-22]`
 
-## 7. Phases, population & research
+## 6. Phases, population & research
 
 - **Use the tavern as the cheap third Town-class structure** for the city
   phase: it is the cheapest Town-class building and constructible via a
@@ -616,7 +537,7 @@ Compile date: 2026-08-22.
   the freeze starts or explicitly exempted, else farming starts at t≈7.5
   (v61 deadlock). `[08-21]`
 
-## 8. Trade & market economy
+## 7. Trade & market economy
 
 - **Trade is tiny and not a mass-income mechanic**: ~0.05–0.15/s per trader
   (goal 6 measured ~100 per trader per 30 min). Goal 8 measured: 42 traders
@@ -646,7 +567,7 @@ Compile date: 2026-08-22.
   food 43–74k and wood 47–56k oscillate around the 50k bar and seed variance
   dominates the remaining knobs. `[08-22]`
 
-## 9. Boom sensitivity & tuning discipline
+## 8. Boom sensitivity & tuning discipline
 
 - **The boom is chaotically sensitive**: the claim-order details feed the
   wood/food cadence (fields-vs-houses bootstrap, `fieldDemand`/`fruitStock`
@@ -684,7 +605,7 @@ Compile date: 2026-08-22.
   tuned mean max 14.72, fresh 14.68. Storehouse rules: steppe mean max
   14.84 tuned / 14.54 fresh. `[08-21]`, `[08-22]`
 
-## 10. Performance
+## 9. Performance
 
 - **Turn rates**: ~375 turns/s with few entities (no-op bot vs sandbox
   Petra, mainland 192: 9000 turns in ~24 s wall) vs ~113 turns/s in the
@@ -707,38 +628,39 @@ Where each dated entry of `LESSONS_LEARNED.md` landed in this compile
 
 | Date | Entry | Sections |
 |------|-------|----------|
-| 08-22 | Goal 8: expansion mechanics and the resource ceiling | §1, §6, §7, §8, §9 |
-| 08-22 | Goal 8, round 2: Louis's levers, measured | §4, §6, §7, §8, §9 |
-| 08-22 | Herd steer discipline (pinned dropsite, far-side-only) | §4, §5 |
-| 08-22 | Foundation commit blocked by unit traffic; rush-build | §6, §9 |
-| 08-22 | Storehouse remarks 4/5/6 | §6 |
-| 08-22 | Storehouse rules 1/2/3 | §6, §9 |
-| 08-22 | Cavalry idle after the hunt | §5 |
-| 08-22 | Herder kill-shot accuracy + micro-pause fixes | §4, §5 |
-| 08-22 | Building footprints differ per civilisation | §2, §6 |
-| 08-22 | Herding distance re-probed (200 m band) | §5, §9 |
-| 08-22 | Combined food pool (fruit + carcasses) | §4 |
-| 08-21 | Sticky-builder re-tune | §6, §9 |
-| 08-21 | Builder ping-pong between foundations | §6, §9 |
-| 08-21 | Extended herding range (DISCARDED) | §5 |
-| 08-21 | Wound-then-steer herding (v83) | §5 |
-| 08-21 | Hunting experiment (v81→v82) | §4, §5, §7, §9 |
-| 08-21 | Goal 7 (dropsites, gather-rate telemetry) | §3, §4, §6, §7, §9 |
-| 08-20 | Goal 6 part 2 (placement, threats, command races) | §2, §3, §6, §7, §8 |
-| 08-20 | Goal 6 API facts (trade/barter/research) | §2, §3, §7, §8 |
-| 08-20 | Goal 5 (city phase) | §1, §7 |
-| 08-20 | Goal 4 (town phase) | §3, §7 |
-| 08-20 | Goal 3 (population growth) | §3, §6, §7 |
-| 08-20 | Goal 2 (gathering) | §3, §4 |
-| 08-20 | Goal 1 verification | §1, §2, §10 |
-| 08-21 | Goal 7 session (v34→v54) | §4, §6, §7, §9 |
-| 08-21 | Goal 7 round 2 (herding, berries→farm transition, v55–v71) | §1, §4, §5, §7 |
-| 08-21 | Louis's round-3 tips (audited one by one) | §1, §5, §7 |
-| 08-21 | Building orientation: align everything on the CC angle | §3, §6, §9 |
+| 08-22 | Goal 8: expansion mechanics and the resource ceiling | §1, §5, §6, §7, §8 |
+| 08-22 | Goal 8, round 2: Louis's levers, measured | §3, §5, §6, §7, §8 |
+| 08-22 | Herd steer discipline (pinned dropsite, far-side-only) | §3, §4 |
+| 08-22 | Foundation commit blocked by unit traffic; rush-build | §5, §8 |
+| 08-22 | Storehouse remarks 4/5/6 | §5 |
+| 08-22 | Storehouse rules 1/2/3 | §5, §8 |
+| 08-22 | Cavalry idle after the hunt | §4 |
+| 08-22 | Herder kill-shot accuracy + micro-pause fixes | §3, §4 |
+| 08-22 | Building footprints differ per civilisation | §2, §5 |
+| 08-22 | Herding distance re-probed (200 m band) | §4, §8 |
+| 08-22 | Combined food pool (fruit + carcasses) | §3 |
+| 08-21 | Sticky-builder re-tune | §5, §8 |
+| 08-21 | Builder ping-pong between foundations | §5, §8 |
+| 08-21 | Extended herding range (DISCARDED) | §4 |
+| 08-21 | Wound-then-steer herding (v83) | §4 |
+| 08-21 | Hunting experiment (v81→v82) | §3, §4, §6, §8 |
+| 08-21 | Goal 7 (dropsites, gather-rate telemetry) | §3, §5, §6, §8 |
+| 08-20 | Goal 6 part 2 (placement, threats, command races) | §2, §5, §6, §7 |
+| 08-20 | Goal 6 API facts (trade/barter/research) | §2, §6, §7 |
+| 08-20 | Goal 5 (city phase) | §1, §6 |
+| 08-20 | Goal 4 (town phase) | §6 |
+| 08-20 | Goal 3 (population growth) | §5, §6 |
+| 08-20 | Goal 2 (gathering) | §3 |
+| 08-20 | Goal 1 verification | §1, §2, §9 |
+| 08-21 | Goal 7 session (v34→v54) | §3, §5, §6, §8 |
+| 08-21 | Goal 7 round 2 (herding, berries→farm transition, v55–v71) | §1, §3, §4, §6 |
+| 08-21 | Louis's round-3 tips (audited one by one) | §1, §4, §6 |
+| 08-21 | Building orientation: align everything on the CC angle | §5, §8 |
 
 Facts folded in from `experiments/`: steppe metric
-(`goal-07-steppe.md`) → §1, §9. Pure game mechanics extracted from this file
-on 2026-08-22 to `docs/game_description/mechanics/` (new:
-`animals_and_hunting.md`; additions to `territory.md`, `construction.md`)
-and to the biome data files (goal-8 map census →
-`docs/game_description/biomes/temperate.md`).
+(`goal-07-steppe.md`) → §1, §8. Extracted from this file on 2026-08-22:
+game mechanics → `docs/game_description/mechanics/` (new
+`animals_and_hunting.md`; additions to `territory.md`, `construction.md`),
+entity data → `docs/game_description/gauls/buildings/tavern.md` and the biome
+files, and the engine API / scripting facts → `docs/ai_engine_api.md`
+(§11 Scripting pitfalls, §12 Trigger scripts and end-of-game output).
