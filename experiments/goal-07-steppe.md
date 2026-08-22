@@ -238,3 +238,17 @@ there — s5's house stream untouched). Temperate s1 byte-identical.
 Discriminator notes: firing the demand at any deficit or before t=12
 throttled s5 (pop300 20.6) — the stall detector is the safe form. Run
 tags: `stfd-s1/5`, `stfd2-s1/5`, `stfd3-s1..5`, `stst-s1/5`.
+
+## Validation snapshot (2026-08-22, commit 6da9d54)
+
+- Steppe seeds 1-5 (30 min cap): city/pop300 15.1/19.7, 14.4/16.4,
+  14.1/15.0, 14.7/15.2, 14.6/17.7 — mean max 16.80, all seeds reach both
+  metrics, zero JS errors, seed-1 rerun hash identical.
+- Temperate batch: 14.4/14.9, 14.7/14.4, 14.1/13.4, 13.6/14.1, 14.1/13.3
+  — the goal-7 bar holds, zero JS errors.
+- Fresh steppe seeds 11-20 (never iterated): mean max 17.56, zero errors,
+  every seed reaches city, but s11 never reaches pop300 (cap 30 min) —
+  the tuned seeds 1-5 are easier than the fresh ones.
+- Discarded this round: sticky woodline zone on woodPoor (<400 keep —
+  no-op metric, 29 storehouses churn); stall-gated meat handoff (s1
+  20.6, s5 18.6 — worse).
