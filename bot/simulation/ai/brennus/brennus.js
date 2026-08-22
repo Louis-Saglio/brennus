@@ -1000,6 +1000,23 @@ BrennusBot.prototype.updateWoodline = function()
 		return { "ids": new Set(ids), "total": total, "center": [sx / ids.length, sz / ids.length] };
 	};
 	this.woodline = scan(true) || scan(false);
+	// Wood-poor biome detection (goal 7-S): on the steppe the "trees" are
+	// bushes at ~100 wood each (temperate trees are 200-600). Flag the map
+	// wood-poor when no wood supply can hold 200 — used to gate the field
+	// stream behind the town trio's wood on such biomes. Deterministic and
+	// biome-agnostic (works on any bush-wood map).
+	if (this.woodPoor === undefined)
+	{
+		let poor = true;
+		for (const s of this.gameState.getResourceSupplies("wood").values())
+			if ((+s.resourceSupplyMax() || 0) >= 200)
+			{
+				poor = false;
+				break;
+			}
+		this.woodPoor = poor;
+		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(2)}m woodPoor=${this.woodPoor}\n`);
+	}
 };
 
 BrennusBot.prototype.inOwnTerritory = function(x, z)
@@ -1611,8 +1628,18 @@ BrennusBot.prototype.manageConstruction = function()
 	// throttle the sprint houses (v65: cap 195 at t=15).
 	this.fieldDemand = (fields + fieldFoundations) < Math.min(2, desiredFields) &&
 		this.fruitStock < 800;
+	// Steppe fix (goal 7-S): on wood-poor biomes (bush "trees", detected
+	// in updateWoodline), fields in town phase with the trio pending must
+	// leave the trio's wood untouched — the field stream ate every 100 w
+	// window (~2000 w on steppe seed 5) and the trio waited 12 min for its
+	// 300 w (trio 19.5m, city never). Delaying grain for the trio is
+	// Louis's accepted trade (city is the slower metric). Village-phase
+	// bootstrap fields are untouched, and on wood-rich biomes the gate is
+	// off entirely.
+	const fieldTrioWood = gameState.currentPhase() === 2 && this.woodPoor ?
+		this.nextTrioWood() : 0;
 	if (fields < desiredFields && fieldFoundations < 2 &&
-		resources.wood >= 100)
+		resources.wood >= 100 + fieldTrioWood)
 	{
 		// Louis: fields go next to an existing farmstead that still has room —
 		// the walk to the dropsite is the grain-rate killer. Least crowded

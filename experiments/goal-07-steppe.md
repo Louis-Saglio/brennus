@@ -73,3 +73,43 @@ goal: make the field stream trio-aware / meat-aware on wood-poor biomes
 ## Status
 
 Ongoing. Baseline pinned; first lever identified (fields vs trio wood).
+
+## Lever 1 — trio-aware fields on wood-poor biomes (SHIPPED, 2026-08-22)
+
+The field stream (exempt from every wood reserve by design, v3/v5) ate
+every 100 w window on steppe before the trio ever saw its 300 w. Fix: a
+`woodPoor` flag detected from the map data (no wood supply holds 200 —
+steppe bushes are ~100) gates the field branch in town phase with the
+trio pending: fields must leave `nextTrioWood()` untouched, exactly like
+the houses. Village bootstrap fields untouched; wood-rich biomes keep the
+old behavior (temperate runs byte-identical, gate never fires there).
+
+Steppe results (30 min cap, zero JS errors):
+
+| seed | baseline city/pop300 | gated city/pop300 | max delta |
+|------|----------------------|-------------------|-----------|
+| 1 | 19.3/19.4 | 16.1/20.3 | +0.9 |
+| 2 | 17.1/18.0 | 14.6/18.4 | +0.4 |
+| 3 | 14.7/15.2 | 15.4/16.3 | +1.1 |
+| 4 | 14.2/14.8 | 13.1/15.1 | +0.3 |
+| 5 | never/19.4 | 14.6/19.3 | -10.7 |
+
+Mean max 19.5 → 17.9. City improved on ALL seeds (s5 from never to
+14.6); pop300 slipped (+0.3 to +1.1) — the delayed grain now makes
+pop300 the binding metric. Louis's accepted trade direction, but it
+overshoots: the balance point lies in feeding the pop stream from meat
+(the abundant steppe horses) instead of the delayed grain. Temperate
+5-seed batch with the gate: byte-identical to baseline (14.4/14.9,
+14.7/14.4, 14.1/13.4, 13.6/14.1, 14.1/13.3 — all ≤ 15.0). Run tags:
+`stf-s1..5` (steppe), `stf-t1..5` (temperate, ungated variant — broke
+the bar: s1 pop300 15.9, s2 city 15.1), `stw-t1..5` + `stw-s5`
+(woodPoor-gated).
+
+## Next lever
+
+pop300 is food-bound on steppe after the gate: the civilians' meat path.
+The cavalry's kills are collect-mode (cav delivers, rate 5.0, cap 20 —
+10 trips per 200-meat horse) and civilians only take in-territory
+carcasses within 40 m of a dropsite. Options: let the cav leave served
+kills to the civilians (it currently collects them anyway — duplication),
+or steer slower animals (chickens/sheep) toward dropsites on steppe.
