@@ -113,3 +113,38 @@ The cavalry's kills are collect-mode (cav delivers, rate 5.0, cap 20 —
 carcasses within 40 m of a dropsite. Options: let the cav leave served
 kills to the civilians (it currently collects them anyway — duplication),
 or steer slower animals (chickens/sheep) toward dropsites on steppe.
+
+## Lever 2 — wood storehouses leave the trio's wood on wood-poor biomes (SHIPPED)
+
+The field gate alone left the wood-storehouse stream as the next
+100 w eater: on steppe seed 5, 10 storehouses (8 woodlines + 1 mine)
+went up between t=2.0 and 11.1m before the market could order (market
+ordered 18.6m). The wood-storehouse branch now applies the same
+trio reserve on woodPoor maps. Combined results (30 min cap, zero JS
+errors; `stf` = field gate only, `sts` = both gates):
+
+| seed | stf max | sts max | delta |
+|------|---------|---------|-------|
+| 1 | 20.3 | 19.6 | -0.7 |
+| 2 | 18.4 | 18.0 | -0.4 |
+| 3 | 16.3 | 15.9 | -0.4 |
+| 4 | 15.1 | 15.1 | 0.0 |
+| 5 | 19.3 | 19.4 | +0.1 |
+
+Mean max 17.88 → 17.60 (baseline 19.5). Trio ordering unblocked on s5
+(forge 8.3m, market 12.5m, tavern 12.8m vs market 18.6m before). City
+now 13.1-15.1 on all seeds; pop300 (19.4-19.6 on s1/s5) is the binding
+metric — the remaining gap is the food stream. Temperate with both
+gates: byte-identical to baseline, bar held. Run tags: `sts-s1..5`,
+`sts-t1..5`.
+
+## Discarded lever — served-kill handoff to civilians
+
+Probed (steppe seeds 1-5): let the cavalry leave collect-mode kills that
+landed in territory near a dropsite to the civilian pool, plus far-side
+positioning before the first attack to push kills toward the base.
+Results mixed (s1/s5 better, s2/s3/s4 worse: pop300 18.4→22.0 on s2,
+16.3→20.6 on s3), mean max 19.08 — worse than stf. Reverted. The
+far-side positioning delays the kills and the served-radius pulls
+civilians into 40 m walks; the horses stay out of civilian reach without
+a steer (the deferred faster-horse problem).

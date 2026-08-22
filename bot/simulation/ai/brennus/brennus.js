@@ -1876,8 +1876,15 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			this.dropsiteDemand = true;
 			const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
 			const center = centroid(clump);
+			// Wood storehouses leave the town trio's wood on wood-poor
+			// biomes (goal 7-S): on the steppe the storehouse stream ate
+			// every 100 w window (10 storehouses before the market could
+			// order on seed 5) — same treatment as the fields. The trio
+			// reserve only binds in town phase with the trio pending.
+			const trioWood = this.gameState.currentPhase() === 2 && this.woodPoor ?
+				this.nextTrioWood() : 0;
 			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 30);
-			const pos = resources.wood >= woodFloor && !planned &&
+			const pos = resources.wood >= woodFloor + trioWood && !planned &&
 				this.tryConstruct(storeType, "dropsite", center);
 			if (pos)
 			{
