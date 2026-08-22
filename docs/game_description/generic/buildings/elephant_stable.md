@@ -25,6 +25,8 @@ The Elephant Stable is the City-phase production building for elephant units: it
 - **Trains:** units/{civ}/support_elephant units/{civ}/elephant_archer_b units/{civ}/champion_elephant
 - **Classes:** Structure ConquestCritical
 - **Visible classes:** Military City ElephantStable
+- **Footprint:** Square 31 m × 29 m (height 8 m)
+- **Obstruction:** Static 29 m × 27 m
 
 ## Civilisations that can build it
 

@@ -25,6 +25,8 @@ The Assembly of Princes is the gauls' city-phase elite structure: once phase_cit
 - **Trains:** units/{civ}/champion_infantry_trumpeter units/{civ}/hero_brennus units/{civ}/hero_viridomarus units/{civ}/hero_vercingetorix
 - **Classes:** Structure ConquestCritical CivSpecific
 - **Visible classes:** City Council
+- **Footprint:** Circle r 15 m (height 10 m)
+- **Obstruction:** Static 25 m × 25 m
 
 ## Built by
 

@@ -24,6 +24,8 @@ The Wonder is a late-game prestige structure: it produces nothing and trains not
 - **Requirements:** phase_city
 - **Classes:** Structure ConquestCritical
 - **Visible classes:** City Wonder
+- **Footprint:** Square 34 m × 34 m (height 10 m)
+- **Obstruction:** Static 30 m × 30 m
 
 ## Civilisations that can build it
 
@@ -42,3 +44,38 @@ The Wonder is a late-game prestige structure: it produces nothing and trains not
 - **rome** — `structures/rome/wonder`
 - **sele** — `structures/sele/wonder`
 - **spart** — `structures/spart/wonder`
+
+## Civilisation-specific overrides
+
+These civilisations override the generic stats above (only differing values are listed — every civilisation overrides the footprint):
+
+- **athen** — `structures/athen/wonder`
+  - footprint Square 28 m × 58 m (height 12 m)
+- **brit** — `structures/brit/wonder`
+  - footprint Circle r 30 m (height 20 m)
+- **cart** — `structures/cart/wonder`
+  - footprint Square 29 m × 59 m (height 12 m)
+- **gaul** — `structures/gaul/wonder`
+  - footprint Square 41 m × 42 m
+- **germ** — `structures/germ/wonder`
+  - footprint Circle r 20 m (height 20 m)
+- **han** — `structures/han/wonder`
+  - footprint Square 48 m × 43 m (height 14 m)
+- **iber** — `structures/iber/wonder`
+  - footprint Square 43 m × 43 m (height 14 m)
+- **kush** — `structures/kush/wonder`
+  - footprint Square 48 m × 66 m (height 20 m)
+- **mace** — `structures/mace/wonder`
+  - footprint Square 48 m × 58 m (height 12 m)
+- **maur** — `structures/maur/wonder`
+  - footprint Circle r 31 m
+- **pers** — `structures/pers/wonder`
+  - footprint Square 62 m × 62 m
+- **ptol** — `structures/ptol/wonder`
+  - footprint Square 48 m × 66 m (height 20 m)
+- **rome** — `structures/rome/wonder`
+  - footprint Square 38 m × 46 m (height 12 m)
+- **sele** — `structures/sele/wonder`
+  - footprint Square 29 m × 59 m (height 12 m)
+- **spart** — `structures/spart/wonder`
+  - footprint Square 35 m × 64 m (height 12 m)

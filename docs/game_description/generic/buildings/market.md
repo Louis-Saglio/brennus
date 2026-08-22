@@ -24,6 +24,8 @@ The market is the economy's resource-conversion and trade hub: its `Barter` clas
 - **Trains:** units/{civ}/support_trader
 - **Classes:** Structure Barter
 - **Visible classes:** Economic Trade Town Market
+- **Footprint:** Square 33 m × 29 m (height 8 m)
+- **Obstruction:** Static 30 m × 26 m
 
 ## Civilisations that can build it
 
@@ -42,3 +44,30 @@ The market is the economy's resource-conversion and trade hub: its `Barter` clas
 - **rome** — `structures/rome/market`
 - **sele** — `structures/sele/market`
 - **spart** — `structures/spart/market`
+
+## Civilisation-specific overrides
+
+These civilisations override the generic stats above (only differing values are listed):
+
+- **brit** — `structures/brit/market`
+  - footprint Square 26 m × 24 m
+- **cart** — `structures/cart/market`
+  - footprint Square 30 m × 28 m (height 10 m)
+- **gaul** — `structures/gaul/market`
+  - footprint Square 26 m × 24 m
+- **germ** — `structures/germ/market`
+  - footprint Square 30 m × 30 m
+- **han** — `structures/han/market`
+  - footprint Square 28 m × 28 m (height 10 m)
+- **iber** — `structures/iber/market`
+  - footprint Square 20 m × 24 m
+- **kush** — `structures/kush/market`
+  - footprint Square 32 m × 32 m
+- **maur** — `structures/maur/market`
+  - footprint Square 32 m × 32 m
+- **pers** — `structures/pers/market`
+  - footprint Square 26 m × 26 m
+- **ptol** — `structures/ptol/market`
+  - footprint Square 27 m × 27 m
+- **rome** — `structures/rome/market`
+  - footprint Square 36 m × 30 m

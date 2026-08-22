@@ -22,6 +22,8 @@ The Dock is the entry point to everything naval: for 200 wood, an abundant resou
 - **Trains:** units/{civ}/ship_fishing units/{civ}/ship_merchant units/{civ}/ship_scout units/{civ}/ship_arrow units/{civ}/ship_ram units/{civ}/ship_fire units/{civ}/ship_siege
 - **Classes:** Structure ConquestCritical
 - **Visible classes:** Military Economic Naval Trade Village Dock
+- **Footprint:** Square 18 m × 18 m (height 8 m)
+- **Obstruction:** Static 18 m × 18 m
 
 ## Civilisations that can build it
 
@@ -47,5 +49,33 @@ These civilisations override the generic stats above (only differing values are 
 
 - **athen** — `structures/athen/dock`
   - trains units/{civ}/ship_fishing units/{civ}/ship_merchant units/{civ}/ship_scout units/{civ}/ship_arrow units/{civ}/ship_ram units/{civ}/champion_marine_dock units/{civ}/infantry_archer_b_dock
+  - footprint Square 26 m × 30 m
+- **brit** — `structures/brit/dock`
+  - footprint Square 12 m × 24 m
 - **cart** — `structures/cart/dock`
   - cost 150 wood
+  - footprint Square 34 m × 23 m
+- **gaul** — `structures/gaul/dock`
+  - footprint Square 12 m × 24 m
+- **germ** — `structures/germ/dock`
+  - footprint Square 22 m × 22 m
+- **han** — `structures/han/dock`
+  - footprint Square 26 m × 32 m
+- **iber** — `structures/iber/dock`
+  - footprint Square 16 m × 26 m
+- **kush** — `structures/kush/dock`
+  - footprint Square 24 m × 22 m
+- **mace** — `structures/mace/dock`
+  - footprint Square 26 m × 30 m
+- **maur** — `structures/maur/dock`
+  - footprint Square 30 m × 25 m
+- **pers** — `structures/pers/dock`
+  - footprint Square 23.5 m × 16 m
+- **ptol** — `structures/ptol/dock`
+  - footprint Square 30 m × 34 m
+- **rome** — `structures/rome/dock`
+  - footprint Square 24 m × 28 m
+- **sele** — `structures/sele/dock`
+  - footprint Square 26 m × 30 m
+- **spart** — `structures/spart/dock`
+  - footprint Square 24 m × 30 m

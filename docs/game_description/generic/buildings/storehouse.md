@@ -23,6 +23,8 @@ The Storehouse is the resource dropsite for wood, metal and stone: build it near
 - **Requirements:** phase_village
 - **Classes:** Structure DropsiteWood DropsiteMetal DropsiteStone
 - **Visible classes:** Economic Village Storehouse
+- **Footprint:** Square 15 m × 15 m (height 8 m)
+- **Obstruction:** Static 13 m × 13 m
 
 ## Civilisations that can build it
 
@@ -46,5 +48,26 @@ The Storehouse is the resource dropsite for wood, metal and stone: build it near
 
 These civilisations override the generic stats above (only differing values are listed):
 
+- **athen** — `structures/athen/storehouse`
+  - footprint Square 15 m × 16 m
+- **brit** — `structures/brit/storehouse`
+  - footprint Square 18 m × 18 m
+- **cart** — `structures/cart/storehouse`
+  - footprint Square 16 m × 16 m
+- **gaul** — `structures/gaul/storehouse`
+  - footprint Square 15 m × 17 m
+- **germ** — `structures/germ/storehouse`
+  - footprint Square 18 m × 18 m
 - **han** — `structures/han/storehouse`
   - garrison 1 slots
+  - footprint Square 15 m × 18.5 m (height 10 m)
+- **mace** — `structures/mace/storehouse`
+  - footprint Square 15 m × 16 m
+- **ptol** — `structures/ptol/storehouse`
+  - footprint Square 19 m × 18 m
+- **rome** — `structures/rome/storehouse`
+  - footprint Square 16 m × 15 m
+- **sele** — `structures/sele/storehouse`
+  - footprint Square 17 m × 15 m
+- **spart** — `structures/spart/storehouse`
+  - footprint Square 15 m × 16 m

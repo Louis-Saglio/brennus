@@ -25,6 +25,8 @@ The Corral is a food-production building, available from the Village Phase for 1
 - **Trains:** gaia/fauna_goat_trainable gaia/fauna_sheep_trainable gaia/fauna_pig_trainable gaia/fauna_cattle_cow_trainable
 - **Classes:** Structure
 - **Visible classes:** Resource Economic Village Corral
+- **Footprint:** Square 18 m × 17 m (height 5 m)
+- **Obstruction:** Static 16 m × 15 m
 
 ## Civilisations that can build it
 
@@ -48,13 +50,30 @@ The Corral is a food-production building, available from the Village Phase for 1
 
 These civilisations override the generic stats above (only differing values are listed):
 
+- **brit** — `structures/brit/corral`
+  - footprint Square 12 m × 21 m
 - **cart** — `structures/cart/corral`
   - trains gaia/fauna_goat_trainable gaia/fauna_sheep_trainable gaia/fauna_pig_trainable gaia/fauna_cattle_sanga_trainable
+  - footprint Square 18 m × 16.5 m
+- **gaul** — `structures/gaul/corral`
+  - footprint Square 12 m × 21 m
+- **germ** — `structures/germ/corral`
+  - footprint Square 21 m × 21 m
 - **han** — `structures/han/corral`
   - trains gaia/fauna_goat_trainable gaia/fauna_pig_trainable gaia/fauna_cattle_cow_trainable gaia/fauna_cattle_zebu_trainable
+  - footprint Square 22 m × 20 m
+- **iber** — `structures/iber/corral`
+  - footprint Square 17 m × 19 m
 - **kush** — `structures/kush/corral`
   - trains gaia/fauna_goat_trainable gaia/fauna_sheep_trainable gaia/fauna_pig_trainable gaia/fauna_cattle_sanga_trainable
+  - footprint Square 15 m × 17 m (height 8 m)
 - **maur** — `structures/maur/corral`
   - trains gaia/fauna_goat_trainable gaia/fauna_sheep_trainable gaia/fauna_pig_trainable gaia/fauna_cattle_zebu_trainable
+  - footprint Square 16 m × 17 m
+- **pers** — `structures/pers/corral`
+  - footprint Square 20 m × 13 m
 - **ptol** — `structures/ptol/corral`
   - trains gaia/fauna_goat_trainable gaia/fauna_sheep_trainable gaia/fauna_pig_trainable gaia/fauna_cattle_sanga_trainable
+  - footprint Square 14 m × 22 m
+- **rome** — `structures/rome/corral`
+  - footprint Square 16 m × 22 m

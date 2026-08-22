@@ -25,6 +25,8 @@ The Stable is the cavalry production building: it trains all basic cavalry types
 - **Trains:** units/{civ}/cavalry_axeman_b units/{civ}/cavalry_swordsman_b units/{civ}/cavalry_spearman_b units/{civ}/cavalry_javelineer_b units/{civ}/cavalry_archer_b units/{civ}/champion_cavalry units/{civ}/champion_cavalry_spearman units/{civ}/champion_cavalry_swordsman units/{civ}/champion_cavalry_javelineer units/{civ}/champion_cavalry_archer units/{civ}/champion_chariot
 - **Classes:** Structure ConquestCritical
 - **Visible classes:** Military Village Stable
+- **Footprint:** Square 25 m × 25 m (height 12 m)
+- **Obstruction:** Static 20 m × 20 m
 
 ## Civilisations that can build it
 
@@ -56,5 +58,9 @@ These civilisations override the generic stats above (only differing values are 
   - cost 250 wood
 - **germ** — `structures/germ/stable`
   - trains units/{civ}/cavalry_spearman_b units/{civ}/cavalry_javelineer_b
+- **kush** — `structures/kush/stable`
+  - footprint Square 24 m × 26 m (height 10 m)
 - **maur** — `structures/maur/stable`
   - cost 250 wood
+- **pers** — `structures/pers/stable`
+  - footprint Square 22 m × 20 m (height 5 m)

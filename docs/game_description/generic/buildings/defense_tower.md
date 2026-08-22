@@ -26,6 +26,8 @@ The defense tower is a static defensive structure: it automatically fires on ene
 - **Requirements:** phase_town
 - **Classes:** Structure
 - **Visible classes:** Defensive Tower StoneTower
+- **Footprint:** Square 10 m × 10 m (height 15 m)
+- **Obstruction:** Static 7 m × 7 m
 
 ## Civilisations that can build it
 
@@ -49,6 +51,14 @@ The defense tower is a static defensive structure: it automatically fires on ene
 
 These civilisations override the generic stats above (only differing values are listed):
 
+- **athen** — `structures/athen/defense_tower`
+  - footprint Square 10 m × 10.5 m
+- **brit** — `structures/brit/defense_tower`
+  - footprint Circle r 6 m (height 10 m)
+- **cart** — `structures/cart/defense_tower`
+  - footprint Square 10 m × 10 m (height 18 m)
+- **han** — `structures/han/defense_tower`
+  - footprint Square 10 m × 10.5 m
 - **iber** — `structures/iber/defense_tower`
   - health 2400 HP
   - Ranged "Bow" — damage 8 pierce — range 60 m — prepare 0.4 s — repeat 3.5 s — preferred Human
@@ -56,3 +66,12 @@ These civilisations override the generic stats above (only differing values are 
   - build time 200 s
   - territory radius 38 m, weight 30000
   - garrison 8 slots
+  - footprint Circle r 8 m (height 12 m)
+- **mace** — `structures/mace/defense_tower`
+  - footprint Square 10 m × 10.5 m
+- **ptol** — `structures/ptol/defense_tower`
+  - footprint Square 10 m × 10 m (height 18 m)
+- **sele** — `structures/sele/defense_tower`
+  - footprint Square 10 m × 10.5 m
+- **spart** — `structures/spart/defense_tower`
+  - footprint Square 10 m × 10.5 m

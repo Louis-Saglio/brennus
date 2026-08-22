@@ -28,6 +28,8 @@ The Military Colony is a compact expansion structure for the Ptolemaic and Seleu
 - **Trains:** units/{native}/support_civilian
 - **Classes:** Structure ConquestCritical CivCentre
 - **Visible classes:** Civic Defensive CivilCentre Colony
+- **Footprint:** Square 32 m × 32 m (height 8 m)
+- **Obstruction:** Static 30 m × 30 m
 
 ## Civilisations that can build it
 
@@ -40,5 +42,7 @@ These civilisations override the generic stats above (only differing values are 
 
 - **ptol** — `structures/ptol/military_colony`
   - trains units/{civ}/infantry_spearman_merc_b units/{civ}/infantry_swordsman_merc_b units/{civ}/cavalry_spearman_merc_b units/{civ}/cavalry_javelineer_merc_b
+  - footprint Square 34 m × 33 m (height 12 m)
 - **sele** — `structures/sele/military_colony`
   - trains units/{native}/support_civilian units/{civ}/infantry_swordsman_merc_b units/{civ}/infantry_archer_merc_b units/{civ}/cavalry_spearman_merc_b
+  - footprint Square 31 m × 31 m

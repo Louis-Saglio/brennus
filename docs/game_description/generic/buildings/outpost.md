@@ -22,6 +22,8 @@ The Outpost is a pure vision structure: at 60 wood and 30 s build time it is the
 - **Build distance:** min 50 m from Outpost
 - **Classes:** Structure
 - **Visible classes:** Defensive Outpost
+- **Footprint:** Square 7 m × 7 m (height 13 m)
+- **Obstruction:** Static 6 m × 6 m
 
 ## Civilisations that can build it
 

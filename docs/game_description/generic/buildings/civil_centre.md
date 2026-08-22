@@ -27,6 +27,8 @@ The Civil Centre is the faction's core structure: it is a territory root (140 m 
 - **Trains:** units/{native}/support_civilian
 - **Classes:** Structure ConquestCritical CivCentre
 - **Visible classes:** Civic Defensive CivilCentre
+- **Footprint:** Square 32 m × 32 m (height 8 m)
+- **Obstruction:** Static 30 m × 30 m
 
 ## Civilisations that can build it
 
@@ -54,28 +56,37 @@ These civilisations override the generic stats above (only differing values are 
   - trains units/{native}/support_civilian units/{civ}/infantry_spearman_b units/{civ}/infantry_slinger_b units/{civ}/cavalry_javelineer_b
 - **brit** — `structures/brit/civil_centre`
   - trains units/{native}/support_civilian units/{civ}/infantry_spearman_b units/{civ}/infantry_slinger_b units/{civ}/cavalry_javelineer_b
+  - footprint Circle r 15 m
 - **cart** — `structures/cart/civil_centre`
   - trains units/{native}/support_civilian units/{civ}/infantry_spearman_b units/{civ}/infantry_archer_b units/{civ}/cavalry_javelineer_b
 - **gaul** — `structures/gaul/civil_centre`
   - trains units/{native}/support_civilian units/{civ}/infantry_spearman_b units/{civ}/infantry_javelineer_b units/{civ}/cavalry_javelineer_b
+  - footprint Square 28 m × 28 m
 - **germ** — `structures/germ/civil_centre`
   - trains units/{native}/support_civilian units/{civ}/infantry_spearman_b units/{civ}/infantry_slinger_b units/{civ}/cavalry_javelineer_b units/{civ}/support_wagon
+  - footprint Square 33 m × 29 m
 - **han** — `structures/han/civil_centre`
   - trains units/{native}/support_civilian units/{civ}/infantry_spearman_b units/{civ}/infantry_crossbowman_b units/{civ}/cavalry_swordsman_b
+  - footprint Square 43 m × 35 m
 - **iber** — `structures/iber/civil_centre`
   - trains units/{native}/support_civilian units/{civ}/infantry_swordsman_b units/{civ}/infantry_javelineer_b units/{civ}/cavalry_javelineer_b
 - **kush** — `structures/kush/civil_centre`
   - trains units/{native}/support_civilian units/{civ}/infantry_spearman_b units/{civ}/infantry_archer_b units/{civ}/cavalry_javelineer_b
+  - footprint Square 32 m × 32 m (height 10 m)
 - **mace** — `structures/mace/civil_centre`
   - trains units/{native}/support_civilian units/{civ}/infantry_pikeman_b units/{civ}/infantry_javelineer_b units/{civ}/cavalry_spearman_b
 - **maur** — `structures/maur/civil_centre`
   - trains units/{native}/support_civilian units/{civ}/infantry_spearman_b units/{civ}/infantry_archer_b units/{civ}/cavalry_javelineer_b units/{civ}/support_elephant
+  - footprint Square 40 m × 34 m
 - **pers** — `structures/pers/civil_centre`
   - trains units/{native}/support_civilian units/{civ}/infantry_spearman_b units/{civ}/infantry_archer_b units/{civ}/cavalry_javelineer_b units/{civ}/cavalry_axeman_b units/{civ}/cavalry_spearman_b units/{civ}/cavalry_archer_b
+  - footprint Square 40 m × 24 m (height 18 m)
 - **ptol** — `structures/ptol/civil_centre`
   - trains units/{native}/support_civilian units/{civ}/infantry_pikeman_b units/{civ}/infantry_slinger_b units/{civ}/cavalry_archer_b
+  - footprint Square 41 m × 33 m
 - **rome** — `structures/rome/civil_centre`
   - trains units/{native}/support_civilian units/{civ}/infantry_swordsman_b units/{civ}/infantry_javelineer_b units/{civ}/infantry_spearman_conscript units/{civ}/cavalry_spearman_b
+  - footprint Square 40 m × 40 m
 - **sele** — `structures/sele/civil_centre`
   - trains units/{native}/support_civilian units/{civ}/infantry_spearman_b units/{civ}/infantry_javelineer_b units/{civ}/cavalry_javelineer_b units/{civ}/hero_seleucus_i units/{civ}/hero_antiochus_iii units/{civ}/hero_antiochus_iv
 - **spart** — `structures/spart/civil_centre`

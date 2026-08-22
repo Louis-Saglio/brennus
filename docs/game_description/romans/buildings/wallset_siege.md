@@ -17,6 +17,16 @@ The Siege Wall is the Roman offensive wall set: unlike normal walls, its segment
 - **Classes:** CivSpecific
 - **Visible classes:** Wall SiegeWall
 
+## Wall segment sizes
+
+The wall tool places five segment types (`template_structure_defensive_wall_*`; dimensions in meters, footprint width × depth with placement height in brackets):
+
+- **short** — Square 13 × 5 (h 6.7), obstruction Static 12 × 4
+- **medium** — Square 25 × 5 (h 6.7), obstruction Static 24 × 4
+- **long** — Square 37 × 5 (h 6.7), obstruction Static 36 × 4
+- **tower** — Square 7 × 7 (h 12.5), obstruction Static 6 × 6
+- **gate** — Square 37 × 7 (h 12.5), obstruction two side blocks (11.5 × 5 each, at ±12.25) with a passable gap in the middle
+
 ## Built by
 
 - **rome** — `structures/rome/wallset_siege`

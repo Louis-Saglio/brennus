@@ -25,6 +25,8 @@ The Barracks is the main infantry production building: it trains the full roster
 - **Trains:** units/{civ}/infantry_clubman units/{civ}/infantry_spearman_b units/{civ}/infantry_pikeman_b units/{civ}/infantry_maceman_b units/{civ}/infantry_axeman_b units/{civ}/infantry_swordsman_b units/{civ}/infantry_javelineer_b units/{civ}/infantry_slinger_b units/{civ}/infantry_archer_b units/{civ}/champion_infantry_spearman units/{civ}/champion_infantry_pikeman units/{civ}/champion_infantry_maceman units/{civ}/champion_infantry_axeman units/{civ}/champion_infantry_swordsman units/{civ}/champion_infantry_javelineer units/{civ}/champion_infantry_slinger units/{civ}/champion_infantry_archer
 - **Classes:** Structure ConquestCritical
 - **Visible classes:** Military Village Barracks
+- **Footprint:** Square 19 m × 19 m (height 12 m)
+- **Obstruction:** Static 17 m × 17 m
 
 ## Civilisations that can build it
 
@@ -48,17 +50,37 @@ The Barracks is the main infantry production building: it trains the full roster
 
 These civilisations override the generic stats above (only differing values are listed):
 
+- **athen** — `structures/athen/barracks`
+  - footprint Square 25 m × 25 m
 - **brit** — `structures/brit/barracks`
   - cost 300 wood
+  - footprint Square 22 m × 22 m (height 5 m)
+- **cart** — `structures/cart/barracks`
+  - footprint Square 24 m × 25 m (height 15 m)
 - **gaul** — `structures/gaul/barracks`
   - cost 300 wood
+  - footprint Square 22 m × 22 m (height 5 m)
 - **germ** — `structures/germ/barracks`
   - trains units/{civ}/infantry_spearman_b units/{civ}/infantry_swordsman_b units/{civ}/infantry_javelineer_b units/{civ}/infantry_slinger_b units/{civ}/champion_infantry_maceman
+  - footprint Square 25 m × 24 m (height 5 m)
 - **han** — `structures/han/barracks`
   - trains units/{civ}/infantry_spearman_b units/{civ}/infantry_pikeman_b units/{civ}/infantry_archer_b units/{civ}/infantry_crossbowman_b
+  - footprint Square 22 m × 22 m (height 5 m)
+- **kush** — `structures/kush/barracks`
+  - footprint Square 25 m × 25 m
+- **mace** — `structures/mace/barracks`
+  - footprint Square 25 m × 25 m
 - **maur** — `structures/maur/barracks`
   - cost 300 wood
+  - footprint Square 24 m × 26 m (height 5 m)
 - **pers** — `structures/pers/barracks`
   - trains units/{civ}/infantry_spearman_b units/{civ}/infantry_javelineer_b units/{civ}/infantry_archer_b units/{civ}/champion_infantry units/{civ}/champion_infantry_archer_upgrade
+- **ptol** — `structures/ptol/barracks`
+  - footprint Square 23 m × 23 m
+- **rome** — `structures/rome/barracks`
+  - footprint Square 22 m × 22 m (height 5 m)
+- **sele** — `structures/sele/barracks`
+  - footprint Square 25 m × 25 m
 - **spart** — `structures/spart/barracks`
   - trains units/{civ}/infantry_spearman_b units/{civ}/infantry_javelineer_b units/{civ}/champion_infantry_swordsman units/{civ}/infantry_spearman_neodamodes
+  - footprint Square 25 m × 25 m

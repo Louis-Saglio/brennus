@@ -26,6 +26,8 @@ The Sentry Tower is a cheap early-game defensive structure, available from the V
 - **Requirements:** phase_village
 - **Classes:** Structure
 - **Visible classes:** Defensive Tower SentryTower
+- **Footprint:** Square 9.5 m × 8.5 m (height 9 m)
+- **Obstruction:** Static 9 m × 7.5 m
 
 ## Civilisations that can build it
 

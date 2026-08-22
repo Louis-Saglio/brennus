@@ -25,6 +25,8 @@ The Temple of Vesta is the roman temple, available from Town phase for 300 stone
 - **Trains:** units/{civ}/support_healer_b
 - **Classes:** Structure ConquestCritical CivSpecific
 - **Visible classes:** Civic Town Temple TempleOfVesta
+- **Footprint:** Circle r 11 m (height 12 m)
+- **Obstruction:** Static 19 m × 19 m
 
 ## Built by
 

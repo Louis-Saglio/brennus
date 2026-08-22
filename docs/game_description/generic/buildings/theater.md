@@ -24,6 +24,8 @@ The Theater is a City-phase territory-expansion building: it has a territory inf
 - **Requirements:** phase_city
 - **Classes:** Structure
 - **Visible classes:** City Theater
+- **Footprint:** Circle r 25 m (height 10 m)
+- **Obstruction:** Static 40 m × 46 m
 
 ## Civilisations that can build it
 

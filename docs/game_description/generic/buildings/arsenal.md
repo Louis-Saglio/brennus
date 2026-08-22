@@ -25,6 +25,8 @@ The Arsenal is the City-phase production building for siege engines: rams, tower
 - **Trains:** units/{civ}/champion_infantry_crossbowman units/{civ}/siege_scorpio_packed units/{civ}/siege_polybolos_packed units/{civ}/siege_oxybeles_packed units/{civ}/siege_onager_packed units/{civ}/siege_lithobolos_packed units/{civ}/siege_ballista_packed units/{civ}/siege_ram units/{civ}/siege_tower
 - **Classes:** Structure ConquestCritical
 - **Visible classes:** Military City Arsenal
+- **Footprint:** Square 30 m × 30 m (height 12 m)
+- **Obstruction:** Static 29 m × 29 m
 
 ## Civilisations that can build it
 

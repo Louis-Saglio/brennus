@@ -24,6 +24,8 @@ The Forge is the research building for military upgrade technologies: its produc
 - **Requirements:** phase_town
 - **Classes:** Structure
 - **Visible classes:** Military Town Forge
+- **Footprint:** Square 22 m × 22 m (height 12 m)
+- **Obstruction:** Static 17 m × 17 m
 
 ## Civilisations that can build it
 
@@ -42,3 +44,10 @@ The Forge is the research building for military upgrade technologies: its produc
 - **rome** — `structures/rome/forge`
 - **sele** — `structures/sele/forge`
 - **spart** — `structures/spart/forge`
+
+## Civilisation-specific overrides
+
+These civilisations override the generic stats above (only differing values are listed):
+
+- **han** — `structures/han/forge`
+  - footprint Square 24 m × 24 m (height 8 m)

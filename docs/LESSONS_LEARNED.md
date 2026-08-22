@@ -3,6 +3,43 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-22 — Building footprints differ per civilisation (documented in game_description/*/buildings/, SHIPPED)
+
+Verified in the pinned 0.28.0 templates: **yes, building sizes vary across
+civs** — nearly every structure type has per-civ `<Footprint>` overrides
+(shape, width × depth, placement height), and the `Obstruction` (the
+pathfinding/collision shape, a separate component) usually runs 1–2 m
+smaller per side than the footprint. Findings:
+
+- Extremes: civil_centre 28×28 (gaul) → 43×35 (han); wonder 28×58 (athen)
+  → 62×62 (pers); temple 16×30.5 (maur) → 30×24 (germ); house 11×11 (maur)
+  → 20×20 (germ). Same-type buildings can differ by a factor of ~2 in area.
+- brit structures use **circular footprints** (Circle r 15 CC, r 17
+  fortress, r 30 wonder, r 6 tower, r 6 house with the square disabled);
+  iber's defense tower is a circle too (r 8). Walls/gates use square
+  footprints but two side obstructions with a passable middle.
+- The generic `template_structure_economic_farmstead` defines **no
+  footprint shape at all** (only Height) — every civ supplies its own.
+- Fields have `BlockMovement false` / `BlockPathfinding false` — units walk
+  over them (only placement is blocked by the footprint).
+- Wall segment footprints (wall_short/medium/long/tower/gate) differ per
+  civ in width, depth and height; palisade segments (palisades_*) are
+  shared across civs (han's own templates match the same sizes). Stone and
+  palisade wallsets use different piece templates — palisades are not just
+  a re-skin of stone walls.
+- Bot implications: don't assume a building's footprint from its generic
+  template when reasoning about placement clearance or passability; read
+  the per-civ value. All values are now in
+  `docs/game_description/*/buildings/*` ("Footprint"/"Obstruction" in Basic
+  stats + per-civ override lines; stone wall segments in
+  `wallset_stone.md`'s "Wall segment sizes" section).
+- Tooling: footprint comparison scripts live in `tmp/footprint-compare.py`
+  and `tmp/gen-sizes.py` (parent-chain resolution + per-civ diff); a
+  verifier `tmp/verify-docs.py` cross-checks the docs against the game
+  data (149 override lines, 0 mismatches). The `tools/` directory
+  referenced by `docs/game_description/README.md` no longer exists in the
+  repo.
+
 ## 2026-08-22 — Herding distance re-probed: 200 m band, herding beats collecting at every distance (SHIPPED)
 
 Louis: extend the herdable distance again (v71's 200 m probe regressed

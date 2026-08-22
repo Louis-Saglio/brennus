@@ -21,6 +21,8 @@ The Field is the standard renewable food source: it provides an infinite supply 
 - **Placement:** land
 - **Classes:** Structure
 - **Visible classes:** Resource Field
+- **Footprint:** Square 28 m × 28 m (height 2 m)
+- **Obstruction:** Static 22 m × 22 m — BlockMovement false (units can walk over fields)
 
 ## Civilisations that can build it
 
@@ -47,3 +49,4 @@ These civilisations override the generic stats above (only differing values are 
 - **han** — `structures/han/field`
   - cost 60 wood
   - build time 30 s
+  - footprint Square 22 m × 22 m

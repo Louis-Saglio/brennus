@@ -26,6 +26,8 @@ The Army Camp is the Roman forward military base: it is the only Roman structure
 - **Trains:** units/{civ}/infantry_swordsman_a units/{civ}/infantry_spearman_a units/{civ}/infantry_antesignanus units/{civ}/siege_onager_packed units/{civ}/siege_ram
 - **Classes:** Structure ConquestCritical CivSpecific
 - **Visible classes:** Town ArmyCamp
+- **Footprint:** Square 37 m × 42 m (height 12 m)
+- **Obstruction:** Static 35 m × 40 m
 
 ## Built by
 

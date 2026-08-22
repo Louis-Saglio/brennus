@@ -26,6 +26,8 @@ The house is the basic population-support building: its +5 population bonus (75 
 - **Trains:** units/{civ}/support_civilian_house
 - **Classes:** Structure ConquestCritical
 - **Visible classes:** Civic Village House
+- **Footprint:** Square 13 m × 13 m (height 5 m)
+- **Obstruction:** Static 11 m × 11 m
 
 ## Civilisations that can build it
 
@@ -56,6 +58,9 @@ These civilisations override the generic stats above (only differing values are 
   - population +10
   - territory radius 20 m, weight 40000
   - garrison 6 slots
+  - footprint Square 16 m × 16 m
+- **brit** — `structures/brit/house`
+  - footprint Circle r 6 m (square footprint disabled)
 - **cart** — `structures/cart/house`
   - health 1200 HP
   - cost 150 wood
@@ -63,6 +68,7 @@ These civilisations override the generic stats above (only differing values are 
   - population +10
   - territory radius 20 m, weight 40000
   - garrison 6 slots
+  - footprint Square 15 m × 15 m
 - **germ** — `structures/germ/house`
   - health 1200 HP
   - cost 150 wood
@@ -70,6 +76,7 @@ These civilisations override the generic stats above (only differing values are 
   - population +10
   - territory radius 20 m, weight 40000
   - garrison 6 slots
+  - footprint Square 20 m × 20 m
 - **han** — `structures/han/house`
   - health 1200 HP
   - cost 150 wood
@@ -77,6 +84,7 @@ These civilisations override the generic stats above (only differing values are 
   - population +10
   - territory radius 20 m, weight 40000
   - garrison 6 slots
+  - footprint Square 18 m × 18 m
 - **kush** — `structures/kush/house`
   - health 1200 HP
   - cost 150 wood
@@ -84,6 +92,7 @@ These civilisations override the generic stats above (only differing values are 
   - population +10
   - territory radius 20 m, weight 40000
   - garrison 6 slots
+  - footprint Square 16 m × 16 m
 - **mace** — `structures/mace/house`
   - health 1200 HP
   - cost 150 wood
@@ -91,6 +100,9 @@ These civilisations override the generic stats above (only differing values are 
   - population +10
   - territory radius 20 m, weight 40000
   - garrison 6 slots
+  - footprint Square 16 m × 16 m
+- **maur** — `structures/maur/house`
+  - footprint Square 11 m × 11 m
 - **pers** — `structures/pers/house`
   - health 1200 HP
   - cost 150 wood
@@ -98,6 +110,9 @@ These civilisations override the generic stats above (only differing values are 
   - population +10
   - territory radius 20 m, weight 40000
   - garrison 6 slots
+  - footprint Square 15 m × 16 m
+- **ptol** — `structures/ptol/house`
+  - footprint Square 15 m × 14 m
 - **rome** — `structures/rome/house`
   - health 1200 HP
   - cost 150 wood
@@ -105,6 +120,7 @@ These civilisations override the generic stats above (only differing values are 
   - population +10
   - territory radius 20 m, weight 40000
   - garrison 6 slots
+  - footprint Square 16 m × 16 m
 - **sele** — `structures/sele/house`
   - health 1200 HP
   - cost 150 wood
@@ -112,6 +128,7 @@ These civilisations override the generic stats above (only differing values are 
   - population +10
   - territory radius 20 m, weight 40000
   - garrison 6 slots
+  - footprint Square 15 m × 16 m
 - **spart** — `structures/spart/house`
   - health 1200 HP
   - cost 150 wood
@@ -119,3 +136,4 @@ These civilisations override the generic stats above (only differing values are 
   - population +10
   - territory radius 20 m, weight 40000
   - garrison 6 slots
+  - footprint Square 16 m × 16 m

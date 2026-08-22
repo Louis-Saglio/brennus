@@ -26,6 +26,8 @@ The Fortress is the city-phase (phase_city) heavy military structure: a premium 
 - **Requirements:** phase_city
 - **Classes:** Structure ConquestCritical GarrisonFortress
 - **Visible classes:** Military Defensive Fortress
+- **Footprint:** Square 30 m × 30 m (height 8 m)
+- **Obstruction:** Static 25 m × 25 m
 
 ## Civilisations that can build it
 
@@ -49,19 +51,32 @@ The Fortress is the city-phase (phase_city) heavy military structure: a premium 
 
 These civilisations override the generic stats above (only differing values are listed):
 
+- **athen** — `structures/athen/fortress`
+  - footprint Square 26 m × 28 m
 - **brit** — `structures/brit/fortress`
   - trains units/{civ}/hero_boudicca units/{civ}/hero_caratacos units/{civ}/hero_cunobelin
+  - footprint Circle r 17 m (height 18 m)
 - **cart** — `structures/cart/fortress`
   - trains units/{civ}/hero_hamilcar units/{civ}/hero_hannibal units/{civ}/hero_maharbal
+  - footprint Square 30 m × 32 m
 - **germ** — `structures/germ/fortress`
   - trains units/{civ}/hero_boiorix units/{civ}/hero_teutobod units/{civ}/hero_lugius
+  - footprint Square 30 m × 30 m (height 20 m)
 - **han** — `structures/han/fortress`
   - trains units/{civ}/hero_han_xin_horse units/{civ}/hero_liu_bang_horse units/{civ}/hero_wei_qing_chariot
+  - footprint Square 32 m × 32 m
 - **iber** — `structures/iber/fortress`
   - trains units/{civ}/hero_caros units/{civ}/hero_indibil units/{civ}/hero_viriato
 - **kush** — `structures/kush/fortress`
   - trains units/{civ}/hero_nastasen units/{civ}/hero_amanirenas units/{civ}/hero_arakamani
 - **mace** — `structures/mace/fortress`
   - trains units/{civ}/hero_philip_ii units/{civ}/hero_alexander_iii units/{civ}/hero_demetrius_i
+  - footprint Square 26 m × 28 m
+- **ptol** — `structures/ptol/fortress`
+  - footprint Square 26 m × 28 m
 - **rome** — `structures/rome/fortress`
   - trains units/{civ}/hero_marcellus units/{civ}/hero_maximus units/{civ}/hero_scipio units/{civ}/champion_infantry_swordsman_centurion
+- **sele** — `structures/sele/fortress`
+  - footprint Square 26 m × 28 m
+- **spart** — `structures/spart/fortress`
+  - footprint Square 26 m × 28 m
