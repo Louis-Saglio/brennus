@@ -47,7 +47,8 @@ Trigger.prototype.TimeLimitReached = function()
 	cmpTrigger.RegisterTrigger("OnPlayerDefeated", "EndGameAction", { "enabled": true });
 	cmpTrigger.once = true;
 
-	// Goal 7 deadline is 15 in-game minutes; 18 gives a clean exit margin.
-	cmpTrigger.timeLimitMinutes = 18;
+	// Goal 8: the match must end at the 30 in-game-minute mark so the
+	// end-of-game statistics snapshot the 30-minute state.
+	cmpTrigger.timeLimitMinutes = 30;
 	cmpTrigger.DoAfterDelay(cmpTrigger.timeLimitMinutes * 60 * 1000, "TimeLimitReached", {});
 }
