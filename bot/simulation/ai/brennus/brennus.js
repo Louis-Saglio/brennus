@@ -822,9 +822,13 @@ BrennusBot.prototype.manageHerding = function()
 		// Close in before the kill shot (Louis): attacking from the standoff
 		// fires at the javelin's long-range spread and misses — approach to
 		// ~2 m on the far side first (the animal keeps fleeing TOWARD the
-		// dropsite while we do), shoot only from within 5 m.
+		// dropsite while we do), shoot only from within 5 m. On wood-poor
+		// biomes attack straight away: the approach's stop-and-go churn is
+		// what lets a horse stay ahead, while the attack pursuit moves the
+		// cavalry CONTINUOUSLY (walk 12.6 vs horse flee ~9.4 m/s) and closes
+		// the gap for the kill.
 		const hp = herder.position();
-		if (Math.hypot(hp[0] - pos[0], hp[1] - pos[1]) > 5)
+		if (Math.hypot(hp[0] - pos[0], hp[1] - pos[1]) > 5 && !this.woodPoor)
 		{
 			const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
 			const n = Math.hypot(dx, dz) || 1;

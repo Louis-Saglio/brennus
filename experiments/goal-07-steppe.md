@@ -148,3 +148,36 @@ Results mixed (s1/s5 better, s2/s3/s4 worse: pop300 18.4→22.0 on s2,
 far-side positioning delays the kills and the served-radius pulls
 civilians into 40 m walks; the horses stay out of civilian reach without
 a steer (the deferred faster-horse problem).
+
+## Lever 3 — direct-attack kill on wood-poor biomes (SHIPPED)
+
+Louis's report: the cavalry has a hard time killing horses (faster than
+it) near the dropsite. Speeds checked: horse flee ~9.4 m/s (walk 5.6 ×
+1.67) vs cavalry walk 12.6 m/s — the cavalry IS faster; the problem is
+the kill-shot approach's stop-and-go churn (move → arrive → stop → the
+animal pulls away → move ...), which lets the horse stay ahead. Fix: on
+woodPoor maps the kill branch attacks straight away — the attack pursuit
+moves the cavalry continuously and closes the gap; the animal always
+stops at its flee distance, where the kill lands.
+
+Louis's worker-wall idea probed first (5 workers posted in a line between
+the wounded horse and the dropsite, held via wallHold exemptions):
+mechanical success (s5 in-territory horse kills 3 → 17) but a wash on
+the metric (mean 17.66 vs 17.60) — s1/s3 improved, s2/s5 regressed (the
+wall steals workers from the boom). Reverted; the direct attack alone
+turned out to be the fix.
+
+Steppe results (30 min cap, zero JS errors; `sts` = levers 1+2):
+
+| seed | sts max | stk max | delta |
+|------|---------|---------|-------|
+| 1 | 19.6 | 20.2 | +0.6 |
+| 2 | 18.0 | 16.6 | -1.4 |
+| 3 | 15.9 | 14.9 | -1.0 |
+| 4 | 15.1 | 15.1 | 0.0 |
+| 5 | 19.4 | 17.8 | -1.6 |
+
+Mean max 17.60 → 16.92 (baseline 19.5, target 16.5). s5's horse kills
+land in territory again (13 vs 3). s1 is the new outlier (pop300 20.2).
+Temperate: byte-identical (spot-checked seeds 1/3/5). Run tags:
+`stw2-s1..5`, `stw3-s1/5` (wall, discarded), `stk-s1..5`, `stk-t1/3/5`.
