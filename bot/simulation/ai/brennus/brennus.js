@@ -260,7 +260,6 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	// after a save/load beyond what is serialized here.
 	this.expPlan = this.savedState?.expPlan || null;   // {spots, next, done, simPct}
 	this.expOn = this.savedState?.expOn || false;      // stage latch
-	this.expTechsResearched = this.savedState?.expTechsResearched || false;
 };
 
 BrennusBot.prototype.OnUpdate = function()
@@ -1466,6 +1465,14 @@ BrennusBot.prototype.manageResearch = function()
 		return;
 	}
 
+	// Goal 8: post-city, the expansion techs (mining rates, trade gains)
+	// outrank the boom's leftovers — the boom list returns after every
+	// iteration and would starve them forever (seed 2: zero expansion techs
+	// by t=28, mining ran at 0.35 base rate instead of 0.68). The call is
+	// gated on the expansion stage internally.
+	if (this.manageExpansionTechs())
+		return;
+
 	// On wood-poor biomes the wood rate is the whole economy: ironaxes
 	// (+25% wood) jumps ahead of the grain-rate techs (goal 7-S) — the
 	// grain techs feed the pop stream, but wood pays for everything.
@@ -1951,8 +1958,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 	const resources = gameState.getResources();
 	const cc = this.getCivicCentre();
 	if (!cc)
-		return false;
-	// Gated on raw wood + phase reserve only — never on the trio reserve:
+		return false;	// Gated on raw wood + phase reserve only — never on the trio reserve:
 	// dropsites ARE the income (Louis's #1 blocker); reserving them behind
 	// the trio starves the economy that pays for the trio (v14: wood stock
 	// pinned at 30-110, zero dropsites built, wood rate fell to 27%).
@@ -2100,8 +2106,14 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 				this.nextTrioWood() : 0;
 			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 30) ||
 				storePending(center);
+			// Expansion: the zone median can sit on the territory edge or in
+			// neutral territory (the tight 10-28 m dropsite search then
+			// fails silently every block) — widen the ring search so an
+			// in-territory spot next to the zone is found.
 			const pos = resources.wood >= woodFloor + trioWood && !planned &&
-				this.tryConstruct(storeType, "dropsite", center, true);
+				(this.expansionOn() ?
+					this.findExpansionWoodStorehouse(storeType, center) :
+					this.tryConstruct(storeType, "dropsite", center, true));
 			if (pos)
 			{
 				resources.subtract({ "wood": 100 });
@@ -2901,6 +2913,9 @@ BrennusBot.prototype.logStatus = function()
 		`dist wood=${dropsiteDist.wood}m grain=${dropsiteDist.grain}m fruit=${dropsiteDist.fruit}m ` +
 		`founds=${gameState.getOwnFoundations().toEntityArray().length} failedSpots=${(this.failedSpots || []).length} ` +
 		`fruitStock=${Math.round(this.fruitStock)} ` +
+		`woodline=${this.woodline ? this.woodline.kind + "@" +
+			(this.woodline.center ? this.woodline.center[0].toFixed(0) + "," + this.woodline.center[1].toFixed(0) : "-") +
+			"=" + Math.round(this.woodline.total) : "none"} ` +
 		`terr=${terr ? terr.pct + "%(" + terr.own + "/" + terr.total + ")" : "-"} ` +
 		`stock ${Math.floor(res.food)}/${Math.floor(res.wood)}/${Math.floor(res.stone)}/${Math.floor(res.metal)}\n`);
 };
@@ -2971,6 +2986,17 @@ BrennusBot.prototype.meanDropsiteDistances = function()
 	};
 };
 
+/** Expansion woodline storehouse: rings 10-90 m around the zone median,
+ * in-territory only (a storehouse cannot be placed in neutral territory —
+ * the template's Territory list is "own"). The wide search finds a spot
+ * when the median sits on the territory edge; for a fully neutral zone the
+ * choppers are better re-pointed by updateWoodline's in-territory scan. */
+BrennusBot.prototype.findExpansionWoodStorehouse = function(storeType, center)
+{
+	const pos = this.findBuildingPosition(storeType, center, 10, 90, true, this.expansionRegion);
+	return pos && this.placeOrder(storeType, pos, true) ? pos : false;
+};
+
 // ---------------------------------------------------------------- expansion
 
 /**
@@ -3032,8 +3058,10 @@ BrennusBot.prototype.expansionShares = function(total)
 	const gameState = this.gameState;
 	const timeLeft = Math.max(90, (1800000 - gameState.getTimeElapsed()) / 1000);
 	// Effective mining rate with the +25% techs and the long walk cycles to
-	// CC-served mines (10-unit loads at ~0.68 theoretical, 30-130 m walks).
-	const rate = 0.32;
+	// CC-served mines (measured 50-85% of the 0.68 theoretical once the
+	// mine storehouses land; 0.4 sizes the crews so the mines deplete on
+	// time without starving wood).
+	const rate = 0.4;
 	const region = this.expansionRegion;
 	const sites = this.expansionMineDropsites();
 	const r2 = this.mineServeDist * this.mineServeDist;
@@ -3059,12 +3087,12 @@ BrennusBot.prototype.expansionShares = function(total)
 		shares[res] = Math.min(0.31, served[res] / (rate * timeLeft) / total);
 		mining += shares[res];
 	}
-	if (mining > 0.58)
+	if (mining > 0.52)
 	{
-		const scale = 0.58 / mining;
+		const scale = 0.52 / mining;
 		shares.stone *= scale;
 		shares.metal *= scale;
-		mining = 0.58;
+		mining = 0.52;
 	}
 	const rest = 1 - mining;
 	// Wood is the tightest stockpile (mines feed themselves, fields are
@@ -3113,7 +3141,10 @@ BrennusBot.prototype.expansionCandidates = function()
 		{
 			const x = 384 + gx * 210 + (gz & 1 ? 105 : 0);
 			const z = 384 + gz * 182;
-			if (Math.hypot(x - 384, z - 384) > 330)
+			// Allow the outer band: a CC near the edge still claims the
+			// in-map half of its disk (the map's outer annulus is a third
+			// of its area).
+			if (Math.hypot(x - 384, z - 384) > 430)
 				continue;
 			spots.push([x, z]);
 		}
@@ -3162,6 +3193,32 @@ BrennusBot.prototype.expansionSpotOK = function(spot, halfW, halfD)
 	return true;
 };
 
+/** Nearest placeable CC spot on rings around an anchor (0-60 m), honouring
+ * the CC build rules: clear rotated footprint on own/neutral territory,
+ * 200 m from every CC, base land region, away from enemies, not
+ * blacklisted. Deterministic ring order. */
+BrennusBot.prototype.expansionSpotNear = function(anchor, halfW, halfD, ccSpots)
+{
+	for (let r = 0; r <= 60; r += 4)
+		for (let a = 0; a < 24; ++a)
+		{
+			const ang = a * 2 * Math.PI / 24;
+			const spot = [anchor[0] + r * Math.cos(ang), anchor[1] + r * Math.sin(ang)];
+			if (this.failedSpots.some(f => Math.abs(f[0] - spot[0]) < 6 && Math.abs(f[1] - spot[1]) < 6))
+				continue;
+			if (ccSpots.some(c => SquareDistance(c, spot) < 200 * 200))
+				continue;
+			if (this.nearEnemy(spot, 100, 60))
+				continue;
+			if (this.expansionRegion !== undefined &&
+				this.accessibility.getAccessValue(spot) !== this.expansionRegion)
+				continue;
+			if (this.expansionSpotOK(spot, halfW, halfD))
+				return spot;
+		}
+	return undefined;
+};
+
 /**
  * The CC plan (goal 8): deterministic lattice candidates filtered by the
  * build rules (passable footprint, own/neutral territory, 200 m from every
@@ -3187,18 +3244,21 @@ BrennusBot.prototype.computeExpansionPlan = function()
 		if (ent.hasClass("CivCentre") && ent.position())
 			ccSpots.push(ent.position());
 
-	const candidates = this.expansionCandidates().filter(spot => {
-		if (this.failedSpots.some(f => Math.abs(f[0] - spot[0]) < 6 && Math.abs(f[1] - spot[1]) < 6))
-			return false;
-		if (ccSpots.some(c => SquareDistance(c, spot) < 200 * 200))
-			return false;
-		if (this.nearEnemy(spot, 100, 60))
-			return false;
-		if (this.expansionRegion !== undefined &&
-			this.accessibility.getAccessValue(spot) !== this.expansionRegion)
-			return false;
-		return this.expansionSpotOK(spot, halfW, halfD);
-	});
+	// Lattice anchors rarely land on clear 30x30 ground (forests, mountains,
+	// Petra's territory): search rings around each anchor for the nearest
+	// placeable position, like findBuildingPosition does for every other
+	// building. Deterministic (fixed anchor order, fixed ring angles).
+	const lattice = this.expansionCandidates();
+	const candidates = [];
+	for (const anchor of lattice)
+	{
+		const found = this.expansionSpotNear(anchor, halfW, halfD, ccSpots);
+		if (found)
+			candidates.push(found);
+	}
+	print(`[HARNESS] expansion candidates: ${candidates.length} of ${lattice.length} lattice anchors yield a buildable spot\n`);
+	for (const c of ccSpots)
+		print(`[HARNESS]   existing CC at ${c[0].toFixed(0)},${c[1].toFixed(0)}\n`);
 
 	// Territory cost grid (8 m tiles): 1 passable, 4 impassable — the same
 	// downsampling as CCmpTerritoryManager::CalculateCostGrid.
@@ -3308,7 +3368,7 @@ BrennusBot.prototype.computeExpansionPlan = function()
 				bestW = w;
 			}
 		}
-		if (bestGain < 120 && covered >= target)
+		if (bestGain < 60 && covered >= target)
 			break;
 		if (best === -1)
 			break; // every remaining candidate is too close to a chosen spot
@@ -3398,7 +3458,9 @@ BrennusBot.prototype.manageExpansion = function()
 				!this.expansionSpotOK(spot, halfW, halfD);
 			if (stale)
 			{
-				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC spot ${spot[0].toFixed(0)},${spot[1].toFixed(0)} stale (skipping)\n`);
+				const terr = this.territoryMap;
+				const ti = Math.floor(spot[0] / terr.cellSize) + Math.floor(spot[1] / terr.cellSize) * terr.width;
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC spot ${spot[0].toFixed(0)},${spot[1].toFixed(0)} stale (owner=${terr.data[ti] & 0x1F} nearCC=${ccSpots.some(c => SquareDistance(c, spot) < 200 * 200)} nearEnemy=${this.nearEnemy(spot, 100, 60)} spotOK=${this.expansionSpotOK(spot, halfW, halfD)}) skipping\n`);
 				plan.next++;
 				return;
 			}
@@ -3531,7 +3593,7 @@ BrennusBot.prototype.expansionTechs = [
 
 BrennusBot.prototype.manageExpansionTechs = function()
 {
-	if (!this.expansionOn() || this.expTechsResearched)
+	if (!this.expansionOn())
 		return false;
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
@@ -3544,11 +3606,14 @@ BrennusBot.prototype.manageExpansionTechs = function()
 			continue;
 		const cost = gameState.getTemplate(tech).cost();
 		// Leave the CC stream (300s/250m each) and the training floor intact.
+		// The research order sets constructionHold, which keeps the CC order
+		// out of the same block, so only the barter order can race us — and
+		// barter never spends stone/metal.
 		if (!resources.canAfford({
-			"food": (cost.food || 0) + 200,
+			"food": (cost.food || 0) + 150,
 			"wood": (cost.wood || 0) + 400,
-			"stone": (cost.stone || 0) + 300,
-			"metal": (cost.metal || 0) + 300 }))
+			"stone": (cost.stone || 0) + 150,
+			"metal": (cost.metal || 0) + 150 }))
 			continue;
 		const facility = researchers.toEntityArray()
 			.filter(ent => ent.foundationProgress() === undefined && (ent.trainingQueue()?.length || 0) <= 1)
@@ -3563,7 +3628,6 @@ BrennusBot.prototype.manageExpansionTechs = function()
 		}
 		return false;
 	}
-	this.expTechsResearched = true;
 	return false;
 };
 
@@ -3589,11 +3653,10 @@ BrennusBot.prototype.manageExpansionBarter = function(market)
 		const woodRatio = ratio("wood");
 		const sell = foodRatio >= woodRatio ? "food" : "wood";
 		const bestRatio = Math.max(foodRatio, woodRatio);
-		// Floor 40k: the 50k bar comes from the income in the last minutes;
-		// selling above 40k never touches the final target. One deal per 2
-		// blocks keeps the drain below the food/wood income so the stock
-		// still climbs while the market works.
-		if (bestRatio >= 0.3 && res[sell] >= 40000 && this.turn % 10 === 0)
+		// Floor 30k + one deal per 3 blocks: the drain (33/s) stays below the
+		// food/wood income so the stock still climbs toward the 50k bar while
+		// the market works, and the spacing lets the prices recover.
+		if (bestRatio >= 0.35 && res[sell] >= 30000 && this.turn % 15 === 0)
 		{
 			market.barter(want, sell, 500);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${sell} -> ${want} (ratio ${bestRatio.toFixed(2)})\n`);
@@ -3669,8 +3732,7 @@ BrennusBot.prototype.Serialize = function()
 		"herdWoundDist": this.herdWoundDist,
 		"mineId": this.mineId,
 		"expPlan": this.expPlan,
-		"expOn": this.expOn,
-		"expTechsResearched": this.expTechsResearched
+		"expOn": this.expOn
 	};
 };
 
