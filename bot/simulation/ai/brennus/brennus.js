@@ -1045,8 +1045,11 @@ BrennusBot.prototype.updateWoodline = function()
 			remaining += this.gameState.getEntityById(id)?.resourceSupplyAmount() || 0;
 		// A storehouse zone (rule 1) stays until its dropsite's ring is
 		// nearly bare (ringGateWood); a cell zone moves on at the old 800
-		// floor.
-		const keep = this.woodline.kind === "store" ? this.ringGateWood : 800;
+		// floor. In expansion the ring floor rises to 800 too: the cutters
+		// otherwise spend the last 250 wood of a ring on its far edge,
+		// walking 30-40 m cycles at ~55% rate.
+		const keep = this.woodline.kind === "store" ?
+			(this.expansionOn() ? 800 : this.ringGateWood) : 800;
 		if (remaining > keep)
 		{
 			this.woodline.total = remaining;
@@ -2088,7 +2091,12 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 				worst = anchor;
 			}
 		}
-		if (underserved.length >= 4)
+		if (underserved.length >= 4 && !(this.expansionOn() &&
+			(this.turn - (this.lastWoodStoreTurn || -1000) < 150 ||
+				// Store-ring zones already have their dropsite (the ring is
+				// defined around one): a second storehouse for the same ring
+				// is the storehouse flood seen on seed 1.
+				this.woodline?.kind === "store")))
 		{
 			this.dropsiteDemand = true;
 			const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
@@ -2104,7 +2112,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			// reserve only binds in town phase with the trio pending.
 			const trioWood = this.gameState.currentPhase() === 2 && this.woodPoor ?
 				this.nextTrioWood() : 0;
-			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 30) ||
+			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 60) ||
 				storePending(center);
 			// Expansion: the zone median can sit on the territory edge or in
 			// neutral territory (the tight 10-28 m dropsite search then
@@ -2116,6 +2124,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 					this.tryConstruct(storeType, "dropsite", center, true));
 			if (pos)
 			{
+				this.lastWoodStoreTurn = this.turn;
 				resources.subtract({ "wood": 100 });
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for woodline ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved)\n`);
 				return true;
@@ -2150,7 +2159,8 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 				worst = anchor;
 			}
 		}
-		if (underserved.length >= 2)
+		if (underserved.length >= (this.expansionOn() ? 5 : 2) &&
+			!(this.expansionOn() && this.turn - (this.lastMineStoreTurn || -1000) < 40))
 		{
 			this.dropsiteDemand = true;
 			const sMine = this.mineId.stone !== undefined ?
@@ -2171,6 +2181,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 						this.accessibility.getAccessValue(cc.position()));
 					if (spot && this.placeOrder(storeType, spot))
 					{
+						this.lastMineStoreTurn = this.turn;
 						resources.subtract({ "wood": 100 });
 						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} between stone ${sPos[0].toFixed(0)},${sPos[1].toFixed(0)} and metal ${mPos[0].toFixed(0)},${mPos[1].toFixed(0)} (${underserved.length} underserved)\n`);
 						return true;
@@ -2179,12 +2190,13 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			}
 			const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
 			const center = centroid(clump);
-			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 30) ||
+			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 45) ||
 				storePending(center);
 			const pos = resources.wood >= woodFloor && !planned &&
 				this.tryConstruct(storeType, "dropsite", center);
 			if (pos)
 			{
+				this.lastMineStoreTurn = this.turn;
 				resources.subtract({ "wood": 100 });
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for mine ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved)\n`);
 				return true;
@@ -2197,7 +2209,11 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 	// (and the reactive branch above never fires for it) — the storehouse
 	// must come to the mine first. In own territory only: beyond the CC
 	// disks a storehouse cannot be placed (template territory "own").
-	if (this.expansionOn() && resources.wood >= woodFloor)
+	// Capped and cooled: without both, the branch ordered a storehouse every
+	// few blocks (117 on seed 1 — each depleted-mine destroy freed a slot
+	// for an instant rebuild) and burned the wood stockpile the goal needs.
+	if (this.expansionOn() && resources.wood >= woodFloor &&
+		storeCount < 40 && this.turn - (this.lastMineStoreTurn || -1000) > 40)
 	{
 		const region = this.accessibility.getAccessValue(cc.position());
 		const r2 = this.mineServeDist * this.mineServeDist;
@@ -2219,13 +2235,14 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		if (best)
 		{
 			this.dropsiteDemand = true;
-			const planned = storeFoundations.some(p => Math.hypot(p[0] - best[0], p[1] - best[1]) < 30) ||
+			const planned = storeFoundations.some(p => Math.hypot(p[0] - best[0], p[1] - best[1]) < 45) ||
 				storePending(best);
 			if (!planned)
 			{
 				const spot = this.findMinimaxSpot(storeType, [best], region);
 				if (spot && this.placeOrder(storeType, spot))
 				{
+					this.lastMineStoreTurn = this.turn;
 					resources.subtract({ "wood": 100 });
 					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} for mine ${best[0].toFixed(0)},${best[1].toFixed(0)} (${bestAmt} left)\n`);
 					return true;
@@ -3087,19 +3104,19 @@ BrennusBot.prototype.expansionShares = function(total)
 		shares[res] = Math.min(0.31, served[res] / (rate * timeLeft) / total);
 		mining += shares[res];
 	}
-	if (mining > 0.52)
+	if (mining > 0.46)
 	{
-		const scale = 0.52 / mining;
+		const scale = 0.46 / mining;
 		shares.stone *= scale;
 		shares.metal *= scale;
-		mining = 0.52;
+		mining = 0.46;
 	}
 	const rest = 1 - mining;
-	// Wood is the tightest stockpile (mines feed themselves, fields are
-	// 96% efficient, but the woodline walks grow with the map): food and
-	// wood split evenly.
-	shares.food = rest * 0.5;
-	shares.wood = rest * 0.5;
+	// Wood is the tightest stockpile: fields run at ~95% effective (food
+	// overshoots its bar) while the woodline walks hold wood at ~55%, so
+	// wood gets the larger half of the remainder.
+	shares.food = rest * 0.42;
+	shares.wood = rest * 0.58;
 	return shares;
 };
 
