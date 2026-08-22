@@ -67,18 +67,49 @@ unreachable on this map size; measurement below.**
 - `manageTrade`: goal-6 mechanic restored — 10 traders shuttling the two
   farthest markets, extra markets planted at the far end of the map.
 
-## Results (seed 1, tag seed1-probe5)
+## Results — 5-seed batch (tags b-seed1..5, b-seed1-rerun)
 
-- Zero JS errors; city 14.6, pop300 14.6 (boom intact).
-- **percentMapControlled 88%** (t=23: 81% once the 3 CCs stood —
-  foundations project influence immediately).
-- resourcesCount: food 63265 ✓, wood 33692, stone 12337, metal 13372.
-- Gathered: stone 13519, metal 16111 (mining rates 50-85% effective as
-  the mine storehouses landed).
-- Barter: 2000 sold → 1633 bought (gates too strict, opened too late).
+Zero JS errors on all 5 seeds; boom bars intact (city 12.9-15.0, pop300
+13.4-14.6); determinism: seed-1 rerun byte-identical statistics
+(sha 4570ebae24e9).
+
+| seed | city | pop300 | map% | food | wood | stone | metal |
+|---|---|---|---|---|---|---|---|
+| 1 | 14.6 | 14.6 | 93 | 52491 | 39351 | 19876 | 19815 |
+| 2 | 15.0 | 14.1 | 77 | 86353 | 35719 | 14772 | 20183 |
+| 3 | 14.3 | 14.0 | 86 | 60765 | 38779 | 19234 | 19508 |
+| 4 | 12.9 | 14.0 | 74 | 68364 | 40695 | 15068 | 16005 |
+| 5 | 14.2 | 13.4 | 93 | 89149 | 36682 | 11968 | 12360 |
+
+**Territory: PASSED (≥ 70% on all 5 seeds, 74-93%). Boom: PASSED.
+Determinism: PASSED. Resources: food ✓ 50k+ everywhere; wood ~36-41k;
+stone ~12-20k; metal ~12-20k — the 50000 bars are NOT met, and the
+stone/metal ones cannot be: the map holds ~28k stone / ~40k metal in
+total (see the census above), so even mining every deposit plus the
+market's ceiling lands ~20k short of 50k on stone.**
+
+Why the resource bars are out of reach (numbers, not opinion):
+
+- Stone on the map: 27-29k across seeds. Metal: 39-43k. Mining cannot
+  create more than the deposits hold.
+- The population cap is a hard 300 (min(300, Σ building bonuses)) — no
+  worker count can scale past it.
+- Market barter price-degrades (each 500-deal drifts the sold price ~8%
+  down, the bought ~8% up; restore 0.5 per 5 s). A simulation of the
+  15-minute window caps at ~15k bought per resource with prices pinned at
+  200:1; at sane ratios ~5-8k. Measured: 5.5-7k bought per game.
+- Trade (goal-6 mechanic, restored): ~0.05-0.15/s per trader, measured
+  tradeIncome ≈ 0 (routes go up late; the fleet is small since each
+  trader is a miner not mining under the 300 cap).
+
+Achievable ceiling ≈ food 50k+, wood 45-50k (tunable), stone ~25-30k,
+metal ~28-33k. The goal's 50000-each bar exceeds the map's physical
+stone supply by ~20k. **Awaiting Louis's call on recalibrating the
+resource bars** (e.g. "mine out the map" = ~25k stone / ~35k metal, or
+keep 50k on food/wood only).
 
 ## Next
 
-- Wood and mining worker balance (the 0.58 mining cap starves wood).
-- Barter floor/pacing (starts too late, sells too little).
-- 5-seed batch + determinism.
+- Wood to 50k: shave construction spending (fields/storehouses) and/or
+  shift a few miners to wood.
+- Whatever recalibration Louis picks for stone/metal.

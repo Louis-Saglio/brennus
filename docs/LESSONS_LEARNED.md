@@ -3,6 +3,66 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-22 — Goal 8: expansion mechanics and the resource ceiling (verified in-game)
+
+- **Population is hard-capped at 300** (`Player.GetPopulationLimit()` =
+  `min(maxPop, Σ building bonuses)`): the CC's +20 bonus only counts
+  UNDER the cap — extra CCs never raise a 300-pop game. Everything past
+  the boom must be planned on exactly 300 pop.
+- **Map supply census (mainland 192 temperate, seeds 1-5)**: ~27-29k
+  stone (large mines 5000 × ~4, small 1000) and ~39-43k metal total.
+  `getResourceSupplies()` at init is full-information and reliable for
+  this. The 50000-stockpile bar of goal 8 therefore exceeds the map's
+  total stone — not tunable by play.
+- **Barter is price-degrading** (`Barter.js`): each deal drifts the sold
+  price −2%×gained/100 and the bought +2%×gained/100 (caps ±89), restore
+  0.5 per 5 s. A 500-deal every block hammers the sold resource to 1:199
+  within minutes (measured: 50.5k food sold → 6.7k bought). Sustainable
+  ≈ one 500-deal per 15 s per resource pair; ~15k bought is the
+  15-minute ceiling.
+- **Trade is tiny** (`Market.js`/`Trade.js`): gain ≈
+  0.75·√(1024/mapSize)·d²/(1+0.25d/mapSize) ≈ 3-36 per trip at
+  200-700 m routes — ~0.05-0.15/s per trader (goal 6 measured ~100 per
+  trader per 30 min). Not a mass-income mechanic in 0.28.
+- **CCs are plantable in neutral territory** (Territory "own neutral"),
+  foundations project territory immediately (no foundation special-case
+  in the territory manager), and a foundation's own disk is CONNECTED
+  (every CC is a root) — so a CC chain can be built outward without
+  decay. Min CC distance 200 m checks only OTHER players' CCs
+  (RangeManager query excludes the builder's player).
+- **The construct command is validated at PROCESSING (~1 turn after
+  PostCommand)**: BuildRestrictions + entity limits + tech requirements +
+  the REAL stock cost. Ordering a construct and a research/barter in the
+  same block races the engine's stock — keep cost floors (CC: 750s/550m)
+  and the one-block `constructionHold`. The engine rejects silently; the
+  bot only learns via the pendingBuilds timeout.
+- **AI territory grid can disagree with the engine's** for a few turns
+  (dirty-ID updates): re-validate CC spots against the live state right
+  before ordering, and plan MORE spots than needed so failures/stale
+  spots are absorbed (seed 2: 4 of 6 spots failed/stale).
+- **The greedy territory simulator is conservative** (skips all
+  Petra-owned tiles, counts only neutral gains): seed 1 sim 58% → real
+  88%; seed 3 sim 55% → real 57%. Plan to ~72% sim for the 70% bar, and
+  hex-pack candidates at ≥210 m (the 200 m rule) or the greedy
+  deadlocks on mutual exclusion.
+- **The storehouse flood**: each expansion branch (woodline reactive,
+  mine reactive, mine proactive) can order one storehouse PER BLOCK, and
+  the "nearest supply > 60 m" destroy rule frees the cap slot for an
+  instant rebuild — 117 storehouse orders (=11.7k wood) on seed 1.
+  Fixes: per-branch cooldowns (40-150 blocks), planned-radius gates at
+  45-60 m, and skipping store-ring woodlines (they already have their
+  dropsite).
+- **The expansion techs starved behind the boom list**: `manageResearch`
+  returns after every loop iteration, so the post-city techs appended
+  after the loop never ran (seed 2: zero mining techs by t=28, mining at
+  0.35 base rate). Give the expansion techs their own call at the TOP of
+  manageResearch, and never latch a "done" flag while techs remain
+  unaffordable (the first-block affordability failure froze the list on
+  seeds 1/3).
+- **Mining techs live on the STOREHOUSE** (`Researcher` list), farming
+  techs on the farmstead, pop techs on houses, trade techs on the
+  market, phases on the CC — `findResearchers` follows the templates.
+
 ## 2026-08-22 — Herd steer discipline: pinned dropsite, far-side-only attacks (Louis's pistes, SHIPPED)
 
 Louis: (1) find the ideal food-dropoff distance at which to kill the
