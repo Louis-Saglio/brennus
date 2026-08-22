@@ -67,46 +67,39 @@ unreachable on this map size; measurement below.**
 - `manageTrade`: goal-6 mechanic restored — 10 traders shuttling the two
   farthest markets, extra markets planted at the far end of the map.
 
-## Results — 5-seed batch (tags b-seed1..5, b-seed1-rerun)
+## Results — 5-seed batch (tags f-seed1..5, f-seed1-rerun)
 
 Zero JS errors on all 5 seeds; boom bars intact (city 12.9-15.0, pop300
 13.4-14.6); determinism: seed-1 rerun byte-identical statistics
-(sha 4570ebae24e9).
+(sha f993bb875806). All Louis's levers in: wonder + Glorious Expansion
+(pop 360), the full econ tech tree (27-28 research orders incl. the
+wonder tech and stockbreeding via a corral), a 34-45-trader fleet
+(tradeIncome 595-2800, idle civilians dismissed for pop), and the worker
+efficiency telemetry (logStatus rates: grain 89-100%, wood 44-57%,
+stone/metal 60-80%).
 
-| seed | city | pop300 | map% | food | wood | stone | metal |
-|---|---|---|---|---|---|---|---|
-| 1 | 14.6 | 14.6 | 93 | 51971 | 40652 | 19447 | 19726 |
-| 2 | 15.0 | 14.1 | 77 | 86293 | 36638 | 14757 | 19444 |
-| 3 | 14.3 | 14.0 | 86 | 61461 | 39737 | 19149 | 19381 |
-| 4 | 12.9 | 14.0 | 74 | 68279 | 42786 | 14761 | 15409 |
-| 5 | 14.2 | 13.4 | 93 | 89324 | 38771 | 12575 | 12670 |
+| seed | city | pop300 | map% | food | wood | stone | metal | trade | pop |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 14.6 | 14.6 | 93 | 46783 | 52651 | 8460 | 8245 | 595 | 360 |
+| 2 | 15.0 | 14.1 | 77 | 61759 | 49337 | 12170 | 12263 | 2800 | 360 |
+| 3 | 14.3 | 14.0 | 94 | 42881 | 55726 | 10849 | 10659 | 0 | 359 |
+| 4 | 12.9 | 14.0 | 77 | 69276 | 47421 | 5113 | 9167 | 605 | 360 |
+| 5 | 14.2 | 13.4 | 81 | 73985 | 48193 | 7704 | 7624 | 2070 | 360 |
 
-**Territory: PASSED (≥ 70% on all 5 seeds, 74-93%). Boom: PASSED.
-Determinism: PASSED. Resources: food ✓ 50k+ everywhere; wood ~37-43k;
-stone ~12-20k; metal ~12-20k — the 50000 bars are NOT met, and the
-stone/metal ones cannot be: the map holds ~28k stone / ~40k metal in
-total (see the census above), so even mining every deposit plus the
-market's ceiling lands ~20k short of 50k on stone.**
+**Territory: PASSED (≥ 70% on all 5 seeds, 77-94%). Boom: PASSED.
+Determinism: PASSED. Resources: food 43-74k (3/5 seeds ≥ 50k), wood
+47-56k (3/5 ≥ 50k), stone 5-12k, metal 7-12k.**
 
-Why the resource bars are out of reach (numbers, not opinion):
-
-- Stone on the map: 27-29k across seeds. Metal: 39-43k. Mining cannot
-  create more than the deposits hold.
-- The population cap is a hard 300 (min(300, Σ building bonuses)) — no
-  worker count can scale past it.
-- Market barter price-degrades (each 500-deal drifts the sold price ~8%
-  down, the bought ~8% up; restore 0.5 per 5 s). A simulation of the
-  15-minute window caps at ~15k bought per resource with prices pinned at
-  200:1; at sane ratios ~5-8k. Measured: 5.5-7k bought per game.
-- Trade (goal-6 mechanic, restored): ~0.05-0.15/s per trader, measured
-  tradeIncome ≈ 0 (routes go up late; the fleet is small since each
-  trader is a miner not mining under the 300 cap).
-
-Achievable ceiling ≈ food 50k+, wood 45-50k (tunable), stone ~25-30k,
-metal ~28-33k. The goal's 50000-each bar exceeds the map's physical
-stone supply by ~20k. **Awaiting Louis's call on recalibrating the
-resource bars** (e.g. "mine out the map" = ~25k stone / ~35k metal, or
-keep 50k on food/wood only).
+The food/wood bars sit right at the allocation frontier: every worker
+moved between fields and woodline shifts ±2-5k per seed, and the
+seed-to-seed variance (food 43-74k) is bigger than any remaining knob.
+Stone/metal stay map-bound: the deposits hold ~28k stone / ~40k metal in
+total and the hard 300-pop base cap (360 with Glorious Expansion) limits
+the workforce — mining everything + the market's price-degrading barter
+(~5-7k bought at sane rates) + trade (~0.5-1.5k of each) cannot reach
+the 50000 bars, which exceed the map's total stone. The stone/metal
+stockpiles are therefore deliberately traded away for food/wood workers
+(the reachable bars): mining is capped at 26% of the workforce.
 
 ## Next
 

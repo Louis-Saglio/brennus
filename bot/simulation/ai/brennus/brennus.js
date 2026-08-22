@@ -3167,8 +3167,8 @@ BrennusBot.prototype.expansionShares = function(total)
 	// The fields run at ~95% effective and the woodline at ~55-80% (with
 	// sharpaxes + the storehouse coverage): food gets the larger half — it
 	// feeds the 50k bar, the +60 wonder pop and the trader fleet.
-	shares.food = rest * 0.52;
-	shares.wood = rest * 0.48;
+	shares.food = rest * 0.50;
+	shares.wood = rest * 0.50;
 	return shares;
 };
 
@@ -3569,6 +3569,29 @@ BrennusBot.prototype.manageExpansion = function()
 			}
 		}
 	}
+	// The corral, so stockbreeding (the last econ tech) has a researcher:
+	// the tech modifies corral build times, the building itself is a 100
+	// wood formality for the tech tree.
+	if (plan.corralDone === undefined)
+		plan.corralDone = false;
+	if (plan.corralDone === false)
+	{
+		const corralType = gameState.applyCiv("structures/{civ}/corral");
+		const built = gameState.getOwnStructures().toEntityArray()
+			.some(ent => ent.templateName() === corralType);
+		if (built || gameState.isResearched("gather_animals_stockbreeding"))
+			plan.corralDone = true;
+		else if (!this.pendingBuilds.some(pb => pb.template === corralType) &&
+			!this.constructionHold && gameState.getResources().wood >= 300)
+		{
+			const spot = this.findBuildingPosition(corralType, this.getCivicCentre().position(), 12, 120, true, this.expansionRegion);
+			if (spot && this.placeOrder(corralType, spot))
+			{
+				gameState.getResources().subtract({ "wood": 100 });
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m corral at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} for the tech tree\n`);
+			}
+		}
+	}
 	if (plan.next < plan.spots.length)
 	{
 		const spot = plan.spots[plan.next];
@@ -3815,7 +3838,7 @@ BrennusBot.prototype.manageExpansionBarter = function(market)
 		// Floor 45k + one deal per 3 blocks: the drain (33/s) stays below the
 		// food/wood income so the stock still climbs toward the 50k bar while
 		// the market works, and the spacing lets the prices recover.
-		if (bestRatio >= 0.35 && res[sell] >= 45000 && this.turn % 15 === 0)
+		if (bestRatio >= 0.35 && res[sell] >= 47000 && this.turn % 15 === 0)
 		{
 			market.barter(want, sell, 500);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${sell} -> ${want} (ratio ${bestRatio.toFixed(2)})\n`);

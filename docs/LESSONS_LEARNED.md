@@ -63,6 +63,40 @@ and mistakes are not repeated. Short, dated, factual entries — newest first.
   techs on the farmstead, pop techs on houses, trade techs on the
   market, phases on the CC — `findResearchers` follows the templates.
 
+## 2026-08-22 — Goal 8, round 2: Louis's levers, measured (SHIPPED)
+
+- **The wonder's Glorious Expansion aura** (+20% max population per
+  wonder, tech researched AT the wonder, 2000f/3000w/500s/500m): pop
+  goes 300 → 360. The wonder must stand in own territory (own-only
+  template) — placement at the border fails on the AI's stale territory
+  grid (8 rejected orders on seed 1); search rings ≤ 95 m around the
+  base CC or ≤ 60 m around a far CC only. The construct floor must
+  COVER the cost (a 800 floor vs a 1500 cost orders on credit and the
+  engine rejects on cost every block).
+- **Foundations are Structure-class entities and appear in
+  getOwnStructures()**: any `hasClass` scan double-counts a building
+  (structure + its foundation) unless filtered with
+  `foundationProgress() === undefined` — this "3 markets" ghost count
+  silently stalled the far-market block.
+- **manageResearch returns after every boom-list iteration**, so
+  appended tech lists starve — and a `return false` on the first
+  unfindable facility (stockbreeding: no corral) blocks every later tech
+  forever. Walk the expansion list with `continue` semantics and call it
+  at the TOP of manageResearch. Research concurrency: the 16-tech list
+  serializes to ~20 min; up to 3 in flight (the storehouse, farmstead,
+  market, house, CC and wonder research independently) lands it in ~7.
+- **Trade, measured**: 42 traders + 3 markets (base + 2 at the farthest
+  COMPLETED CCs — anchoring on planned far spots stalls until the last
+  CCs go up) → tradeIncome 1960-2760 over the last ~7 min (~0.1/s per
+  trader). Idle-civilian dismissal for pop works (destroy() on idle
+  women) but the fleet eats 100 food/trader — the food bar must have
+  headroom first.
+- **The food/wood frontier**: with the mining share capped at 26% (the
+  stone/metal bars are unreachable — map-bound), the fields (95% eff)
+  and the woodline (44-57% eff, walk-bound) trade ±2-5k per seed; food
+  43-74k and wood 47-56k oscillate around the 50k bar and seed variance
+  dominates the remaining knobs.
+
 ## 2026-08-22 — Herd steer discipline: pinned dropsite, far-side-only attacks (Louis's pistes, SHIPPED)
 
 Louis: (1) find the ideal food-dropoff distance at which to kill the
