@@ -3,6 +3,57 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-22 — Combined food pool: fruit + in-territory carcasses (Louis's rule, SHIPPED with herder carve-out)
+
+Engine facts verified against the pinned 0.28.0 copy first:
+
+- **Carcasses never rot.** Dead animals spawn a `resource|fauna_X` corpse
+  entity (Health.js `CreateCorpse`: `Engine.AddEntity("resource|" + tpl)`),
+  which MERGES the original `ResourceSupply` (the `special/filter/
+  resource.xml` filter). No fauna template defines `<ResourceSupply><Change>`
+  (no Rotting/Decay), so the meat amount never decreases on its own.
+- **Same gather rate**: gaul `support_civilian` has `food.fruit=1` AND
+  `food.meat=1` (`template_unit_support_female_citizen.xml`); grain is 0.5.
+  Meat and fruit are genuinely interchangeable for civilians.
+- Corollaries: the corpse has NO `Health` component, and because
+  `isHuntable() = KillBeforeGather && (!Health || !Attack)`, carcasses are
+  returned by BOTH `getResourceSupplies("food")` and `getHuntableSupplies()`.
+
+Rule: `findSupply`'s two gated branches (served fruit only while
+`fruitStock > 400`; in-territory carcasses only after the
+`fruitStockSeenHigh` latch) are replaced by ONE ungated branch: nearest
+supply of type fruit OR dead-meat-in-own-territory within 40 m of a food
+dropsite wins; fields (grain) fall through. The latch state is deleted; the
+autocontinue drift-stop now also covers meat gatherers.
+
+**Pure pool first shot (discarded)**: as above with no exclusions. The
+foodmix telemetry proved the pool works (meat delivered from the FIRST
+window, alongside berries — seed 1 t=3m fruit=363/meat=383 vs baseline
+585/280), but the 5-seed batch regressed: city 14.18→14.40 (+0.22),
+pop300 14.24→14.38 (+0.14), seed 1 pop300 15.3 breaking the ≤ 15.0 bar,
+seed 4 city 14.6 (the changed early food flow fired the town bank at 3.5m
+vs 8.2m). Mechanism (seed 1, instrumented): the gap opens in the FIRST
+window — 746 vs 865 food by t=3m. Civilians get pulled onto the herder's
+served slow kills (~40 m out) that the cavalry collects anyway; the extra
+walk (~38 m vs ~15 m to a berry, rate 1.0 both) costs ~25% of a worker's
+cycle, and the gap compounds through the t=13-15 sprint (grain window
+6216 vs 7660).
+
+**Carve-out (shipped, Louis's pick)**: the carcass that is the herder's
+current target stays the herder's — one condition in the meat check:
+`!(s.id() === this.herdTarget && !this.herdingDone)`. Slow kills and
+outside-territory fast kills (the only carcasses the herder collects)
+leave the civilian pool; in-territory fast kills are dropped by the herder
+the same block (herdTarget moves to the next animal), so they stay in the
+pool. 5-seed batch vs baseline: 14.6/15.1, 14.5/14.4, 14.4/13.6, 13.3/13.6,
+13.7/13.5 — mean city 14.18→14.10 (-0.08), pop300 14.24→14.04 (-0.20),
+seed 1 pop300 15.1 (its city/pop300 have ranged 14.1-14.6/14.8-16.1 across
+history — the noisiest seed). Statistical confirmation on 10 fresh seeds
+(11-20, never iterated): city mean 14.17 vs the recorded 14.21 baseline
+(-0.04), pop300 13.74 vs 13.82 (-0.08), zero JS errors, NO seed breaks
+the ≤ 15.0 bar (worst city 14.5, worst pop300 14.1). Net: the rule ships
+at no measurable cost on unseen seeds.
+
 ## 2026-08-21 — Sticky-builder re-tune (bank bootstrap gate + village house crews, SHIPPED)
 
 Re-tune after the sticky builder fix regressed the boom. Instrumented with

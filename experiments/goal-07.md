@@ -192,3 +192,81 @@ t=-0.17, p=0.868.
 Conclusion: the orientation change has NO measurable impact on either
 metric on unseen seeds (both variants also hold the ≤ 15.0 goal-7
 criteria on all 10 fresh seeds). The alignment is free.
+
+## Combined food pool experiment (2026-08-22): fruit + in-territory carcasses
+
+Louis's rule: treat dead in-territory carcasses exactly like berries —
+same gather rate, carcasses never rot — and collect food as "nearest
+served fruit-or-meat wins". Engine facts verified first (LESSONS_LEARNED):
+the `resource|fauna_X` corpse merges the parent ResourceSupply with no
+`<Change>` (no rotting), and gaul civilians gather fruit and meat both at
+1.0.
+
+Implementation: the two gated `findSupply` branches (served fruit while
+`fruitStock > 400`; carcasses after the `fruitStockSeenHigh` latch) are
+replaced by ONE ungated branch — nearest fruit OR dead in-territory meat
+within 40 m of a food dropsite; grain falls through to the generic path.
+Latch state removed; the autocontinue drift-stop also covers meat now.
+
+Function verified by foodmix telemetry: meat is delivered from the first
+window onward, alongside berries (seed 1 t=3m fruit=363/meat=383 vs
+baseline 585/280; seed 5 t=5m fruit=1239/meat=459). Zero JS errors,
+seed-1 rerun hash identical.
+
+5-seed batch vs baseline (city/pop300, zero JS errors):
+
+| seed | baseline | food pool | delta   |
+|------|----------|-----------|---------|
+| 1    | 14.1/14.9 | 14.3/15.3 | +0.2/+0.4 |
+| 2    | 14.7/14.8 | 14.4/15.0 | -0.3/+0.2 |
+| 3    | 14.3/14.0 | 14.3/14.1 | 0.0/+0.1  |
+| 4    | 13.5/13.6 | 14.6/13.9 | +1.1/+0.3 |
+| 5    | 14.3/13.9 | 14.4/13.6 | +0.1/-0.3 |
+
+Mean city 14.18 → 14.40 (+0.22), pop300 14.24 → 14.38 (+0.14): a mild,
+consistent regression — seed 1 pop300 15.3 breaks the ≤ 15.0 bar, seed 4
+city 14.6 (+1.1; the early food-flow change fired the town bank at 3.5m
+vs 8.2m, re-ordering the whole tech/barter cascade).
+
+Mechanism (seed 1): the gap opens in the first window — 746 vs 865 food
+delivered by t=3m. Civilians get pulled onto the herder's slow kills
+(served, ~40 m out) that the cavalry collects anyway; the extra walk vs a
+nearby berry (~38 m vs ~15 m, rate 1.0 both) costs ~25% of a worker's
+cycle, and the gap compounds (grain window at t=13-15: 6216 vs 7660, ~23
+pop behind at t=15). The rule is faithful; the cost is redundant walks on
+the herder's current kill.
+
+Decision: AWAITING LOUIS. Candidate carve-outs (untested): exclude the
+herder's active slow-kill carcass from the civilian pool; shrink the meat
+serving radius. Run tags: `foodpool-s1/s5` (probes), `foodpool-seed1..5`,
+`foodpool-seed1-rerun` (batch).
+
+### Carve-out: the herder's current carcass stays the herder's (SHIPPED)
+
+Louis picked the carve-out. One condition in the meat check of the
+combined branch: `!(s.id() === this.herdTarget && !this.herdingDone)` —
+the carcass the cavalry is actively collecting (slow kills, fast kills
+landed outside the territory) leaves the civilian pool; in-territory fast
+kills are dropped by the herder the same block (herdTarget moves to the
+next animal), so they stay in the pool.
+
+5-seed batch vs baseline (zero JS errors, seed-1 rerun hash identical):
+
+| seed | baseline | carve-out | delta   |
+|------|----------|-----------|---------|
+| 1    | 14.1/14.9 | 14.6/15.1 | +0.5/+0.2 |
+| 2    | 14.7/14.8 | 14.5/14.4 | -0.2/-0.4 |
+| 3    | 14.3/14.0 | 14.4/13.6 | +0.1/-0.4 |
+| 4    | 13.5/13.6 | 13.3/13.6 | -0.2/0.0  |
+| 5    | 14.3/13.9 | 13.7/13.5 | -0.6/-0.4 |
+
+Mean city 14.18 → 14.10 (-0.08), pop300 14.24 → 14.04 (-0.20). Seed 1 is
+the only seed worse than baseline (pop300 15.1) — its metrics have ranged
+14.1-14.6/14.8-16.1 across the variant history, the noisiest seed.
+
+Statistical confirmation on 10 fresh seeds (11-20, never iterated): city
+mean 14.17 vs the recorded 14.21 baseline (-0.04), pop300 13.74 vs 13.82
+(-0.08), zero JS errors, NO seed breaks the ≤ 15.0 bar (worst city 14.5,
+worst pop300 14.1). The rule ships at no measurable cost on unseen seeds.
+Run tags: `carve-s1/s5` (probes), `carve-seed1..5` + `carve-seed1-rerun`
+(batch), `carve-fresh-11..20` (fresh-seed confirmation).

@@ -112,6 +112,29 @@ iterated on): city paired delta -0.03 ± 0.27 min (p=0.734), pop300
 ≤ 15.0 on all 10. Details: `experiments/goal-07.md` (orientation section)
 and LESSONS_LEARNED.
 
+## Combined food pool (Louis: carcasses == berries) — SHIPPED with herder carve-out
+
+Implemented on top of goal 7: `findSupply` now treats served fruit and
+dead in-territory animals as ONE pool — nearest supply within 40 m of a
+food dropsite wins, fields fall through; the old fruit-stock gate and the
+carcass latch are gone, the drift-stop covers meat too. Engine facts
+verified: carcasses never rot (no `<Change>` in the merged corpse
+ResourceSupply) and civils gather fruit/meat at the same rate (1.0).
+foodmix telemetry confirms meat flows from the first window alongside
+berries. Carve-out (Louis's pick): the carcass the herder is actively
+collecting stays the herder's; in-territory fast kills remain in the pool.
+
+Pure pool (no carve-out) regressed the 5-seed batch (city +0.22, pop300
++0.14, seed 1 pop300 15.3): civilians walked to the herder's served slow
+kills the cavalry collects anyway (~25% cycle loss in the first window,
+compounds). Carve-out batch vs baseline: 14.6/15.1, 14.5/14.4, 14.4/13.6,
+13.3/13.6, 13.7/13.5 (baseline 14.1/14.9, 14.7/14.8, 14.3/14.0,
+13.5/13.6, 14.3/13.9) — mean city -0.08, pop300 -0.20, zero JS errors,
+determinism OK. Confirmation on 10 fresh seeds (11-20): city 14.17 vs
+14.21 baseline, pop300 13.74 vs 13.82 — no measurable cost, NO seed
+breaks ≤ 15.0. Details: `experiments/goal-07.md` (combined food pool
+sections) + LESSONS_LEARNED.
+
 ## Next up (goal 8: defeat sandbox Petra < 40 in-game min)
 
 Tier 3 begins: `experiments/goal-08.md` doesn't exist yet — create it and

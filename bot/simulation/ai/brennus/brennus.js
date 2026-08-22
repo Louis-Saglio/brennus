@@ -19,12 +19,14 @@ import { BaseAI } from "simulation/ai/common-api/baseAI.js";
  * - Drop sites go next to the resources they serve (Louis's tip), and keep
  *   following them: a farmstead by the berries, storehouses rebuilt at the
  *   receding woodline AND at the stone/metal mines, farmsteads by each new
- *   field cluster, and depleted storehouses are destroyed. Berries and
- *   fruits are picked before any field is built while they last, served
- *   groups first. Fields go next to a farmstead with free space;
- *   woodcutters all work the single biggest woodline in territory.
- *   Verified by telemetry: effective vs theoretical gather rate (delivery
- *   events), reported in the status log (bar: wood >= 75%, grain >= 85%).
+ *   field cluster, and depleted storehouses are destroyed. Served berries/
+ *   fruit and dead in-territory animals are ONE food pool (Louis: same
+ *   gather rate, carcasses never rot — interchangeable): the nearest
+ *   served supply wins, fields only once the pool is empty. Fields go next
+ *   to a farmstead with free space; woodcutters all work the single
+ *   biggest woodline in territory. Verified by telemetry: effective vs
+ *   theoretical gather rate (delivery events), reported in the status log
+ *   (bar: wood >= 75%, grain >= 85%).
  * - Hunting (Louis's tips): slow animals (chicken/sheep/pig) are killed in
  *   place and collected by the cavalry itself, one at a time; fast fleers
  *   (deer/gazelle) are wounded once, then steered toward the nearest food
@@ -198,7 +200,6 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	// Cached in-territory fruit stock (updateWoodline refresh): berries out-
 	// rank fields while they last (Louis).
 	this.fruitStock = 0;
-	this.fruitStockSeenHigh = this.savedState?.fruitStockSeenHigh || false;
 	// Pinned mine per resource (Louis: concentrate all miners on ONE mine,
 	// like the woodline, until it is full — never spread over several).
 	this.mineId = this.savedState?.mineId || {};
@@ -268,12 +269,13 @@ BrennusBot.prototype.assignGatherers = function()
 	}
 
 	// Same persistence problem as the miners, but continuous: the engine's
-	// gather autocontinue drifts berry pickers to ever-farther unserved
-	// bushes without consulting findSupply (v57: pickers at 214 m, 20%
-	// rate). Stop fruit gatherers working > 45 m from every food dropsite —
-	// the shares reassign them to served fruit or the fields. Only while
-	// actively gathering and empty-handed: stopping a returner kills its
-	// whole loaded cycle (v58 food collapse).
+	// gather autocontinue drifts berry pickers (and now carcass gatherers)
+	// to ever-farther unserved supplies without consulting findSupply (v57:
+	// pickers at 214 m, 20% rate). Stop food gatherers of the served-pool
+	// subtypes working > 45 m from every food dropsite — the shares
+	// reassign them to served food or the fields. Only while actively
+	// gathering and empty-handed: stopping a returner kills its whole
+	// loaded cycle (v58 food collapse).
 	{
 		const sites = this.foodDropsitePositions();
 		for (const ent of this.gameState.getOwnUnits().values())
@@ -286,7 +288,8 @@ BrennusBot.prototype.assignGatherers = function()
 			if ((ent.resourceCarrying() || []).some(c => c.amount > 0))
 				continue;
 			const tgt = this.gatherTarget[ent.id()];
-			if (tgt?.generic !== "food" || tgt?.specific !== "fruit")
+			if (tgt?.generic !== "food" ||
+				(tgt?.specific !== "fruit" && tgt?.specific !== "meat"))
 				continue;
 			const anchor = this.gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
 			if (!sites.some(d => SquareDistance(anchor, d) < 45 * 45))
@@ -385,57 +388,41 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 		if (best)
 			return best;
 	}
-	// Louis: berries before fields while they last — but only SERVED groups
-	// (within 40 m of a food dropsite): trekking 100+ m to unserved berries
-	// runs at ~20% rate, worse than the fields (v55). Unserved patches are
-	// made served by the farmstead chaining in manageDropSites.
-	if (resource === "food" && this.fruitStock > 400)
+	// Louis: served berries/fruit and dead in-territory animals are ONE food
+	// pool — same gather rate, carcasses never rot, so they are
+	// interchangeable. The nearest SERVED supply (within 40 m of a food
+	// dropsite) wins: trekking 100+ m to unserved food runs at ~20% rate,
+	// worse than the fields (v55). Unserved patches are made served by the
+	// farmstead chaining in manageDropSites. Alive animals stay the herder's
+	// job. Fields (grain) fall through to the generic path below.
+	// Carve-out: the carcass the herding cavalry is actively collecting (its
+	// slow kills, fast kills landed outside the territory) stays the
+	// herder's — a civilian walking to it only duplicates the collection and
+	// wastes a berry walk. In-territory fast kills are deliberately dropped
+	// by the herder (herdTarget moves on the same block) and stay in the
+	// pool.
+	if (resource === "food")
 	{
 		const dropsites = this.foodDropsitePositions();
-		const valid = supply => {
-			const supplyPos = supply.position();
-			return supplyPos && this.accessibility.getAccessValue(supplyPos) === region &&
-				!this.nearEnemy(supplyPos, 100, 60) &&
-				supply.resourceSupplyAmount() && !supply.isFull() &&
-				this.canGatherSupply(unit, supply) &&
-				dropsites.some(d => SquareDistance(supplyPos, d) < 40 * 40);
-		};
 		let best, bestD = Infinity;
 		for (const s of this.gameState.getResourceSupplies("food").values())
 		{
-			if (s.resourceSupplyType()?.specific !== "fruit" || !valid(s))
-				continue;
-			const d = SquareDistance(pos, s.position());
-			if (d < bestD)
-			{
-				bestD = d;
-				best = s;
-			}
-		}
-		if (best)
-			return best;
-		// No served fruit: fall through to the generic path (fields).
-	}
-	// Louis (hunting): once the berries/fruit are gone (they were there, now
-	// they aren't), dead animals inside the territory outrank the fields —
-	// in-territory kills are the fast fleers' fallback, meat gathers faster
-	// than a fresh field, and carcasses rot if nobody takes them. Alive
-	// animals keep the generic path below.
-	if (resource === "food" && this.fruitStockSeenHigh && this.fruitStock <= 400)
-	{
-		let best, bestD = Infinity;
-		for (const s of this.gameState.getHuntableSupplies().values())
-		{
-			if (s.get("Health"))
-				continue;
 			const supplyPos = s.position();
 			if (!supplyPos || this.accessibility.getAccessValue(supplyPos) !== region)
 				continue;
-			if (!this.inOwnTerritory(supplyPos[0], supplyPos[1]))
+			const specific = s.resourceSupplyType()?.specific;
+			if (specific !== "fruit" &&
+				!(specific === "meat" && !s.get("Health") &&
+					this.inOwnTerritory(supplyPos[0], supplyPos[1]) &&
+					!(s.id() === this.herdTarget && !this.herdingDone)))
+				continue;
+			if (this.nearEnemy(supplyPos, 100, 60))
 				continue;
 			if (!s.resourceSupplyAmount() || s.isFull())
 				continue;
 			if (!this.canGatherSupply(unit, s))
+				continue;
+			if (!dropsites.some(d => SquareDistance(supplyPos, d) < 40 * 40))
 				continue;
 			const d = SquareDistance(pos, supplyPos);
 			if (d < bestD)
@@ -556,8 +543,9 @@ BrennusBot.prototype.nearestFoodDropsite = function(pos)
  *   at 7/25 HP by the first javelin). Killed inside the territory they are
  *   left to the civilians, killed outside the cavalry gathers the carcass
  *   itself.
- * Civilians collect in-territory carcasses once the fruit runs out
- * (findSupply); they never leave the territory for meat (Louis).
+ * Civilians collect served in-territory carcasses exactly like berries
+ * (findSupply's combined food pool); they never leave the territory for
+ * meat (Louis).
  * One herder, exempt from the gatherer shares until no animals remain in
  * range (then it joins the economy). Stall detection (stopped fleeing, or
  * 30 s without closing on the dropsite) falls back to killing in place.
@@ -822,12 +810,6 @@ BrennusBot.prototype.updateWoodline = function()
 			}
 		}
 		this.fruitStock = stock;
-		// Latch: the carcass fallback (findSupply) may only engage once the
-		// berries were demonstrably plentiful and THEN ran out — the initial
-		// scan can read <= 400 while the first pickers are still walking out
-		// (v81: the false "berries gone" at game start stalled training ~2 min).
-		if (stock > 400)
-			this.fruitStockSeenHigh = true;
 	}
 	// Mine concentration (Louis: all miners on ONE mine per resource, like
 	// the woodline, until it can't take more gatherers — spreading miners
@@ -2460,7 +2442,6 @@ BrennusBot.prototype.Serialize = function()
 		"herdWoundTurn": this.herdWoundTurn,
 		"herdFast": this.herdFast,
 		"herdLastPos": this.herdLastPos,
-		"fruitStockSeenHigh": this.fruitStockSeenHigh,
 		"mineId": this.mineId
 	};
 };
