@@ -182,6 +182,12 @@ BrennusBot.prototype.herdCutoff = 200;
  * herder from 37 m chickens to 127 m deer and cost seed 5 city +0.5 min —
  * nearest-first stays. */
 BrennusBot.prototype.herdPrefer = false;
+/** Distance (m) from the pinned food dropsite at which a steered animal is
+ * killed mid-flight. Probed 40 (2026-08-22): s1 pop300 15.4→15.1 but s5
+ * 14.3→14.6 with a new 167 m orphan — a wash; the flee-away discipline
+ * (pinned dropsite, far-side-only attacks) is what fixed the steers, not
+ * this threshold. 25 stays. */
+BrennusBot.prototype.herdKillDist = 25;
 /** Rule 1 (Louis, 2026-08-22): a new wood storehouse may only go up once no
  * existing wood dropsite (CC or storehouse) can still serve ≥ this much
  * harvestable wood within ringServeDist m — exhaust the served ring first,
@@ -238,6 +244,13 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.herdFast = this.savedState?.herdFast || false;
 	this.herdKill = this.savedState?.herdKill || false;
 	this.herdLastPos = this.savedState?.herdLastPos;
+	// Pinned steer target: the food dropsite nearest the animal at WOUND time.
+	// The steer always pushes toward this ONE dropsite (Louis: never let the
+	// animal flee away from the base — an unpinned target flips when the
+	// animal crosses the midpoint between two dropsites and the chase zigzags
+	// outward). herdWoundDist is the wound-time distance to it (stall ref).
+	this.herdDrop = this.savedState?.herdDrop;
+	this.herdWoundDist = this.savedState?.herdWoundDist || Infinity;
 	// Cached in-territory fruit stock (updateWoodline refresh): berries out-
 	// rank fields while they last (Louis).
 	this.fruitStock = 0;
@@ -700,7 +713,8 @@ BrennusBot.prototype.manageHerding = function()
 			target = best;
 			this.herdTarget = target.id();
 			const tp = target.position();
-			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m adopted carcass ${target.templateName()} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} mode=${this.herdKill ? "collect" : "herd"}\n`);
+			const dr = this.nearestFoodDropsite(tp);
+			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m adopted carcass ${target.templateName()} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} mode=${this.herdKill ? "collect" : "herd"} dropDist=${Math.hypot(tp[0] - dr[0], tp[1] - dr[1]).toFixed(0)}\n`);
 		}
 	}
 	if (target && !target.get("Health"))
@@ -709,7 +723,8 @@ BrennusBot.prototype.manageHerding = function()
 		{
 			this.huntDbgLog = true;
 			const tp = target.position();
-			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m carcass ${target.templateName()} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} mode=${this.herdKill ? "collect" : "herd"} inTerr=${this.inOwnTerritory(tp[0], tp[1])}\n`);
+			const dr = this.nearestFoodDropsite(tp);
+			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m carcass ${target.templateName()} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} mode=${this.herdKill ? "collect" : "herd"} inTerr=${this.inOwnTerritory(tp[0], tp[1])} dropDist=${Math.hypot(tp[0] - dr[0], tp[1] - dr[1]).toFixed(0)}\n`);
 		}
 		// Carcass: collect-mode kills (non-fleeing animals, far skittish) are
 		// ALWAYS collected by the cavalry, fully, before the next animal (one
@@ -785,6 +800,9 @@ BrennusBot.prototype.manageHerding = function()
 		this.herdBestDist = this.herdStartDist;
 		this.herdWoundTurn = 0;
 		this.huntDbgLog = false;
+		this.herdKillLog = false;
+		this.herdDrop = undefined;
+		this.herdWoundDist = Infinity;
 		// Fleer class by template stance (source-verified, 0.28.0): domestic
 		// animals (chicken/sheep/pig) are passive and crawl when fleeing
 		// (1.6-4.7 m/s); deer/gazelle are skittish and run (6.3 m/s). Rabbits
@@ -816,22 +834,29 @@ BrennusBot.prototype.manageHerding = function()
 	// wounded animal flees away from the attacker and keeps fleeing while
 	// the attacker stays within the flee distance — so shoot once from the
 	// far side, then follow closely without attacking, and kill once the
-	// animal is near the nearest food dropsite. One javelin leaves a deer
+	// animal is near the food dropsite. The dropsite is PINNED at wound
+	// time: the steer always drives the animal toward that ONE dropsite —
+	// an unpinned target flips when the animal crosses the midpoint between
+	// two dropsites and the chase zigzags away from the base (Louis: never
+	// let the animal flee away from the base). One javelin leaves a deer
 	// at 7/25 HP: the kill shot is the last re-aim. Stall (stopped fleeing,
-	// or 30 s without closing 10 m on the dropsite) → kill in place.
+	// or 30 s with the animal farther from the pinned dropsite than at the
+	// wound) → kill in place.
 	const pos = target.position();
 	this.herdLastPos = pos;
-	const drop = this.nearestFoodDropsite(pos);
+	const drop = this.herdDrop || this.nearestFoodDropsite(pos);
 	const dist = Math.hypot(pos[0] - drop[0], pos[1] - drop[1]);
 	this.herdBestDist = Math.min(this.herdBestDist, dist);
 	if (target.isHurt() && !this.herdWoundTurn)
 	{
-		// First detection of the wound: cancel the attack order NOW. The
-		// engine's attack keeps firing on its own (javelin RepeatTime is
-		// 1.5 s) and the second shot would kill the animal before any
-		// steering happens.
+		// First detection of the wound: pin the steer target and cancel the
+		// attack order NOW. The engine's attack keeps firing on its own
+		// (javelin RepeatTime is 1.5 s) and the second shot would kill the
+		// animal before any steering happens.
 		this.herdWoundTurn = this.turn;
 		this.herdCmdTurn = 0;
+		this.herdDrop = drop;
+		this.herdWoundDist = dist;
 		herder.stopMoving();
 		print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m wounded ${target.templateName()} at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} dropDist=${dist.toFixed(0)}\n`);
 		return;
@@ -840,7 +865,9 @@ BrennusBot.prototype.manageHerding = function()
 		return;
 	if (!target.isHurt())
 	{
-		// Position on the far side, then shoot until the first hit connects
+		// Wound shot: position on the far side first (Louis: the animal flees
+		// AWAY from the attacker, so a shot from the dropsite side pushes it
+		// away from the base), then shoot until the first hit connects
 		// (misses wound nothing, so keep trying). 6 m, not more: the javelin
 		// spread scales with distance and the wound shot must land reliably
 		// (Louis's report: from the old 12 m standoff the kill shot often
@@ -850,7 +877,8 @@ BrennusBot.prototype.manageHerding = function()
 		const n = Math.hypot(dx, dz) || 1;
 		const bx = pos[0] + dx / n * 6, bz = pos[1] + dz / n * 6;
 		const hp = herder.position();
-		if (Math.hypot(hp[0] - bx, hp[1] - bz) > 6 && dist > 25)
+		const hd = Math.hypot(hp[0] - drop[0], hp[1] - drop[1]);
+		if (hd < dist - 2 || Math.hypot(hp[0] - bx, hp[1] - bz) > 6)
 			herder.move(bx, bz);
 		else
 			herder.attack(target.id(), false);
@@ -858,12 +886,30 @@ BrennusBot.prototype.manageHerding = function()
 	}
 	const fleeing = (target.unitAIState() || "").indexOf("FLEEING") !== -1;
 	// Kill: near the dropsite, or the flee stalled, or the steer made no
-	// progress for 30 s.
-	if (dist < 25 ||
+	// progress for 30 s (farther from the pinned dropsite than at the wound).
+	if (dist < this.herdKillDist ||
 		(!fleeing && this.turn - this.herdWoundTurn > 10) ||
-		(this.turn - this.herdStartTurn > 150 && this.herdBestDist > this.herdStartDist - 10))
+		(this.turn - this.herdStartTurn > 150 && dist > this.herdWoundDist + 5))
 	{
+		if (!this.herdKillLog)
+		{
+			this.herdKillLog = true;
+			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m kill ${target.templateName()} at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} dropDist=${dist.toFixed(0)} inTerr=${this.inOwnTerritory(pos[0], pos[1])} fleeing=${fleeing}\n`);
+		}
 		this.herdCmdTurn = this.turn + 10;
+		const hp = herder.position();
+		// Never attack from the dropsite side (Louis): the animal flees away
+		// from the attacker, so a near-side attack pushes it away from the
+		// base. Reposition to the far side first when the herder ended up
+		// between the dropsite and the animal.
+		const hd = Math.hypot(hp[0] - drop[0], hp[1] - drop[1]);
+		if (hd < dist - 2)
+		{
+			const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
+			const n = Math.hypot(dx, dz) || 1;
+			herder.move(pos[0] + dx / n * 6, pos[1] + dz / n * 6);
+			return;
+		}
 		// Close in before the kill shot (Louis): attacking from the standoff
 		// fires at the javelin's long-range spread and misses — approach to
 		// ~2 m on the far side first (the animal keeps fleeing TOWARD the
@@ -872,7 +918,6 @@ BrennusBot.prototype.manageHerding = function()
 		// what lets a horse stay ahead, while the attack pursuit moves the
 		// cavalry CONTINUOUSLY (walk 12.6 vs horse flee ~9.4 m/s) and closes
 		// the gap for the kill.
-		const hp = herder.position();
 		if (Math.hypot(hp[0] - pos[0], hp[1] - pos[1]) > 5 && !this.woodPoor)
 		{
 			const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
@@ -2879,6 +2924,8 @@ BrennusBot.prototype.Serialize = function()
 		"herdFast": this.herdFast,
 		"herdKill": this.herdKill,
 		"herdLastPos": this.herdLastPos,
+		"herdDrop": this.herdDrop,
+		"herdWoundDist": this.herdWoundDist,
 		"mineId": this.mineId
 	};
 };

@@ -413,3 +413,74 @@ Validation (sh10 tags, zero JS errors, deterministic): temperate
 steppe tuned mean max **14.72** (15.4, 14.3, 14.5, 14.3, 15.1); fresh
 11-15 mean **14.68** (13.8, 14.8, 14.2, 14.3, 16.3) — neutral-to-
 slightly-positive vs the pre-rush state (14.90/14.64).
+
+## Herd discipline — pinned dropsite, far-side-only attacks (SHIPPED, 2026-08-22)
+
+Louis's two pistes: (1) find the ideal kill distance from the food
+dropoff (he suspected 25 m is too close); (2) the cavalry must never
+make a herdable flee away from the base — always drive it toward a food
+dropoff; if that costs score, fix the civilian carcass reaction instead
+of stopping the drive.
+
+Instrumentation first (kill/carcass `dropDist` telemetry in the `[HUNT]`
+lines): on the clean runs herd kills land 13-28 m from a dropsite, but
+the expensive events are one flee-away (s5: a horse pushed from 135 to
+187 m, died out of territory, the cavalry then lost ~4 min collecting
+the carcass) and one orphan (s1: an auto-fire kill at 79 m sat
+uncollected from t=4.5 to 14.9 — outside the civilians' 40 m ring, in
+territory, dropped by the herder).
+
+**The lever is the steer geometry, not the kill distance:**
+
+- The steer targeted `nearestFoodDropsite(animal)` recomputed every
+  block — when the animal crosses the midpoint between two dropsites the
+  target flips, the far-side point jumps across the animal, and the
+  chase zigzags outward. Fix: pin the dropsite at wound time
+  (`herdDrop`); the steer always drives toward ONE dropsite.
+- The wound shot and the kill shot could fire from the near side
+  (between the dropsite and the animal), pushing the animal away from
+  the base. Fix: both branches reposition to the far side first (the
+  near-side guard), woodPoor included.
+- The no-progress fallback compared the dropsite distance against the
+  CC distance (mismatched references) and could never re-fire after any
+  progress — a pushed-away animal steered on until it died far out.
+  Fix: kill when, after 30 s, the animal sits farther from the PINNED
+  dropsite than at the wound (+5 m).
+
+Steppe results (30 min cap, zero JS errors; `hf1` tags; baseline =
+sh10 state):
+
+| seed | baseline max | shipped max |
+|------|--------------|-------------|
+| 1 | 15.4 | 15.4 |
+| 2 | 14.3 | 14.4 |
+| 3 | 14.5 | 14.3 |
+| 4 | 14.3 | 14.3 |
+| 5 | 15.1 | 14.3 |
+
+Mean max 14.70 → 14.54. s5's flee-away is gone (all herd kills land
+12-24 m from a dropsite). Determinism: seed-1 statistics hash identical
+on rerun (`527d399a1df0`). Temperate 1-5: 14.6/14.6, 15.0/14.1,
+14.3/14.0, 12.9/14.0, 14.2/13.4 — the goal-7 bar holds (all ≤ 15.0),
+zero errors. Fresh steppe 11-17 (never iterated): 13.4, 14.9, 14.3,
+14.3, 16.3, 14.3, 14.1 — mean 14.51 (sh10 fresh-15 mean 14.68, f15 was
+16.3 there too).
+
+## Probed and DISCARDED (2026-08-22)
+
+- **`herdKillDist` 40** (Louis's "25 is too close"): s1 pop300 15.4 →
+  15.1 but s5 14.3 → 14.6 with a NEW 167 m orphan — a wash; the
+  threshold is not the lever, 25 stays.
+- **Civilian carcass serving beyond 40 m** (Louis's "fix the civilians"
+  branch), three forms, all reverted:
+  1. Pool/generic/drift radius 40→80 for meat: s1 15.4 → 14.9 but s5
+     14.3 → 15.7 (workers trekked to mid-distance meat at ~25% rate
+     instead of the fields).
+  2. Fresh-kill map serving only the herder's own kills: s1 keeps 14.9,
+     s5 15.3 — the civilian walking to the 41 m kill crosses the base
+     right when the next horse is steered through it; the traffic broke
+     the steer (horse pushed to 331 m, ~5 min of cavalry collection).
+  3. Map gated to kills beyond 60 m: s5 byte-identical to the shipped
+     state, but s1 back to 15.5 — the s1 gain had come from the 40-60 m
+     band (civilians collecting the mid-distance chickens instead of the
+     cavalry), not from the 79 m orphan. The serving ring stays 40 m.

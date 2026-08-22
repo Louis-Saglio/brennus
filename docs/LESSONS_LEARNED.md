@@ -3,6 +3,57 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-22 — Herd steer discipline: pinned dropsite, far-side-only attacks (Louis's pistes, SHIPPED)
+
+Louis: (1) find the ideal food-dropoff distance at which to kill the
+game — 25 m feels too close; (2) the cavalry must never make a herdable
+flee away from the base, always drive it toward a food dropoff; if that
+costs score, fix the civilian carcass reaction instead of stopping the
+drive.
+
+- **Flee geometry (source-verified)**: a wounded animal flees AWAY from
+  the attacker's LIVE position until it is `distanceToFlee` away (fixed
+  at flee-enter = distance at wound + FleeDistance 24, `UnitAI.js`
+  FLEEING). The steer therefore works by keeping the herder beyond the
+  animal on the line from the dropsite; anything else pushes the animal
+  somewhere else. The stall `!fleeing` kill fires ~2 s after each flee
+  stop, then the attack pursuit carries the animal toward the dropsite
+  at its flee speed — that pursuit leg is why kills land ~15-25 m from
+  the dropsite no matter where the kill trigger fires.
+- **Unpinned dropsite = zigzag outward**: the steer used
+  `nearestFoodDropsite(animal)` recomputed every block; when the animal
+  crossed the midpoint between two dropsites the target flipped, the
+  far-side point jumped across the animal, and the chase pushed the
+  animal away from the base (s5: a horse went 135 → 187 m and died out
+  of territory). Pin the dropsite at wound time.
+- **A near-side attack pushes the animal away from the base** (flee =
+  away from the attacker). Both the wound shot and the kill shot must
+  only fire from the far side; reposition first, woodPoor included.
+- **The old no-progress fallback was broken**: it compared the
+  dropsite-distance against the CC-distance (mismatched) and
+  `herdBestDist` only decreases, so after any progress it could never
+  fire again — a pushed-away animal steered on indefinitely. Compare
+  the current distance against the pinned wound-time distance instead.
+- **A failed steer is the most expensive kill failure**: the carcass
+  lands 300+ m out, the cavalry collects it alone (rate 5.0, cap 20 —
+  10 round trips ≈ 5 min at 331 m), and no horse gets herded meanwhile.
+  That single event is worth ~1.4 min of pop300 (s5 14.3 → 15.7 in the
+  civilian-radius probes). The flee-away fix (shipped) removed it: s5
+  15.1 → 14.3, steppe mean max 14.70 → 14.54.
+- **Civilian carcass serving beyond 40 m regresses** (all three forms
+  probed and reverted): radius 80 everywhere (workers trek to
+  mid-distance meat at ~25% rate — s5 15.7); a fresh-kill map (the
+  civilian walking to a 41 m kill crosses the base exactly when the
+  next horse is steered through it and breaks the steer — s5 15.3); the
+  map gated to > 60 m (s1's gain had come from the 40-60 m band, not
+  the 79 m orphan — s1 15.5). The 40 m ring stays.
+- **`herdKillDist` 40 is a wash**: s1 pop300 15.4 → 15.1 but s5
+  14.3 → 14.6 with a new 167 m orphan. The kill-distance threshold is
+  not the lever — the steer discipline is. 25 stays.
+- Also verified this round: `stopMoving()` posts a "stop" command
+  (`common-api/entity.js`), and the herd kills' dropDist distribution
+  needs telemetry — the `[HUNT]` kill/carcass lines now print it.
+
 ## 2026-08-22 — Foundation commit blocked by unit traffic; rush-build the woodline storehouses (Louis, SHIPPED)
 
 Louis's in-game observation: the woodline storehouse is not rebuilt when
