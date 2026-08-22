@@ -50,6 +50,19 @@ wall time.
    Trading, market barter and full econ-tech research are no longer
    required; the bot must keep those abilities and use them when they speed
    up the boom.
+7-S. **Boom on the steppe biome** (`-autostart-biome=generic/steppe`):
+   minimize **max(pop300, city)** — the time at which BOTH 300 population
+   and City Phase are reached. Optimize that single score, not the two
+   metrics independently: delaying pop300 is fine whenever it pulls city in
+   sooner and city is the slower one. Steppe differs from temperate mostly
+   in the wood and food economy (see
+   `docs/game_description/biomes/steppe.md`): the "trees" are ~100-wood
+   bushes gathered by 4 workers (≈¼ of temperate's total wood, no apple
+   stragglers), while horses give 200 meat each but flee fast — the boom
+   must be wood-conservative and meat-driven. Every steppe seed must reach
+   BOTH metrics (raise the time-limit trigger, the 18 min cap is too
+   short), and temperate must keep the goal-7 bar: pop300 AND city ≤ 15
+   min on its own 5-seed batch.
 
 ## Tier 3 — Basic military (single opponent)
 
