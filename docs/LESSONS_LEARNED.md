@@ -3,6 +3,43 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-22 — Storehouse rules 1/2/3 (Louis, SHIPPED)
+
+Three storehouse rules (exhaust served rings before building, one
+storehouse between close stone/metal mines, median placement) plus two
+fixes they forced. Steppe mean max(pop300, city) 16.80 → 14.84 (tuned
+seeds) and 17.56 → 14.54 (fresh seeds 11-15); temperate bar holds with
+neutral metrics. Details in `experiments/goal-07-steppe.md`.
+
+Engine/code facts learned:
+
+- **The steppe woodline never existed before this fix.** The woodline
+  cell scan filtered supplies with `amount > 100`; steppe bushes hold
+  exactly 100 wood (bush mixin, 4 gatherers), so every bush was excluded
+  and `woodline` stayed null on steppe — choppers used the generic
+  nearest-supply path and spread over the map. That spread is the whole
+  reason steppe storehouse churn was 10-24 builds / 7-16 destroys per
+  game: the storehouse branch chased the scattered cutting front. The
+  `>= 20` floor restores the woodline on steppe (and changes nothing
+  measurable on temperate: s2/s4 hashes byte-identical, metrics equal).
+- **A gate counting only FULL supplies (≥ 100) never binds on steppe**: a
+  bush drops below 100 the moment a chopper touches it, so every served
+  ring looked empty. Ring/gate floors must be low (20 = scrap threshold)
+  to count half-gathered supplies.
+- **The wood/mine storehouse branches re-ordered the same spot every
+  block while no foundation appeared** (the planned check only sees
+  foundations): a spot the engine rejects — e.g. at the territory edge,
+  where the AI's territory map can be a few turns staler than the
+  engine's construct validation — gets one order per block, each burning
+  100 w of the block's budget, until the 50-turn blacklist fires (11
+  `construct FAILED` at one steppe spot in the probe). Fix: in-flight
+  orders (`pendingBuilds` within 30 m) count as planned in all three
+  branches — one wasted order per spot, then the blacklist moves it.
+- The late-game (t > 15 m) steppe storehouse churn that remains is a
+  separate phenomenon: at 300 pop the wood force spreads to ~40 choppers
+  that eat a bush clump faster than a storehouse can be built. Post-
+  metric only; not the boom.
+
 ## 2026-08-22 — Cavalry idle after the hunt: keep hunting beyond the band (Louis's report, SHIPPED)
 
 Symptom: after hunting a few steppe horses, the cavalry stops hunting and

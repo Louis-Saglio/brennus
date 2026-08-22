@@ -16,10 +16,12 @@ import { BaseAI } from "simulation/ai/common-api/baseAI.js";
  * - Technologies are picked for gather-rate impact only (Louis's tip):
  *   Fertility Festival, then food/wood rate and capacity techs, mining
  *   techs once miners are out, and the two house-population techs.
- * - Drop sites go next to the resources they serve (Louis's tip), and keep
- *   following them: a farmstead by the berries, storehouses rebuilt at the
- *   receding woodline AND at the stone/metal mines, farmsteads by each new
- *   field cluster, and depleted storehouses are destroyed. Served berries/
+ * - Drop sites go next to the resources they serve (Louis's tips): a
+ *   farmstead by the berries, ONE storehouse per wood ring (built only when
+ *   the served ring is exhausted, at the zone's walking median — rules 1/3),
+ *   one shared storehouse between close stone/metal mines (rule 2),
+ *   farmsteads by each new field cluster, and depleted storehouses are
+ *   destroyed. Served berries/
  *   fruit and dead in-territory animals are ONE food pool (Louis: same
  *   gather rate, carcasses never rot — interchangeable): the nearest
  *   served supply wins, fields only once the pool is empty. Fields go next
@@ -180,6 +182,17 @@ BrennusBot.prototype.herdCutoff = 200;
  * herder from 37 m chickens to 127 m deer and cost seed 5 city +0.5 min —
  * nearest-first stays. */
 BrennusBot.prototype.herdPrefer = false;
+/** Rule 1 (Louis, 2026-08-22): a new wood storehouse may only go up once no
+ * existing wood dropsite (CC or storehouse) can still serve ≥ this much
+ * harvestable wood within ringServeDist m — exhaust the served ring first,
+ * then move the woodline and rebuild. Also the keep-floor of a storehouse
+ * woodline zone. 250 ≈ one temperate tree or 2.5 steppe bushes. */
+BrennusBot.prototype.ringGateWood = 250;
+/** Distance (m, centre-to-centre) a dropsite serves wood within (rule 1). */
+BrennusBot.prototype.ringServeDist = 40;
+/** Rule 2 (Louis, 2026-08-22): the pinned stone and metal mines closer than
+ * this (m, centre-to-centre) share ONE storehouse between them. */
+BrennusBot.prototype.minePairDist = 55;
 
 BrennusBot.prototype.CustomInit = function(gameState)
 {
@@ -942,7 +955,11 @@ BrennusBot.prototype.updateWoodline = function()
 		let remaining = 0;
 		for (const id of this.woodline.ids)
 			remaining += this.gameState.getEntityById(id)?.resourceSupplyAmount() || 0;
-		if (remaining > 800)
+		// A storehouse zone (rule 1) stays until its dropsite's ring is
+		// nearly bare (ringGateWood); a cell zone moves on at the old 800
+		// floor.
+		const keep = this.woodline.kind === "store" ? this.ringGateWood : 800;
+		if (remaining > keep)
 		{
 			this.woodline.total = remaining;
 			return;
@@ -950,7 +967,7 @@ BrennusBot.prototype.updateWoodline = function()
 	}
 	const scan = inTerritory => {
 		const supplies = this.gameState.getResourceSupplies("wood").toEntityArray()
-			.filter(s => s.position() && s.resourceSupplyAmount() > 100 &&
+			.filter(s => s.position() && s.resourceSupplyAmount() >= 20 &&
 				!this.nearEnemy(s.position(), 100, 60) &&
 				(!inTerritory || this.inOwnTerritory(s.position()[0], s.position()[1])));
 		const cells = new Map();
@@ -1003,7 +1020,45 @@ BrennusBot.prototype.updateWoodline = function()
 			return null;
 		return { "ids": new Set(ids), "total": total, "center": [sx / ids.length, sz / ids.length] };
 	};
-	this.woodline = scan(true) || scan(false);
+	// Rule 1 (Louis): cut the wood an existing dropsite already serves before
+	// building a storehouse somewhere new — pick the dropsite (CC or
+	// storehouse) whose ringServeDist ring still holds the most wood (a
+	// supply counts from 20, so half-cut trees and steppe bushes bind the
+	// ring; only scraps below that don't). Only when no ring holds more than
+	// ringGateWood does the woodline fall back to the biggest hotspot.
+	const dropSites = [];
+	const ccEntity = this.getCivicCentre();
+	if (ccEntity?.position())
+		dropSites.push(ccEntity.position());
+	const storeName = this.gameState.applyCiv("structures/{civ}/storehouse");
+	for (const ent of this.gameState.getOwnStructures().values())
+		if (ent.templateName() === storeName && ent.position())
+			dropSites.push(ent.position());
+	for (const f of this.gameState.getOwnFoundations().values())
+		if (f.position() && this.gameState.getBuiltTemplate(f.templateName()).templateName() === storeName)
+			dropSites.push(f.position());
+	const r2 = this.ringServeDist * this.ringServeDist;
+	let bestRing, bestRingWood = this.ringGateWood;
+	for (const site of dropSites)
+	{
+		let wood = 0, ids = new Set();
+		for (const s of this.gameState.getResourceSupplies("wood").values())
+		{
+			const pos = s.position();
+			if (!pos || s.resourceSupplyAmount() < 20 || this.nearEnemy(pos, 100, 60))
+				continue;
+			if (SquareDistance(pos, site) >= r2)
+				continue;
+			wood += s.resourceSupplyAmount();
+			ids.add(s.id());
+		}
+		if (wood > bestRingWood)
+		{
+			bestRingWood = wood;
+			bestRing = { "ids": ids, "total": wood, "center": site, "kind": "store" };
+		}
+	}
+	this.woodline = bestRing || scan(true) || scan(false);
 	// Wood-poor biome detection (goal 7-S): on the steppe the "trees" are
 	// bushes at ~100 wood each (temperate trees are 200-600). Flag the map
 	// wood-poor when no wood supply can hold 200 — used to gate the field
@@ -1533,7 +1588,7 @@ BrennusBot.prototype.manageConstruction = function()
 			continue;
 		const placed = name === "farmstead" ?
 			this.placeFirstFarmstead(type) :
-			!!this.tryConstruct(type, "dropsite", this.woodline?.center);
+			this.placeWoodStorehouse(type);
 		if (placed)
 		{
 			resources.subtract({ "wood": 100 });
@@ -1816,12 +1871,14 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 	// serves none (v20: 13 storehouses, mean distance still 40+ m).
 	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
 	const woodSites = [{ "pos": cc.position(), "half": halfDiag(cc) }];
+	const storePositions = [];
 	const storeFoundations = [];
 	let storeCount = 0;
 	for (const f of foundations)
 		if (gameState.getBuiltTemplate(f.templateName()).templateName() === storeType && f.position())
 		{
 			woodSites.push({ "pos": f.position(), "half": halfDiag(f) });
+			storePositions.push(f.position());
 			storeFoundations.push(f.position());
 			storeCount++;
 		}
@@ -1829,8 +1886,16 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		if (ent.templateName() === storeType && ent.position())
 		{
 			woodSites.push({ "pos": ent.position(), "half": halfDiag(ent) });
+			storePositions.push(ent.position());
 			storeCount++;
 		}
+	// A storehouse order still in flight (no foundation yet — the builder
+	// walks, or the engine rejected the spot and the blacklist is pending)
+	// counts as planned: without this, the branch re-orders the same spot
+	// every block, burning 100 wood of budget and piling failed orders on
+	// one spot (11 construct FAILED at one steppe spot in the probe).
+	const storePending = center => this.pendingBuilds.some(pb =>
+		pb.template === storeType && Math.hypot(pb.x - center[0], pb.z - center[1]) < 30);
 	// Louis: a storehouse whose wood/stone/metal is gone is dead weight —
 	// destroy it (one per block), it only serves as a far-away fallback.
 	// Depleted = under 200 resources within 40 m (checking only THE nearest
@@ -1874,7 +1939,30 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			return true;
 		}
 	}
-	if (storeCount < 18)
+	// Rule 1 (Louis): a new wood storehouse only once no existing dropsite
+	// (CC or storehouse) can still serve ≥ ringGateWood wood within its
+	// ringServeDist ring — exhaust the served ring first; the picker keeps
+	// the woodline on such a ring while one has wood, and its kind "store"
+	// covers the tail until the next re-pick. Supplies count from 20 (half-
+	// cut trees and steppe bushes bind the ring), scraps below don't.
+	let servedWood = 0;
+	const ringSites = [cc.position(), ...storePositions];
+	const r2 = this.ringServeDist * this.ringServeDist;
+	for (const site of ringSites)
+	{
+		let ring = 0;
+		for (const s of gameState.getResourceSupplies("wood").values())
+		{
+			const sp = s.position();
+			if (!sp || s.resourceSupplyAmount() < 20)
+				continue;
+			if (SquareDistance(sp, site) < r2)
+				ring += s.resourceSupplyAmount();
+		}
+		if (ring > servedWood)
+			servedWood = ring;
+	}
+	if (storeCount < 18 && servedWood < this.ringGateWood && this.woodline?.kind !== "store")
 	{
 		let worst, worstDist = 18;
 		const underserved = [];
@@ -1899,7 +1987,11 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		{
 			this.dropsiteDemand = true;
 			const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
-			const center = centroid(clump);
+			// Rule 3 (Louis): the spot minimizes the walking to cut the
+			// woodline's trees — the amount-weighted median of the zone, not
+			// the cutting front's centroid. Falls back to the front clump
+			// when there is no zone (scattered wood).
+			const center = this.woodlineDropSpot() || centroid(clump);
 			// Wood storehouses leave the town trio's wood on wood-poor
 			// biomes (goal 7-S): on the steppe the storehouse stream ate
 			// every 100 w window (10 storehouses before the market could
@@ -1907,7 +1999,8 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			// reserve only binds in town phase with the trio pending.
 			const trioWood = this.gameState.currentPhase() === 2 && this.woodPoor ?
 				this.nextTrioWood() : 0;
-			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 30);
+			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 30) ||
+				storePending(center);
 			const pos = resources.wood >= woodFloor + trioWood && !planned &&
 				this.tryConstruct(storeType, "dropsite", center);
 			if (pos)
@@ -1922,6 +2015,9 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 	// Stone/metal (Louis: miners need a storehouse at the mine — watch their
 	// effective rate). Same underserved-anchor clump logic as the woodline;
 	// storehouses accept stone and metal too, so the wood sites list applies.
+	// Rule 2 (Louis): the starting stone and metal blocks usually sit close
+	// together — ONE storehouse between the two (minimax over both mine
+	// positions) instead of one each.
 	if (storeCount < 18)
 	{
 		let worst, worstDist = 18;
@@ -1946,9 +2042,34 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		if (underserved.length >= 2)
 		{
 			this.dropsiteDemand = true;
+			const sMine = this.mineId.stone !== undefined ?
+				gameState.getEntityById(this.mineId.stone) : undefined;
+			const mMine = this.mineId.metal !== undefined ?
+				gameState.getEntityById(this.mineId.metal) : undefined;
+			const sPos = sMine?.position(), mPos = mMine?.position();
+			const pairNear = sPos && mPos &&
+				Math.hypot(sPos[0] - mPos[0], sPos[1] - mPos[1]) < this.minePairDist;
+			if (pairNear)
+			{
+				const mid = [(sPos[0] + mPos[0]) / 2, (sPos[1] + mPos[1]) / 2];
+				const planned = storeFoundations.some(p => Math.hypot(p[0] - mid[0], p[1] - mid[1]) < 30) ||
+					storePending(mid);
+				if (!planned && resources.wood >= woodFloor)
+				{
+					const spot = this.findMinimaxSpot(storeType, [sPos, mPos],
+						this.accessibility.getAccessValue(cc.position()));
+					if (spot && this.placeOrder(storeType, spot))
+					{
+						resources.subtract({ "wood": 100 });
+						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} between stone ${sPos[0].toFixed(0)},${sPos[1].toFixed(0)} and metal ${mPos[0].toFixed(0)},${mPos[1].toFixed(0)} (${underserved.length} underserved)\n`);
+						return true;
+					}
+				}
+			}
 			const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
 			const center = centroid(clump);
-			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 30);
+			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 30) ||
+				storePending(center);
 			const pos = resources.wood >= woodFloor && !planned &&
 				this.tryConstruct(storeType, "dropsite", center);
 			if (pos)
@@ -2163,6 +2284,133 @@ BrennusBot.prototype.manageBarter = function()
  * given supply centroid, "civic" anywhere handy. Returns true if the order
  * was sent.
  */
+/**
+ * The initial wood storehouse, at the woodline's walking optimum (rule 3).
+ * Skipped entirely when the zone is already served by a dropsite (rule 1:
+ * the CC covers the first woodline when it picked the CC-adjacent forest).
+ */
+BrennusBot.prototype.placeWoodStorehouse = function(type)
+{
+	const spot = this.woodlineDropSpot();
+	return spot ? this.tryConstruct(type, "dropsite", spot) : false;
+};
+
+/**
+ * Where the woodline's storehouse should stand (rule 3, Louis): the
+ * amount-weighted median of the zone's trees — the point that minimizes the
+ * total walking to cut them (a 400-wood tree hosts twice the cutting of a
+ * 200-wood one). null when the zone is already served (kind "store",
+ * rule 1) or has no trees left.
+ */
+BrennusBot.prototype.woodlineDropSpot = function()
+{
+	const zone = this.woodline;
+	if (!zone || zone.kind === "store")
+		return null;
+	const trees = [];
+	for (const id of zone.ids)
+	{
+		const ent = this.gameState.getEntityById(id);
+		const pos = ent?.position();
+		const amt = ent?.resourceSupplyAmount() || 0;
+		if (pos && amt > 0)
+			trees.push([pos[0], pos[1], amt]);
+	}
+	if (!trees.length)
+		return null;
+	return this.weightedMedian(trees);
+};
+
+/**
+ * Amount-weighted geometric median of [x, z, weight] points via 30 Weiszfeld
+ * iterations, from the weighted centroid. A point exactly under the median
+ * is skipped for that iteration (the standard fix for the 1/d singularity).
+ */
+BrennusBot.prototype.weightedMedian = function(points)
+{
+	let sx = 0, sz = 0, sw = 0;
+	for (const p of points)
+	{
+		sx += p[0] * p[2];
+		sz += p[1] * p[2];
+		sw += p[2];
+	}
+	let x = sx / sw, z = sz / sw;
+	for (let it = 0; it < 30; ++it)
+	{
+		let nx = 0, nz = 0, nw = 0;
+		for (const p of points)
+		{
+			const d = Math.hypot(p[0] - x, p[1] - z);
+			if (d < 0.5)
+				continue;
+			const w = p[2] / d;
+			nx += p[0] * w;
+			nz += p[1] * w;
+			nw += w;
+		}
+		if (!nw)
+			break;
+		x = nx / nw;
+		z = nz / nw;
+	}
+	return [x, z];
+};
+
+/**
+ * Spot minimizing the worst walk to a set of anchor points (rule 2: ONE
+ * storehouse between the stone and metal blocks). Rings around the anchors'
+ * midpoint, fine (2 m × 64); among all valid spots the best-scoring (min
+ * max-distance) wins. Returns undefined when nothing valid exists nearby —
+ * the caller's clump logic then places per mine as before.
+ */
+BrennusBot.prototype.findMinimaxSpot = function(templateType, points, region)
+{
+	const template = this.gameState.getTemplate(templateType);
+	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
+	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
+	const angle = this.getPlacementAngle();
+	const pass = this.gameState.getPassabilityMap();
+	const mask = this.gameState.getPassabilityClassMask("building-land");
+	const terr = this.territoryMap;
+	let sx = 0, sz = 0;
+	for (const p of points)
+	{
+		sx += p[0];
+		sz += p[1];
+	}
+	const cx = sx / points.length, cz = sz / points.length;
+	let best, bestScore = Infinity;
+	for (let r = 4; r <= 40; r += 2)
+		for (let a = 0; a < 64; ++a)
+		{
+			const ang = a * 2 * Math.PI / 64;
+			const x = cx + r * Math.cos(ang);
+			const z = cz + r * Math.sin(ang);
+			if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
+				continue;
+			if (this.nearEnemy([x, z], 100, 60))
+				continue;
+			if (this.accessibility.getAccessValue([x, z]) !== region)
+				continue;
+			if (!this.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
+				continue;
+			let score = 0;
+			for (const p of points)
+			{
+				const d = Math.hypot(x - p[0], z - p[1]);
+				if (d > score)
+					score = d;
+			}
+			if (score < bestScore)
+			{
+				bestScore = score;
+				best = [x, z];
+			}
+		}
+	return best;
+};
+
 BrennusBot.prototype.tryConstruct = function(templateType, kind, center)
 {
 	const cc = this.getCivicCentre();

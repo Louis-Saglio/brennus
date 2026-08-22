@@ -252,3 +252,90 @@ tags: `stfd-s1/5`, `stfd2-s1/5`, `stfd3-s1..5`, `stst-s1/5`.
 - Discarded this round: sticky woodline zone on woodPoor (<400 keep —
   no-op metric, 29 storehouses churn); stall-gated meat handoff (s1
   20.6, s5 18.6 — worse).
+
+## Storehouse rules 1/2/3 (Louis, 2026-08-22) — SHIPPED
+
+Louis, before the steppe hunting work: fix the storehouse over-building
+("beaucoup trop de storehouses construits, souvent inutiles, détruits
+rapidement"). Three rules, all shipped:
+
+1. **A new wood storehouse only when no existing dropsite (CC or
+   storehouse) can still serve ≥ 250 wood within 40 m** — exhaust the
+   served ring first. Implemented in BOTH the woodline picker (prefers
+   the dropsite ring with the most wood — zone kind "store", kept until
+   ≤ 250) and the wood-storehouse branch (the gate). Supplies count from
+   20 wood (half-cut trees and steppe bushes bind the ring), scraps
+   don't.
+2. **The pinned stone and metal mines closer than 55 m share ONE
+   storehouse between them** — a minimax ring search (4-40 m, 2 m × 64)
+   places it at the spot minimizing the worst walk to either mine.
+3. **The wood storehouse stands at the amount-weighted median of the
+   zone's trees** (Weiszfeld, 30 iterations from the weighted centroid)
+   — the point minimizing the total walking to cut the forest, replacing
+   the cutting-front centroid.
+
+### The probe chain (steppe seeds 1-5, 30 min cap; temperate bar must hold)
+
+- **Probe 1 (rules 1+2+3, gate counts full supplies only, ≥ 100)**:
+  temperate batch holds (all ≤ 15.0, churn 1-3 wood builds), steppe mean
+  max 15.82 (baseline 16.80) — but s3: 11 `construct FAILED` at ONE spot
+  (203,409): the wood branch re-ordered the same spot every block while
+  no foundation appeared (100 w budget burned per block). Cause: the
+  order is re-issued each block until a foundation exists; a spot the
+  engine rejects (stale territory map at the territory edge) stays
+  "unplanned" for the whole 50-turn blacklist latency.
+- **Fix A — pending suppression**: an in-flight storehouse order
+  (`pendingBuilds` within 30 m) now counts as planned in all three
+  branches. A rejected spot costs exactly one order, then the blacklist
+  moves it.
+- **Fix B — ring floor ≥ 20**: with the ≥ 100 floor the gate never
+  bound on steppe — a bush drops below 100 the moment a chopper touches
+  it, so every ring looked empty. Steppe churn continued (6-17 wood
+  builds).
+- **Fix C — cell scan `> 100` → `>= 20`**: the REAL steppe churn cause.
+  Steppe bushes hold exactly 100 wood, so the old cell filter excluded
+  them all — the woodline never formed on steppe, choppers used the
+  generic nearest-supply path and spread over the map, and the storehouse
+  branch chased their scattered front (10-24 builds / 7-16 destroys in
+  the baseline). With the fix the steppe woodline forms like on
+  temperate: all choppers on one bush clump, one storehouse per ring.
+
+### Results (sh3 tags, zero JS errors, clean runs)
+
+Steppe city/pop300 (baseline → shipped):
+
+| seed | baseline | shipped | max delta |
+|------|----------|---------|-----------|
+| 1 | 15.1/19.7 | 14.3/15.1 | **-4.6** |
+| 2 | 14.4/16.4 | 14.3/14.5 | -1.9 |
+| 3 | 14.1/15.0 | 15.0/13.9 | 0.0 |
+| 4 | 14.7/15.2 | 14.3/14.6 | -0.6 |
+| 5 | 14.6/17.7 | 14.3/15.0 | -2.7 |
+
+Mean max **14.84** (baseline 16.80, the old target was 16.5). All seeds
+reach both metrics. Storehouse churn in the boom window: 1 wood + 1 mine
+pair per seed (baseline 10-24 builds, 7-16 destroys). The remaining
+builds/destroys are all post-metric (t > 15 m, the 30 min cap window):
+at 300 pop the wood force spreads to ~40 choppers that outrun any
+storehouse build — a separate late-game phenomenon, not the boom.
+
+Temperate bar (goal 7): 14.3/14.9, 14.4/14.5, 14.3/13.4, 13.6/14.2,
+14.1/13.1 — all ≤ 15.0, mean city 14.14 / pop300 14.02 vs baseline
+14.18/14.02 (neutral). Determinism: seed-1 rerun hashes identical.
+Churn 0-3 wood builds per game (the CC ring often serves the first
+woodline — no initial storehouse at all).
+
+Fresh steppe seeds 11-15 (never iterated, baseline fresh mean 17.56, s11
+never reached pop300):
+
+| seed | shipped max |
+|------|-------------|
+| 11 | 13.4 (13.4/13.1) |
+| 12 | 14.5 (12.8/14.5) |
+| 13 | 14.3 (14.3/14.2) |
+| 14 | 14.4 (14.4/14.4) |
+| 15 | 16.1 (14.3/16.1) |
+
+Fresh mean max **14.54** (baseline 17.56, -3.02): every fresh seed reaches
+both metrics, s11 included. The storehouse rules are the dominant steppe
+win so far — the woodline concentration (fix C) is what did it.
