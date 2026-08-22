@@ -7,5 +7,8 @@ One file per building that **only the gauls** can build (single-civ structures o
 | Name | Type |
 |---|---|
 | [assembly](assembly) | building |
+| [tavern](tavern) | building |
 
-Note: `structures/gaul/tavern.xml` exists but no builder list references it — the tavern is **not buildable** in 0.28 (vestigial, like the archery range).
+Note: `structures/gaul/tavern.xml` is not referenced by any builder (vestigial,
+like the archery range), so it is not offered through the build UI — but it can
+still be placed with a direct construct command.

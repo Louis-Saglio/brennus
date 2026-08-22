@@ -527,9 +527,10 @@ Compile date: 2026-08-22.
 
 ## 7. Phases, population & research
 
-- **Gaul tavern**: Town class, +10 pop, keeps class House — the cheapest
-  Town-class structure, ideal third member of the 3-Town city requirement.
-  `[08-21]`
+- **Use the tavern as the cheap third Town-class structure** for the city
+  phase: it is the cheapest Town-class building and constructible via a
+  direct construct command (not offered by any builder) — see
+  `docs/game_description/gauls/buildings/tavern.md`. `[08-21]`
 - **House demand scales late**: CC + N houses training needs up to 2–3
   concurrent house foundations, and in-progress houses must count as future
   +5 cap, else pop touches the cap transiently (seen at t=25m with
