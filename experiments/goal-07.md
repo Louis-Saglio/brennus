@@ -337,3 +337,35 @@ city +0.10, pop300 +0.12 (noise-level), all ≤ 15.0. Fresh seeds 11-20
 paired: city +0.06 ± 0.25, pop300 +0.15 ± 0.41, no bar breaks. Run tags:
 `pause-before-s5` (instrumented), `fix-seed1..5`, `fix-seed5-rerun`,
 `fix-fresh-11..20`.
+
+## Herder frozen mid-herd — steppe diagnosis + watchdog (2026-08-22, SHIPPED)
+
+Louis: after a few animals the cavalry stops working and stands still
+while game remains; reproduce on the steppe biome (ignore the boom
+scores there — less wood), then measure the temperate impact.
+
+Steppe reproduction (seeds 1/3/5): a [STUCK] watchdog (temporary, logs
+any live target 60 s after pick) showed two mechanisms:
+1. The stall check mixed distance bases — `herdBestDist` (best drop-site
+   distance) vs `herdStartDist` (CC distance at pick) — so it could never
+   trip once the drop site ≠ CC; horses fled AWAY from the dropsite
+   (dropDist 117→242→540 m) with the herder trailing in move/stop fits
+   forever. Fixed: the baseline is now the drop-site distance at the wound.
+2. Steppe horses outrun the cavalry: the far-side positioning (wound
+   standoff, steer, kill approach) never converges, and the pre-wound
+   phase had no timeout at all. Fixed: a 60 s per-target watchdog attacks
+   straight away (pre-wound included) and sets herdKill so the cavalry
+   collects the carcass itself; the kill approach also gives up 30 s after
+   the wound. The attack pursuit works vs faster animals — FLEEING always
+   ends at the animal's flee distance, where the cavalry catches up.
+
+Verified on steppe: every stuck target killed within ~1 s of the watchdog,
+carcass collected, herding continues (hunts 32/38/75, zero JS errors).
+
+Temperate impact: 5-seed batch — seeds 1/2/3/5 byte-identical to the
+previous build, seed 4 city 12.7→13.3 (its historical value; 12.7 was a
+lucky outlier). Fresh seeds 11-20 paired: 9/10 byte-identical (seed 20
+-0.1/-0.1), mean city -0.01 ± 0.03, pop300 -0.01 ± 0.03 — the watchdog
+never fires on temperate; the fix is free. Run tags: `steppe-s1/5`,
+`stuck-s1/5`, `stuckfix-s1/3/5`, `stuckfix2-s1/3/5`, `herdwd-seed1..5` +
+`herdwd-seed5-rerun`, `herdwd-fresh-11..20`.
