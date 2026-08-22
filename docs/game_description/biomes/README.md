@@ -221,7 +221,7 @@ Sub-biomes (each only on its own map family; JSON-only, no JS):
 
 - `docs/pyrogenesis_cli.md` — command line, incl. the `-autostart-biome`
   determinism note (§4).
-- `docs/game_description/mechaniques/resources_and_gathering.md` — gather
+- `docs/game_description/mechanics/resources_and_gathering.md` — gather
   rates, dropsites, food subtypes.
 - `docs/game_description/generic/` — entity data for units/buildings (gaia
   entities are covered by the tables above instead).

@@ -23,7 +23,7 @@ All three pass through the technology/value-modification system (`CCmpTerritoryI
 
 The computation (`CCmpTerritoryManager.cpp:467-592`):
 
-1. Every entity with `IID_TerritoryInfluence`, an `Ownership` of a real player (gaia and invalid owners are skipped, lines 506-507), `Position.IsInWorld()`, `Weight > 0` and `Radius > 0` participates. **There is no special-casing of unfinished foundations** — the only filters are the ones just listed (lines 493-540), so a placed foundation projects territory immediately.
+1. Every entity with `IID_TerritoryInfluence`, an `Ownership` of a real player (gaia and invalid owners are skipped, lines 506-507), `Position.IsInWorld()`, `Weight > 0` and `Radius > 0` participates. **Foundations never participate**: the foundation template filter `public/simulation/templates/special/filter/foundation.xml` keeps only a whitelist of components and `TerritoryInfluence` is not among them, so a placed foundation projects **no** territory — only the completed building (the `ChangeEntityTemplate` swap) starts generating influence. There is no foundation special-case in the C++ manager either; the filters listed here are the only ones (lines 493-540).
 2. Per entity, an 8-directional floodfill spreads weight outward from its tile (lines 553-589). The weight decreases per tile crossed by:
    - `relativeFalloff = Weight × 8 / Radius` per orthogonal tile, i.e. **linear falloff reaching 0 at exactly `Radius` metres** (lines 541-543);
    - multiplied by the entered tile's cost (1 passable, 4 impassable, 255 off-world) — mountains and water shrink territory (lines 558-559);
@@ -124,6 +124,6 @@ The bot (AI realm) cannot call the simulation directly; it gets:
 - **Unconnected own territory is hostile to you**: buildings there decay and most buildings can't be placed (need `neutral` in their territory list). Reconnect by chaining buildings or a new root toward it.
 - Only roots (CC, colony, wonder) create connected territory; everything else only expands it. Losing your last root makes *all* your territory unconnected.
 - Borders react to the *sum* of a player's building weights; dense building clusters push borders further than spaced ones, and impassable terrain (cost 4) and off-world (255) shrink influence.
-- Enemy buildings already standing in territory you take over decay automatically at 20 CP/s (40 for fortresses) — no units needed to flip them; docks are immune, and foundations project territory before completion.
+- Enemy buildings already standing in territory you take over decay automatically at 20 CP/s (40 for fortresses) — no units needed to flip them; docks are immune. Foundations neither generate territory nor decay: the foundation filter drops `TerritoryInfluence`, `Capturable` and `TerritoryDecay` (`special/filter/foundation.xml`), so an unfinished building in neutral or enemy territory just sits there until completed.
 - Gaia-owned influence is impossible: gaia buildings never generate territory (`CCmpTerritoryManager.cpp:506-507`).
 - `Settlement.js` is an empty stub with a TODO comment (`public/simulation/components/Settlement.js:1-15`) — no settlement mechanic is implemented; ignore it.

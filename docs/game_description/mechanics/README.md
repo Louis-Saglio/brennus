@@ -17,6 +17,7 @@ wrong, trust the source, not the doc — and fix the doc.
 
 ### Economy
 - [resources_and_gathering](resources_and_gathering.md) — resource types/subtypes, gather rates and cycles, carrying capacity, dropsites, supply exhaustion, trickle.
+- [animals_and_hunting](animals_and_hunting.md) — fauna categories and stances, the flee order and flee speeds, meat supplies, the corpse entity.
 - [construction](construction.md) — foundations, the construct→repair two-step, multi-builder formula, repair, placement rules.
 - [training_and_production](training_and_production.md) — production queues, batch training, refunds, rally points, auto-queue.
 - [population_and_entity_limits](population_and_entity_limits.md) — population costs/bonuses, world pop cap, entity limits (heroes, siege).

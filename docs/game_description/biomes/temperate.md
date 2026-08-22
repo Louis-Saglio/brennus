@@ -67,4 +67,5 @@ No biome-specific branches (`currentBiome()` is never checked for temperate in
 `mainland.js`). At map size 192: ≈1333 trees → ≈933 in ~13 forests, ≈400
 stragglers, of which `tree3` apples appear at ~25 % of the straggler groups
 (`mainland.js:206-207`). Fruit-bush groups: 3 per player × 5-7 bushes
-(`mainland.js:194-202`).
+(`mainland.js:194-202`). Total stone on the map: ~27–29k; total metal:
+~39–43k (large mines 5000, small 1000).
