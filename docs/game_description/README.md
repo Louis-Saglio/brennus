@@ -23,6 +23,12 @@ wrong, trust the source and fix the doc.
   research it.
 - [`gauls/`](gauls/), [`romans/`](romans/) — the same for entities exclusive
   to one civilisation (the bot plays **gaul**, the opponent **rome**).
+- [`biomes/`](biomes/) — **map biomes**, one file per biome (the 10 generic
+  `generic/*` biomes usable on every random map, plus the 9 map-specific
+  sub-biomes). What each biome changes for the bot (tree density and wood per
+  tree, huntable animals, fruit, fish) and what it does not (heights,
+  passability, mine amounts), with the shared mechanics in
+  [`biomes/README.md`](biomes/README.md).
 
 Every unit and building file opens with a **Guide** section: what the entity
 is for and its role in the game, from a bot's perspective (resource scarcity
