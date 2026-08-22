@@ -214,3 +214,27 @@ the bootstrap (houses leave the 100 w window): full demand gives s1
 14.3/18.1 but s5 still 20.6 — the house stream IS s5's pop engine, and
 any demand pause throttles it. The s1/s5 asymmetry has no clean static
 discriminator yet. Reverted; sti remains the shipped state.
+
+## Lever 5 — field-stall wood demand on wood-poor biomes (SHIPPED)
+
+s1's sprint field stream stalls when the wood stock hovers under 100
+(ONE field built in t=15-18, wood at 78, the houses eat every 75 w
+window) — the grain ramp never comes and pop300 lands at 20. Fix: detect
+the stall directly (field count unchanged for 20 s while under half the
+target) and set fieldDemand — the houses then leave the 100 w window,
+exactly like the bootstrap demand. Steppe (30 min cap, zero JS errors;
+`sti` = levers 1-4):
+
+| seed | sti max | stst max | delta |
+|------|---------|----------|-------|
+| 1 | 20.0 | 19.7 | -0.3 |
+| 2 | 16.4 | 16.4 | 0.0 |
+| 3 | 15.0 | 15.0 | 0.0 |
+| 4 | 15.4 | 15.2 | -0.2 |
+| 5 | 17.7 | 17.7 | 0.0 |
+
+Mean max 16.90 → 16.80. s2/s3/s5 byte-identical (the stall never fires
+there — s5's house stream untouched). Temperate s1 byte-identical.
+Discriminator notes: firing the demand at any deficit or before t=12
+throttled s5 (pop300 20.6) — the stall detector is the safe form. Run
+tags: `stfd-s1/5`, `stfd2-s1/5`, `stfd3-s1..5`, `stst-s1/5`.

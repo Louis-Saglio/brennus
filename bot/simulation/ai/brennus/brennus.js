@@ -1639,6 +1639,19 @@ BrennusBot.prototype.manageConstruction = function()
 	// throttle the sprint houses (v65: cap 195 at t=15).
 	this.fieldDemand = (fields + fieldFoundations) < Math.min(2, desiredFields) &&
 		this.fruitStock < 800;
+	// Wood demand (goal 7-S): on wood-poor biomes the field stream stalls
+	// whenever the wood stock hovers under 100 (s1: ONE field built in
+	// t=15-18 while wood sat at 78 and the houses ate every 75 w window) —
+	// the sprint's grain ramp never comes. Detect the stall directly (the
+	// field count has not moved for 20 s while under half the target) and
+	// demand wood: the houses then leave the 100 w window. (Time-boxed
+	// variants helped s1 less; demanding at any deficit throttled s5's
+	// house stream — pop300 20.6.)
+	this.fieldStallTurns = fields === this.lastFields ? (this.fieldStallTurns || 0) + 1 : 0;
+	this.lastFields = fields;
+	if (this.woodPoor && fields + fieldFoundations < desiredFields / 2 &&
+		this.fieldStallTurns > 100)
+		this.fieldDemand = true;
 	// Steppe fix (goal 7-S): on wood-poor biomes (bush "trees", detected
 	// in updateWoodline), fields in town phase with the trio pending must
 	// leave the trio's wood untouched — the field stream ate every 100 w
