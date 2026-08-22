@@ -168,6 +168,22 @@ stops, max 4/unit, no loops. Batch vs baseline: city +0.10, pop300 +0.12
 pop300 +0.15 ± 0.41. Details: `experiments/goal-07.md` (fixes section) +
 LESSONS_LEARNED.
 
+## Cavalry idle after the hunt — fixed (beyond-band hunting)
+
+Louis's report (distinct from the deferred faster-horse steer problem):
+after hunting a few horses the cavalry stops hunting and idles while game
+remains. Root cause: `herdingDone` sent it back to the economy, but its
+only gather rate is food.meat — with no served carcass left nothing was
+assignable and it idled forever. Fix: when the band runs dry, a third
+pick pass hunts beyond the band (no upper limit, collect mode — killed in
+place, the cavalry collects its own carcass); `herdingDone` only fires
+when no animals remain in the region. Steppe: hunting continues to the
+18 m cap, zero JS errors. Temperate: hunts +36%, fresh seeds 11-20 paired
+city -0.02 ± 0.19, pop300 -0.14 ± 0.26 (7/10 improved, seed 11 pop300
+15.0→14.7) — a small net win. Details: `experiments/goal-07.md`
+(cavalry-idle section) + LESSONS_LEARNED. The 13a6137 watchdog was
+reverted per Louis (faster-horse fix to be redesigned later).
+
 ## Next up (goal 8: defeat sandbox Petra < 40 in-game min)
 
 Tier 3 begins: `experiments/goal-08.md` doesn't exist yet — create it and

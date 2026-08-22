@@ -586,10 +586,12 @@ BrennusBot.prototype.nearestFoodDropsite = function(pos)
  * Civilians collect served in-territory carcasses exactly like berries
  * (findSupply's combined food pool); they never leave the territory for
  * meat (Louis).
- * One herder, exempt from the gatherer shares until no animals remain in
- * range (then it joins the economy). Targets are picked in two passes:
- * nearest herdable first, nearest collectable otherwise — herding wins
- * unless every skittish animal sits beyond the cutoff.
+ * One herder, exempt from the gatherer shares; when the band runs dry it
+ * keeps hunting beyond it in collect mode (the shares have nothing for a
+ * meat-only gatherer — it would just idle) until no animals remain in the
+ * region at all. Targets are picked in two passes: nearest herdable first,
+ * nearest collectable otherwise — herding wins unless every skittish
+ * animal sits beyond the cutoff.
  */
 BrennusBot.prototype.manageHerding = function()
 {
@@ -693,8 +695,12 @@ BrennusBot.prototype.manageHerding = function()
 		// and the cutoff only picks the treatment. The band is 35 to herdMax m
 		// from the CC. (200 m was probed as v71 and regressed ~0.2 min —
 		// before the food pool, when in-territory kills sat uncollected until
-		// the berries ran out.)
-		const nearest = herdableOnly => {
+		// the berries ran out.) When the band runs dry, keep hunting beyond
+		// it (collect mode) instead of joining the economy: the cavalry's
+		// only gather rate is food.meat, so with no served carcass left the
+		// shares have NOTHING to assign it and it would idle forever while
+		// game remains in sight (Louis's report — steppe horses).
+		const nearest = (herdableOnly, inBand) => {
 			let best, bestD = Infinity;
 			for (const s of gameState.getHuntableSupplies().values())
 			{
@@ -704,7 +710,7 @@ BrennusBot.prototype.manageHerding = function()
 				if (this.accessibility.getAccessValue(pos) !== region || this.nearEnemy(pos, 100, 60))
 					continue;
 				const d = SquareDistance(pos, ccPos);
-				if (d < 35 * 35 || d > this.herdMax * this.herdMax || d >= bestD)
+				if (d < 35 * 35 || (inBand && d > this.herdMax * this.herdMax) || d >= bestD)
 					continue;
 				const skittish = s.get("UnitAI/DefaultStance") === "skittish";
 				if (herdableOnly &&
@@ -715,13 +721,17 @@ BrennusBot.prototype.manageHerding = function()
 			}
 			return best;
 		};
-		target = (this.herdPrefer ? nearest(true) : undefined) || nearest(false);
+		target = (this.herdPrefer ? nearest(true, true) : undefined) ||
+			nearest(false, true) || nearest(false, false);
 		this.herdTarget = target?.id();
 		if (!target)
 		{
-			// Nothing left to herd: the cavalry joins the economy.
+			// No animals left anywhere in the region: release the cavalry to
+			// the economy (it will idle — a meat-only gatherer with no meat —
+			// which is fine, there is nothing left to hunt).
 			this.herdingDone = true;
 			this.herderId = undefined;
+			print(`[HERDDONE] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m no targets left in region\n`);
 			return;
 		}
 		this.herdCmdTurn = 0;

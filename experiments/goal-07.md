@@ -337,3 +337,29 @@ city +0.10, pop300 +0.12 (noise-level), all ≤ 15.0. Fresh seeds 11-20
 paired: city +0.06 ± 0.25, pop300 +0.15 ± 0.41, no bar breaks. Run tags:
 `pause-before-s5` (instrumented), `fix-seed1..5`, `fix-seed5-rerun`,
 `fix-fresh-11..20`.
+
+## Cavalry idle after the hunt — beyond-band hunting (2026-08-22, SHIPPED)
+
+Louis: after hunting a few horses the cavalry simply stops hunting and
+stands still (idle) while game remains — distinct from the steer hang
+(the faster-horse problem, deferred). Reproduced on the steppe biome and
+instrumented: when the 200 m band runs dry, `herdingDone` sent the
+cavalry back to the economy, but its only gather rate is food.meat — with
+no served carcass left, nothing was assignable and it idled forever
+(seed 1: HERDDONE 6.92m, STARVED cavalry 7.29m) while horses roamed
+beyond the band.
+
+Fix: a third pick pass with no upper distance limit (35 m floor, region,
+no enemies) — beyond-band targets are collect mode (killed in place, the
+cavalry collects its own carcass); `herdingDone` only fires when no
+animals remain in the region. The cav's time is free, so the walks cost
+nothing and the meat is a bonus.
+
+Steppe (seeds 1/3/5): no premature HERDDONE/STARVED, hunting to the 18 m
+cap (targets at 207/243 m), zero JS errors. Temperate: 5-seed batch hunts
++36%, city/pop300 14.4/14.9, 14.7/14.4, 14.1/13.4, 13.6/14.1, 14.1/13.3
+(baseline 14.9/15.0, 14.8/14.5, 14.4/13.9, 12.7/14.1, 14.2/13.3); fresh
+seeds 11-20 paired city -0.02 ± 0.19, pop300 -0.14 ± 0.26 (7/10 improved
+or equal, seed 11 pop300 15.0→14.7), no bar breaks, seed-5 rerun hash
+identical. Run tags: `idlebug-s1/5`, `idlefix-s1/3/5`, `idlefix-seed1..5`
++ `idlefix-seed5-rerun`, `idlefix-fresh-11..20`.

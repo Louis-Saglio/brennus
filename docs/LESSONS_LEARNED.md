@@ -3,6 +3,39 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-22 — Cavalry idle after the hunt: keep hunting beyond the band (Louis's report, SHIPPED)
+
+Symptom: after hunting a few steppe horses, the cavalry stops hunting and
+stands idle while game remains visible. NOT the steer hang (that one is
+the faster-horse problem, deferred). Instrumented (`[HERDDONE]` +
+`[STARVED]` prints): when the 200 m band runs dry, `herdingDone` sent the
+cavalry back to the economy — but its ONLY gather rate is `food.meat`
+(`template_unit_cavalry`: rates food.meat=5, capacities food=20, nothing
+else), so `canGather` fails for every resource and `findSupply` can only
+offer served meat; with no served carcass left, the shares have NOTHING
+to assign it and it idles forever (seed 1 steppe: HERDDONE 6.92m,
+STARVED cavalry 7.29m) while horses roam beyond the band.
+
+Fix: when the in-band pick fails, keep hunting — a third pick pass with
+NO upper distance limit (35 m floor, CC-region, away from enemies). The
+existing cutoff logic classifies beyond-band targets as collect mode
+(`herdKill = startDist > herdCutoff`): killed in place, carcass collected
+by the cavalry itself. `herdingDone` only fires when no animals remain in
+the region at all. The cav's time is free (exempt from the shares), so
+the long walks cost the economy nothing and the meat (rate 5.0) is a
+straight bonus to the food stream.
+
+Verified: steppe seeds 1/3/5 — no premature HERDDONE/STARVED, hunting
+continues to the 18 m cap (targets at 207/243 m, collect mode), zero JS
+errors. Temperate impact: 5-seed batch — hunts +36% (45/54/68/59/72 vs
+33/39/42/47/60), city/pop300 14.4/14.9, 14.7/14.4, 14.1/13.4, 13.6/14.1,
+14.1/13.3 (baseline 14.9/15.0, 14.8/14.5, 14.4/13.9, 12.7/14.1,
+14.2/13.3). Fresh seeds 11-20 paired: city -0.02 ± 0.19, pop300 -0.14 ±
+0.26 (7/10 improved or equal; seed 11 pop300 15.0→14.7), no bar breaks,
+zero JS errors, seed-5 rerun hash identical. Run tags: `idlebug-s1/5`
+(instrumented), `idlefix-s1/3/5` (steppe), `idlefix-seed1..5` +
+`idlefix-seed5-rerun`, `idlefix-fresh-11..20`.
+
 ## 2026-08-22 — Herder kill-shot accuracy + micro-pause fixes (Louis's reports, SHIPPED)
 
 Two fixes, both diagnosed from engine source + instrumented runs
