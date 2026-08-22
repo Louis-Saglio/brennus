@@ -339,3 +339,60 @@ never reached pop300):
 Fresh mean max **14.54** (baseline 17.56, -3.02): every fresh seed reaches
 both metrics, s11 included. The storehouse rules are the dominant steppe
 win so far — the woodline concentration (fix C) is what did it.
+
+## Storehouse remarks 4/5/6 (Louis, 2026-08-22) — SHIPPED
+
+Three follow-up rules on top of rules 1/2/3:
+
+4. **Rebuild on the receding woodline**: when the woodline has receded,
+   a new storehouse goes up ideally positioned on what remains. This
+   composes out of rules 1+3 + the new destroy rule (6): the ring is
+   exhausted (≤ 250) → the picker re-picks the biggest remaining hotspot
+   → the wood branch rebuilds at its weighted median → the old storehouse
+   dies under rule 6. Verified on temperate seed 1: initial storehouse
+   (block 1, unprinted) at 512,540, rebuild at 373,605 (t=12.8) when the
+   front passed it, old one destroyed at t=14.2 (> 60 m from any supply).
+   A "near-cell preference" variant (cells within 70 m of a dropsite
+   outrank far forests, floor 500) was probed and DISCARDED: on steppe
+   it made the bot follow small neighbouring clumps instead of the big
+   one (s1 pop300 15.1 → 16.8, storehouses at t=1.9/2.5/... churn back).
+5. **Chopper assignment**: each chopper takes the unsaturated zone tree
+   minimizing the full walk cycle — walk to the tree PLUS the tree's
+   distance to its nearest wood dropoff. The literal nearest-to-dropoff
+   was probed and DISCARDED: it ignored the unit's position and pulled
+   choppers across the map (f12 pop300 14.5 → 16.2, s2 14.5 → 14.9) —
+   after a destroy, the zone's nearest dropoff was the far pair
+   storehouse and every chopper trekked to that side. The sum form keeps
+   the dropoff near without ignoring the chopper's position.
+6. **Destroy rule**: every storehouse farther than 60 m from its nearest
+   wood/stone/metal supply is destroyed (one per block) — replaces the
+   old < 200-resources-within-40 m + busy-gatherer guard rule.
+
+Probe chain (sum rule + rule 6 vs the rules-1/2/3 state, sh3): f12 14.5 →
+14.7, f15 16.1 → 16.4, s2 14.5 → 14.4, t-s2 14.4/14.5 → 14.7/14.1 —
+within the noise band.
+
+### Final validation (sh8 tags, zero JS errors, clean runs, deterministic)
+
+Steppe tuned seeds 1-5 (baseline 16.80, rules-1/2/3 state 14.84):
+
+| seed | city/pop300 | max |
+|------|-------------|-----|
+| 1 | 14.3/15.5 | 15.5 |
+| 2 | 14.3/14.4 | 14.4 |
+| 3 | 14.4/14.5 | 14.5 |
+| 4 | 14.3/14.6 | 14.6 |
+| 5 | 14.3/15.5 | 15.5 |
+
+Mean max **14.90**. Fresh seeds 11-15 (baseline 17.56): 13.5, 14.7, 14.3,
+14.3, 16.4 — mean **14.64**. The three remarks cost ~+0.1 on the means
+vs the rules-1/2/3 state (noise-level); every seed still reaches both
+metrics.
+
+Temperate bar: 14.6/14.6, 14.7/14.1, 14.3/14.4, 12.9/14.1, 14.4/13.4 —
+all ≤ 15.0, seed-1 rerun hash identical.
+
+Remaining churn (mineClump/destroyed spikes on s4/f11-f13) is all
+post-metric (t > 15 m): the 300-pop wood/miner spread eats clusters
+faster than storehouses can be built — a separate late-game phenomenon.
+

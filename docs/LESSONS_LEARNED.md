@@ -3,6 +3,36 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
+## 2026-08-22 — Storehouse remarks 4/5/6 (Louis, SHIPPED)
+
+Follow-ups: rebuild on the receding woodline (composes out of rules
+1+3+the destroy rule — verified on temperate s1: rebuild at 373,605,
+old storehouse destroyed at 62 m), chopper assignment by full walk
+cycle, destroy everything > 60 m from the nearest supply. Steppe mean
+max stays ~14.9 tuned / ~14.6 fresh; temperate bar holds. Details in
+`experiments/goal-07-steppe.md`.
+
+- **Pure nearest-to-dropoff assignment regressed hard** (f12 pop300
+  14.5 → 16.2): it ignores the unit's position — after a storehouse
+  destroy, the zone's nearest dropoff was the far pair storehouse and
+  every chopper trekked to that side of the zone. The rule that works
+  minimizes the FULL cycle: dist(unit → tree) + dist(tree → nearest
+  dropoff). Same idea as the gather-rate telemetry: the walk is paid
+  twice per delivery.
+- **A near-cell preference in the picker (cells within 70 m of a
+  dropsite outrank far forests, floor 500) regressed steppe s1** (pop300
+  15.1 → 16.8): steppe clumps are small, so "near the dropsite" kept
+  winning over "biggest clump" and the bot rebuilt storehouses every
+  minute. "Rebuild on the remains" must come from the ring-exhaustion
+  cycle (rule 1), not from a proximity bonus.
+- **The pair-branch can still burn several orders at the territory
+  edge** (temperate s4: 5 orders in 0.5 min, 4 engine-rejected): the
+  reject zone is smooth over > 12 m, so wider failedSpots boxes don't
+  help (a 12 m box probe changed NOTHING on all 15 seeds — hashes
+  identical — reverted), and the pending-suppression limits the damage
+  to one order per spot per blacklist cycle. It self-heals once the
+  territory expands; the metric impact was nil (s4 city 12.9).
+
 ## 2026-08-22 — Storehouse rules 1/2/3 (Louis, SHIPPED)
 
 Three storehouse rules (exhaust served rings before building, one

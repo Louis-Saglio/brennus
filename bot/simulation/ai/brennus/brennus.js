@@ -407,8 +407,16 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 	const region = this.accessibility.getAccessValue(pos);
 	// Louis: all choppers on the ONE biggest woodline in territory — never
 	// spread over scattered sites; the line is re-picked when it runs out.
+	// Louis (2026-08-22): assign each chopper the unsaturated zone tree
+	// minimizing the FULL walk cycle — the walk to the tree PLUS the tree's
+	// distance to its nearest wood dropoff (where the load gets dropped).
+	// Pure nearest-to-dropoff ignored the unit's position and pulled
+	// choppers across the map (steppe f12 pop300 14.5 -> 16.2); pure
+	// nearest-to-unit let the drop walk grow. First-best in zone order wins
+	// ties.
 	if (resource === "wood" && this.woodline)
 	{
+		const drops = this.woodDropsitePositions();
 		let best, bestD = Infinity;
 		for (const id of this.woodline.ids)
 		{
@@ -420,7 +428,14 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 				continue;
 			if (!this.canGatherSupply(unit, supply))
 				continue;
-			const d = SquareDistance(pos, supplyPos);
+			let dd = Infinity;
+			for (const dp of drops)
+			{
+				const d2 = SquareDistance(supplyPos, dp);
+				if (d2 < dd)
+					dd = d2;
+			}
+			const d = Math.hypot(pos[0] - supplyPos[0], pos[1] - supplyPos[1]) + Math.sqrt(dd);
 			if (d < bestD)
 			{
 				bestD = d;
@@ -534,6 +549,18 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 		return supply;
 	}
 	return undefined;
+};
+
+/** Positions of wood-accepting dropsites (CC + built storehouses). */
+BrennusBot.prototype.woodDropsitePositions = function()
+{
+	const gameState = this.gameState;
+	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
+	const sites = [];
+	for (const ent of gameState.getOwnStructures().values())
+		if (ent.position() && (ent.templateName() === storeType || ent.hasClass("CivCentre")))
+			sites.push(ent.position());
+	return sites;
 };
 
 /** Positions of food-accepting dropsites, built or foundation. */
@@ -1896,45 +1923,29 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 	// one spot (11 construct FAILED at one steppe spot in the probe).
 	const storePending = center => this.pendingBuilds.some(pb =>
 		pb.template === storeType && Math.hypot(pb.x - center[0], pb.z - center[1]) < 30);
-	// Louis: a storehouse whose wood/stone/metal is gone is dead weight —
-	// destroy it (one per block), it only serves as a far-away fallback.
-	// Depleted = under 200 resources within 40 m (checking only THE nearest
-	// supply misfires on a half-eaten tree at an active woodline — v36).
-	// Never destroy while gatherers still work within 40 m: they are the
-	// proof the site is alive, and destroying under them oscillates
-	// build/destroy at the receding woodline (v37).
+	// Louis (2026-08-22): destroy every storehouse farther than 60 m from
+	// its nearest wood/stone/metal supply (one per block). The old rule
+	// (< 200 resources within 40 m + no busy gatherer within 40 m) kept
+	// half-dead storehouses alive and needed the busy guard against
+	// build/destroy oscillation; with the rebuild-on-the-remaining-woodline
+	// logic (rule 1 + median placement) a destroyed storehouse gets
+	// replaced at the right spot instead of oscillating.
 	for (const ent of gameState.getOwnStructures().values())
 	{
 		if (ent.templateName() !== storeType || ent.foundationProgress() !== undefined || !ent.position())
 			continue;
 		const pos = ent.position();
-		const half = halfDiag(ent);
-		let busy = false;
-		for (const unit of gameState.getOwnUnits().values())
-		{
-			if (!unit.isGatherer() || unit.isIdle() || !unit.position())
-				continue;
-			if (Math.hypot(pos[0] - unit.position()[0], pos[1] - unit.position()[1]) < 40)
-			{
-				busy = true;
-				break;
-			}
-		}
-		if (busy)
-			continue;
-		let nearby = 0;
+		let nearest = Infinity;
 		for (const res of ["wood", "stone", "metal"])
-			for (const s of gameState.getResourceSupplies(res).filterNearest(pos, 10).toEntityArray())
-			{
-				if (!s.position())
-					continue;
-				if (Math.hypot(pos[0] - s.position()[0], pos[1] - s.position()[1]) - half >= 40)
-					break; // filterNearest is sorted nearest-first
-				nearby += s.resourceSupplyAmount();
-			}
-		if (nearby < 200)
 		{
-			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse destroyed at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} (depleted)\n`);
+			const s = gameState.getResourceSupplies(res).filterNearest(pos, 1).toEntityArray()[0];
+			const sp = s?.position();
+			if (sp)
+				nearest = Math.min(nearest, Math.hypot(pos[0] - sp[0], pos[1] - sp[1]));
+		}
+		if (nearest > 60)
+		{
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse destroyed at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} (nearest supply ${nearest.toFixed(0)} m)\n`);
 			ent.destroy();
 			return true;
 		}
