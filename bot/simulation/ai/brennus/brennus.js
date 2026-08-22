@@ -573,9 +573,8 @@ BrennusBot.prototype.nearestFoodDropsite = function(pos)
  *   shot lands (a deer is left at 7/25 HP by the first javelin). Killed
  *   inside the territory they are left to the civilians (the food pool
  *   collects them like berries), killed outside the cavalry gathers the
- *   carcass itself. Stall detection (stopped fleeing, 30 s without closing
- *   on the dropsite, or 60 s on the same target) aborts the steer: killed
- *   in place, the cavalry collects the carcass.
+ *   carcass itself. Stall detection (stopped fleeing, or 30 s without
+ *   closing on the dropsite) falls back to killing in place.
  * - Collect: non-fleeing animals (passive-stance domestics — chicken/sheep/
  *   pig — crawl when fleeing, source-verified: flee speed = WalkSpeed x
  *   1.67, so 1.6-4.7 m/s) anywhere in the band, AND skittish animals
@@ -775,13 +774,9 @@ BrennusBot.prototype.manageHerding = function()
 		// First detection of the wound: cancel the attack order NOW. The
 		// engine's attack keeps firing on its own (javelin RepeatTime is
 		// 1.5 s) and the second shot would kill the animal before any
-		// steering happens. The stall baseline is the drop-site distance AT
-		// THE WOUND — the old code mixed it with the CC distance, which
-		// faster animals (steppe horses) never tripped.
+		// steering happens.
 		this.herdWoundTurn = this.turn;
 		this.herdCmdTurn = 0;
-		this.herdStartDist = dist;
-		this.herdBestDist = dist;
 		herder.stopMoving();
 		print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m wounded ${target.templateName()} at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} dropDist=${dist.toFixed(0)}\n`);
 		return;
@@ -794,16 +789,8 @@ BrennusBot.prototype.manageHerding = function()
 		// (misses wound nothing, so keep trying). 6 m, not more: the javelin
 		// spread scales with distance and the wound shot must land reliably
 		// (Louis's report: from the old 12 m standoff the kill shot often
-		// missed). Watchdog: if the far-side point is unreachable (cliffs —
-		// steppe) or the animal outruns the positioning, attack straight
-		// away after 60 s instead of hanging forever.
+		// missed).
 		this.herdCmdTurn = this.turn + 10;
-		if (this.turn - this.herdStartTurn > 300)
-		{
-			this.herdKill = true;
-			herder.attack(target.id(), false);
-			return;
-		}
 		const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
 		const n = Math.hypot(dx, dz) || 1;
 		const bx = pos[0] + dx / n * 6, bz = pos[1] + dz / n * 6;
@@ -815,33 +802,19 @@ BrennusBot.prototype.manageHerding = function()
 		return;
 	}
 	const fleeing = (target.unitAIState() || "").indexOf("FLEEING") !== -1;
-	// Kill: near the dropsite, the flee stalled, the steer made no progress
-	// for 30 s (measured against the drop-site distance at the wound), or
-	// the target dragged on past the 60 s watchdog — a faster animal (steppe
-	// horses) outruns the far-side positioning forever and the herder used
-	// to chase it across the map, doing nothing else (Louis's report).
-	// Aborted steers are killed in place and the cavalry collects the
-	// carcass itself, wherever it lands.
-	const stalled = this.turn - this.herdWoundTurn > 150 &&
-		this.herdBestDist > this.herdStartDist - 10;
-	const timedOut = this.turn - this.herdStartTurn > 300;
+	// Kill: near the dropsite, or the flee stalled, or the steer made no
+	// progress for 30 s.
 	if (dist < 25 ||
 		(!fleeing && this.turn - this.herdWoundTurn > 10) ||
-		stalled || timedOut)
+		(this.turn - this.herdStartTurn > 150 && this.herdBestDist > this.herdStartDist - 10))
 	{
-		if (stalled || timedOut)
-			this.herdKill = true;
 		this.herdCmdTurn = this.turn + 10;
 		// Close in before the kill shot (Louis): attacking from the standoff
 		// fires at the javelin's long-range spread and misses — approach to
 		// ~2 m on the far side first (the animal keeps fleeing TOWARD the
-		// dropsite while we do), shoot only from within 5 m. Aborted steers
-		// attack straight away: the animal may be faster than the cavalry
-		// and the approach would never converge (the attack pursuit catches
-		// it when it stops at its flee distance).
+		// dropsite while we do), shoot only from within 5 m.
 		const hp = herder.position();
-		if (Math.hypot(hp[0] - pos[0], hp[1] - pos[1]) > 5 && !stalled && !timedOut &&
-			this.turn - this.herdWoundTurn < 150)
+		if (Math.hypot(hp[0] - pos[0], hp[1] - pos[1]) > 5)
 		{
 			const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
 			const n = Math.hypot(dx, dz) || 1;

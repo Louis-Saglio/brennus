@@ -3,42 +3,6 @@
 Things learned while developing the bot, so they are not investigated again
 and mistakes are not repeated. Short, dated, factual entries — newest first.
 
-## 2026-08-22 — Herder frozen mid-herd on the steppe biome (Louis's report, SHIPPED)
-
-Symptom: after a few animals, the cavalry stopped working and stood still
-while game remained (steppe horses). Diagnosis via a temporary [STUCK]
-watchdog (logs any live target still alive 60 s after pick):
-
-- **The stall check compared two different distance bases.** `herdBestDist`
-  tracked the best DROP-SITE distance while `herdStartDist` held the CC
-  distance from target pick; the check `herdBestDist > herdStartDist - 10`
-  could never trip once the drop site differed from the CC (steppe horses
-  fled AWAY from the dropsite — dropDist 117 → 242 → 540 m — and the
-  herder followed in move/stop fits forever: herderState alternates
-  IDLE/WALKING at 7-22 m, i.e. "standing still"). Fix: `herdStartDist` is
-  now the drop-site distance AT THE WOUND, compared against the running
-  best — the intended "no 10 m of progress in 30 s" semantics.
-- **Faster animals outrun every positioning.** Steppe horses flee faster
-  than the cavalry walks, so the far-side approach (wound positioning, the
-  steer standoff, the kill-shot approach) never converges, and the
-  pre-wound phase had NO timeout at all (an unreachable far-side point —
-  cliffs — hung the herder forever). Fix: a 60 s per-target watchdog that
-  attacks straight away (pre-wound included) and sets herdKill so the
-  cavalry collects the carcass itself wherever it lands — the attack
-  pursuit works even against faster animals because FLEEING always ends at
-  the animal's flee distance, where the cavalry catches up. The kill-shot
-  approach additionally gives up 30 s after the wound.
-
-Verified on steppe (seeds 1/3/5, zero JS errors): every stuck target is
-killed within ~1 s of the watchdog firing, the carcass is collected
-(mode=collect), herding continues (hunts 32/38/75). Temperate impact:
-5-seed batch 4/5 byte-identical to the previous build (seed 4 city 12.7 →
-13.3 — its historical value; the 12.7 was a lucky outlier), fresh seeds
-11-20 paired 9/10 byte-identical (seed 20 -0.1/-0.1), mean city -0.01 ±
-0.03, pop300 -0.01 ± 0.03 — the watchdog never fires on temperate.
-Run tags: `steppe-s1/5` (repro), `stuck-s1/5`, `stuckfix-s1/3/5`,
-`stuckfix2-s1/3/5`, `herdwd-seed1..5`, `herdwd-fresh-11..20`.
-
 ## 2026-08-22 — Herder kill-shot accuracy + micro-pause fixes (Louis's reports, SHIPPED)
 
 Two fixes, both diagnosed from engine source + instrumented runs

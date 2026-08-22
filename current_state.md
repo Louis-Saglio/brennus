@@ -168,24 +168,6 @@ stops, max 4/unit, no loops. Batch vs baseline: city +0.10, pop300 +0.12
 pop300 +0.15 ± 0.41. Details: `experiments/goal-07.md` (fixes section) +
 LESSONS_LEARNED.
 
-## Herder frozen mid-herd — fixed (steppe diagnosis, watchdog)
-
-Louis's report: after a few animals the cavalry stops working and stands
-still while game remains. Reproduced on the steppe biome: (1) the stall
-check mixed distance bases (best drop-site distance vs CC distance at
-pick) and could never trip once the drop site ≠ CC — horses fled AWAY
-from the dropsite (dropDist 117→242→540 m) with the herder trailing in
-move/stop fits forever; (2) steppe horses outrun the cavalry, so the
-far-side positioning never converges and the pre-wound phase had no
-timeout at all. Fixed: stall baseline = drop-site distance at the wound;
-60 s per-target watchdog attacks straight away (pre-wound included) and
-sets herdKill so the cavalry collects the carcass itself; the kill
-approach gives up 30 s after the wound. Steppe: every stuck target killed
-within ~1 s of the watchdog, herding continues, zero JS errors. Temperate
-impact: 5-seed batch 4/5 byte-identical (seed 4 back to its historical
-13.3), fresh seeds 11-20 9/10 byte-identical, mean -0.01 ± 0.03 — free.
-Details: `experiments/goal-07.md` (frozen-herder section) + LESSONS_LEARNED.
-
 ## Next up (goal 8: defeat sandbox Petra < 40 in-game min)
 
 Tier 3 begins: `experiments/goal-08.md` doesn't exist yet — create it and
