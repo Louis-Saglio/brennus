@@ -60,8 +60,7 @@ wall time.
    bushes gathered by 4 workers (≈¼ of temperate's total wood, no apple
    stragglers), while horses give 200 meat each but flee fast — the boom
    must be wood-conservative and meat-driven. Every steppe seed must reach
-   BOTH metrics (raise the time-limit trigger, the 18 min cap is too
-   short), and temperate must keep the goal-7 bar: pop300 AND city ≤ 15
+   BOTH metrics, and temperate must keep the goal-7 bar: pop300 AND city ≤ 15
    min on its own 5-seed batch.
 
 ## Tier 3 — Basic military (single opponent)
