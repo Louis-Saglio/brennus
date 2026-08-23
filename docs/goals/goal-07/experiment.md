@@ -103,7 +103,7 @@ variants regressed vs v83: women-collect seed1 14.3/15.6, CC-steer
 14.1/13.9. Root cause: a far deer costs the cav 1.4-2.2 min (flee-speed
 bound + building-ring stalls) for 100 meat, and the collection displaces
 equivalent-or-better field work (seed 5 t=13m grain 4565→2193). The
-35-160 m band stays. Numbers in docs/LESSONS_LEARNED.md.
+35-160 m band stays.
 
 ### Builder ping-pong fix — sticky assignments shipped, then re-tuned (this commit)
 
@@ -111,7 +111,7 @@ Louis's report: builders walking back and forth between adjacent
 foundations without building. Root cause: the per-block sweep re-issued
 `repair` to the nearest units of every under-staffed foundation; adjacent
 foundations' nearest sets overlap and the last order wins. Four variants
-probed (all regressed the boom, numbers in LESSONS_LEARNED); by Louis's
+probed (all regressed the boom); by Louis's
 call the persistent sticky variant is shipped: a unit claimed by one
 foundation is never re-targeted until it is gone; the herder is excluded
 (phantom-builder guard). Zero churn. Regressed baseline:
@@ -156,7 +156,6 @@ rigid rotation of the plot set, all distances preserved); the placement
 prefilter checks the rotated footprint exactly, inflated by half a navcell
 diagonal (0.75 m) so it stays conservative without the rotated-AABB bloat
 (which pushed near-tree placements outward and cost seed 1 its pop300).
-See LESSONS_LEARNED for the failed prefilter variants.
 
 A/B vs re-derived baseline (5 seeds + determinism, zero JS errors,
 seed-1 rerun hash identical):
@@ -197,7 +196,7 @@ criteria on all 10 fresh seeds). The alignment is free.
 
 Louis's rule: treat dead in-territory carcasses exactly like berries —
 same gather rate, carcasses never rot — and collect food as "nearest
-served fruit-or-meat wins". Engine facts verified first (LESSONS_LEARNED):
+served fruit-or-meat wins". Engine facts verified first:
 the `resource|fauna_X` corpse merges the parent ResourceSupply with no
 `<Change>` (no rotting), and gaul civilians gather fruit and meat both at
 1.0.

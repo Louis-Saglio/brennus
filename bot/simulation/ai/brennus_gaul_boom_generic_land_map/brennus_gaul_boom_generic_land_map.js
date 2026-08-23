@@ -1558,7 +1558,7 @@ BrennusBot.prototype.manageConstruction = function()
 	// houses take 2 builders in village phase — the crews otherwise hold
 	// 3 workers off gathering exactly while the wood for wicker/fields is
 	// being accumulated — and 3 from town phase on (the sprint needs the
-	// house build rate; see LESSONS_LEARNED).
+	// house build rate).
 	const assigned = this.builderAssignments;
 	for (const fId in assigned)
 	{
