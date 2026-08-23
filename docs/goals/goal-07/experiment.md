@@ -16,7 +16,7 @@
 - Opponent: Petra sandbox (difficulty 0), rome — unchanged from tier 1.
 - Time-limit trigger reduced from 30 to **18 in-game minutes** (deadline is
   15; 18 gives a clean-exit margin while keeping runs ~50 s wall).
-- Command as in `experiments/goal-01.md`; runner `tmp/goal7/run.sh`
+- Command as in `docs/goals/goal-01/experiment.md`; runner `tmp/goal7/run.sh`
   (5 seeds + seed-1 determinism rerun, 2 parallel waves of 3), single-seed
   iteration via `tmp/goal7/run1.sh <seed> [tag]`.
 - Verification analysis: `tmp/goal7/analyze.py`.

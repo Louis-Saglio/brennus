@@ -9,7 +9,7 @@ traders, ≥1000 tradeIncome, ≥300 wood sold against stone at the market.
 ## Setup
 
 - Opponent: Petra sandbox, rome. 30 in-game-minute time limit.
-- Command as in `experiments/goal-01.md`; runner `tmp/goal6/run.sh`
+- Command as in `docs/goals/goal-01/experiment.md`; runner `tmp/goal6/run.sh`
   (5 seeds + seed-1 determinism rerun, 2 parallel waves of 3).
 - New bot behavior (see brennus.js comments for the full story):
   - `manageResearch`: all 26 gaul econ techs; village tier from surplus

@@ -13,7 +13,7 @@
 
 ## Command
 
-Same as goal 1 (`experiments/goal-01.md`), runner script
+Same as goal 1 (`docs/goals/goal-01/experiment.md`), runner script
 `tmp/goal2/run.sh` (scratch).
 
 ## Results

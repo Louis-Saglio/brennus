@@ -15,7 +15,7 @@
   Fertility Festival condition compared it to a string and never fired,
   so houses now actually train women (pop reaches the 300 popMax).
 - Opponent: Petra sandbox, rome. 30 in-game-minute time limit.
-- Command as in `experiments/goal-01.md`; runner `tmp/goal4/run.sh`.
+- Command as in `docs/goals/goal-01/experiment.md`; runner `tmp/goal4/run.sh`.
 
 ## Results
 

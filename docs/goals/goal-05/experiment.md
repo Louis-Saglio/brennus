@@ -16,7 +16,7 @@
   stays false until 3 Town structures are completed, then training pauses,
   the 750 stone / 750 metal (+buffer) is banked, and the CC researches it.
 - Opponent: Petra sandbox, rome. 30 in-game-minute time limit.
-- Command as in `experiments/goal-01.md`; runner `tmp/goal5/run.sh`
+- Command as in `docs/goals/goal-01/experiment.md`; runner `tmp/goal5/run.sh`
   (copy of goal-4's).
 
 ## Results

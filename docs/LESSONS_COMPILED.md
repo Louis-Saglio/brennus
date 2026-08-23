@@ -14,7 +14,7 @@ All dates are 2026-08; bullets are tagged `[08-2X]` (day only). "SHIPPED" /
 "DISCARDED" verdicts are the final state at compile time.
 
 Compiled from: `docs/LESSONS_LEARNED.md` (26 entries, 08-20 → 08-22),
-`experiments/goal-01..08.md`, `experiments/goal-07-steppe.md`.
+the goal experiments (`docs/goals/*/experiment.md`).
 Compile date: 2026-08-22.
 
 ## Contents
@@ -657,8 +657,9 @@ Where each dated entry of `LESSONS_LEARNED.md` landed in this compile
 | 08-21 | Louis's round-3 tips (audited one by one) | §1, §4, §6 |
 | 08-21 | Building orientation: align everything on the CC angle | §5, §8 |
 
-Facts folded in from `experiments/`: steppe metric
-(`goal-07-steppe.md`) → §1, §8. Extracted from this file on 2026-08-22:
+Facts folded in from the experiments: steppe metric
+(`docs/goals/goal-07-steppe/experiment.md`) → §1, §8. Extracted from this
+file on 2026-08-22:
 game mechanics → `docs/game_description/mechanics/` (new
 `animals_and_hunting.md`; additions to `territory.md`, `construction.md`),
 entity data → `docs/game_description/gauls/buildings/tavern.md` and the biome

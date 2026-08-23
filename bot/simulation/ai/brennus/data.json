@@ -1,7 +1,0 @@
-{
-	"name": "Brennus",
-	"description": "AI bot under development. Gathers with all workers, trains women continuously, builds houses ahead of the population cap, and phases up (town by ~7 min).",
-	"constructor": "BrennusBot",
-	"filename": "brennus.js",
-	"useShared": true
-}

@@ -1,0 +1,7 @@
+{
+	"name": "Brennus — Gaul boom",
+	"description": "Gaul boom bot for generic land maps (temperate and steppe biomes): continuous gathering, population growth, Town and City Phase, 300 population.",
+	"constructor": "BrennusBot",
+	"filename": "brennus_gaul_boom_generic_land_map.js",
+	"useShared": true
+}

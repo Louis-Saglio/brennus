@@ -5,11 +5,14 @@ implementation), shipped as a 0 A.D. mod and developed against **0.28.0 only**.
 
 ## Layout
 
-- `bot/` — the mod: `mod.json` + `simulation/ai/brennus/` (data.json,
-  brennus.js).
+- `bot/` — the mod: `mod.json` + one `simulation/ai/<bot>/` per bot
+  (data.json + JS). Names encode civ, specialty and map class.
 - `tools/` — reusable experiment harness: headless match runner, run
   analyzers, paired A/B comparison, game-data↔docs verification (see
   `tools/README.md`).
+- `docs/goals/` — one directory per goal: `goal.md` (target, target bot,
+  settings) + `experiment.md` once attempted. Work on goal n+1 only after
+  goal n passes.
 - `docs/game_description/` — game mechanics and entity data reference, all
   grounded in the pinned game copy. Consult before writing bot logic.
 - `docs/ai_engine_api.md` — reference of the AI scripting API the bot uses.

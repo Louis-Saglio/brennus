@@ -18,7 +18,7 @@
     90 m) requiring the whole footprint clear in the `building-land`
     passability grid (**bit set = impassable**) and in own territory.
 - Opponent: Petra sandbox, rome. 30 in-game-minute time limit.
-- Command as in `experiments/goal-01.md`; runner `tmp/goal3/run.sh`.
+- Command as in `docs/goals/goal-01/experiment.md`; runner `tmp/goal3/run.sh`.
 
 ## Results
 

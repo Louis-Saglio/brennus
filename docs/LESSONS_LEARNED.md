@@ -189,7 +189,7 @@ Follow-ups: rebuild on the receding woodline (composes out of rules
 old storehouse destroyed at 62 m), chopper assignment by full walk
 cycle, destroy everything > 60 m from the nearest supply. Steppe mean
 max stays ~14.9 tuned / ~14.6 fresh; temperate bar holds. Details in
-`experiments/goal-07-steppe.md`.
+`docs/goals/goal-07-steppe/experiment.md`.
 
 - **Pure nearest-to-dropoff assignment regressed hard** (f12 pop300
   14.5 → 16.2): it ignores the unit's position — after a storehouse
@@ -218,7 +218,7 @@ Three storehouse rules (exhaust served rings before building, one
 storehouse between close stone/metal mines, median placement) plus two
 fixes they forced. Steppe mean max(pop300, city) 16.80 → 14.84 (tuned
 seeds) and 17.56 → 14.54 (fresh seeds 11-15); temperate bar holds with
-neutral metrics. Details in `experiments/goal-07-steppe.md`.
+neutral metrics. Details in `docs/goals/goal-07-steppe/experiment.md`.
 
 Engine/code facts learned:
 
