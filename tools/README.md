@@ -1,0 +1,96 @@
+# tools/
+
+Reusable toolset for Brennus experiments: running headless matches,
+analyzing and comparing their results, and keeping `docs/game_description`
+consistent with the pinned 0 A.D. data. Extracted and generalized from the
+scratch scripts in `tmp/`.
+
+## Match harness
+
+### run.sh — run headless matches
+
+```sh
+tools/run.sh [options] <moddir> <outdir> <tag=seed>...
+```
+
+Each `tag=seed` pair runs one match: a fresh copy of `<moddir>` installed as
+the `brennus` mod (brennus vs a sandbox Petra) with an isolated HOME under
+`<outdir>/<tag>`, stdout to `<outdir>/<tag>/stdout.log`. Pairs run in
+parallel, one per CPU core (override with `JOBS=` or `-p`).
+
+Options: `-t SEC` wall timeout (default 300), `-m MAP` (default
+`random/mainland`), `-b BIOME` (default `generic/temperate`), `-l MIN`
+override the mod's time-limit trigger minutes.
+
+```sh
+# standard goal check: 5 seeds + seed-1 determinism rerun
+tools/run.sh bot tmp/goalN seed1=1 seed2=2 seed3=3 seed4=4 seed5=5 seed1-rerun=1
+
+# quick single probe on seed 1
+tools/run.sh -t 60 bot tmp/goalN probe=1
+
+# A/B: same seeds under two mods, then compare with compare.py
+tools/run.sh bot         tmp/ab base-seed1=1 ... base-seed5=5
+tools/run.sh bot-tweaked tmp/ab tweak-seed1=1 ... tweak-seed5=5
+
+# steppe biome with a 30-minute time limit
+tools/run.sh -b generic/steppe -l 30 bot tmp/steppe s1=1 s2=2
+```
+
+### analyze.py — per-run report
+
+```sh
+tools/analyze.py [--harness] [--det A,B] <outdir> [tag...]
+```
+
+Per tag: JS-error count from the engine interesting log, boom milestones
+(city phase, population=300) from `[HARNESS]` lines, key end-of-game
+statistics for player 1, and a SHA-256 of that statistics JSON. Default
+tags `seed1..seed5 seed1-rerun`, default determinism pair
+`seed1 vs seed1-rerun`; `--harness` also dumps the `[HARNESS]` lines.
+
+```sh
+tools/analyze.py tmp/goalN
+tools/analyze.py tmp/goalN seed2 seed3
+```
+
+### compare.py — paired A/B comparison
+
+```sh
+tools/compare.py <base_dir> <aligned_dir> <seed>...
+```
+
+Paired per-seed comparison of two batches (each `<dir>` holds `seed<N>`
+tags), on city-phase and pop300 times, plus a paired t-test on the deltas
+(pure-python Student t CDF, no dependencies).
+
+```sh
+tools/compare.py tmp/ab/base-batch tmp/ab/tweak-batch 1 2 3 4 5
+```
+
+### hunt-analyze.py — hunting telemetry
+
+```sh
+tools/hunt-analyze.py <stdout.log>
+```
+
+Parses `[HUNT]` lines: per huntable animal, template, mode, wound/kill/carcass
+dropDist, inTerr, and whether the carcass is within civilian pickup range.
+
+## Code helpers
+
+- `strip_comments.py <in.js> <out.js>` — strip JS comments, preserving code
+  exactly (string-literal-aware state machine; collapses comment-only lines
+  to single blanks).
+
+## Game data ↔ docs
+
+`tools/gamedata/` works against the pinned 0 A.D. 0.28.0 checkout
+(`~/0ad-reference`; override with `ZEROAD_REF`, docs root with `ZEROAD_DOCS`).
+The shared loader lives in `templates.py` (walks the entity templates,
+resolves Footprint/Obstruction through the parent chain).
+
+- `footprint-compare.py` — footprint/obstruction survey across civs.
+- `gen-sizes.py` — doc-ready footprint lines per building.
+- `verify-docs.py` — cross-check the footprint lines written in
+  `docs/game_description` against the game data; exits 1 on any mismatch.
