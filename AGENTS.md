@@ -6,10 +6,9 @@ implementation), shipped as a 0 A.D. mod and developed against **0.28.0 only**.
 ## Layout
 
 - `bot/` — the mod: `mod.json` + `simulation/ai/brennus/` (data.json,
-  brennus.js). Currently a verified no-op skeleton.
+  brennus.js).
 - `docs/game_description/` — game mechanics and entity data reference, all
-  grounded in the pinned game copy (see its README). Consult before writing
-  bot logic.
+  grounded in the pinned game copy. Consult before writing bot logic.
 - `docs/ai_engine_api.md` — reference of the AI scripting API the bot uses.
 - `docs/pyrogenesis_cli.md` — the engine command line, headless usage.
 - `tmp/` — scratch (isolated match HOMEs, smoke-run logs). Never commit-grade
@@ -21,13 +20,11 @@ implementation), shipped as a 0 A.D. mod and developed against **0.28.0 only**.
   bot must never use unseeded randomness; gamesetup defaults that resolve
   randomly (biome, player placement) must be pinned on the command line.
 - Engine, game data and source are version-pinned in
-  `/home/ubuntu/0ad-reference/` (0.28.0); trust it over general 0 A.D.
+  `~/0ad-reference/` (0.28.0); trust it over general 0 A.D.
   knowledge. Trust the source over docs when they disagree.
 - **Everything is verified by running the game headless** with
   `pyrogenesis -autostart-nonvisual` (see `docs/pyrogenesis_cli.md`). A change
   to the bot is not done until a headless match ran without JS errors.
-- Never run matches with HOME on `/tmp` (small tmpfs); use isolated HOMEs
-  under `tmp/` or an experiments directory.
 - AI performance matters: the bot must not slow the simulation — no full-map
   scans per tick, prefer cached entity collections and shared resource maps.
 
@@ -84,7 +81,7 @@ than strictly necessary:
 
 ## Iterating on goals
 
-- **Vary the probe seed while iterating** (Louis): tuning against a single
+- **Vary the probe seed while iterating**: tuning against a single
   seed overfits behavior to that map (e.g. seed 1 mainland is unusually
   poor in berries). Rotate seeds for iteration probes; validate with the
   full multi-seed batch.
@@ -100,38 +97,19 @@ this speeds up verification batches a lot compared to running them serially.
 
 ```sh
 HOME=$PWD/tmp/smoke-home timeout 150 /usr/games/pyrogenesis \
-  -autostart=random/mainland -autostart-seed=1 \
-  -autostart-biome=generic/temperate -autostart-placement=circle \
+  -autostart-placement=circle \
   -autostart-nonvisual -autostart-players=2 -autostart-size=192 \
   -autostart-victory=conquest_civic_centers \
   -autostart-ai=1:brennus -autostart-ai=2:petra -autostart-aidiff=2:3 \
   -autostart-civ=1:gaul -autostart-civ=2:rome -autostart-player=-1 \
-  -unique-logs -nosound -mod=public -mod=brennus
+  -unique-logs -nosound -mod=public -mod=brennus \
+  -autostart=random/mainland -autostart-biome=generic/temperate -autostart-seed=1
 ```
-
-Before running, copy `bot/` into `$HOME/.local/share/0ad/mods/brennus`.
-Success = `[HARNESS] brennus: loaded for player 1` on stdout, turns
-progressing, zero `ERROR` lines in the interesting log
-(`$HOME/.local/state/0ad/log/interestinglog_*.html`).
 
 ## Sharing progress
 
 - **Commit and push** to `main` on GitHub (Louis-Saglio/brennus) every time
-  significant progress is made — a passing goal, a working feature, a doc
+  significant progress is made — a passing goal, progress on a goal, a working feature, a doc
   update worth keeping. Don't batch unrelated changes.
-- **After each commit, publish the mod as a zip on the file server** so Louis
-  can try it. Build it with `mod.json` at the archive root and publish a
-  commit-named file plus a stable `brennus.zip`:
-
-  ```sh
-  SHA=$(git rev-parse --short HEAD)
-  (cd bot && python3 -m zipfile -c ../tmp/brennus-$SHA.zip .)
-  sudo install -D -o fileserver -g fileserver -m 644 \
-    tmp/brennus-$SHA.zip /home/fileserver/files/brennus/brennus-$SHA.zip
-  sudo install -o fileserver -g fileserver -m 644 \
-    tmp/brennus-$SHA.zip /home/fileserver/files/brennus/brennus.zip
-  ```
-
-  Download URL: `https://files.louissaglio.fr/brennus/brennus.zip`
-  (basic auth, see the global AGENTS.md). The file server is no-cache, so
-  the stable name always serves the latest commit.
+- **After each non pure doc commit, publish the mod as a zip on the file server** so Louis
+  can try it. Build it with `mod.json` at the archive root and publish a stable `brennus.zip`.
