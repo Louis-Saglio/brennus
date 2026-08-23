@@ -17,11 +17,16 @@
 #   -b BIOME autostart biome (default generic/temperate)
 #   -l MIN   override the mod's time-limit trigger minutes
 #            (sed on maps/scripts/NonVisualTrigger.js in the copied mod)
+#   -d DIFF  opponent Petra difficulty 0-5 (default 0 = sandbox)
+#   -v BEHAV opponent Petra behaviour, e.g. defensive (default: engine
+#            autostart default "balanced"; flag omitted)
 #
 # Examples:
 #   run.sh bot tmp/goal9 seed1=1 seed2=2 ... seed5=5 seed1-rerun=1
 #   run.sh -a brennus_gaul_boom_generic_land_map -t 60 bot tmp/goal9 probe=1
 #   run.sh -b generic/steppe -l 30 bot tmp/steppe s1=1 s2=2
+#   run.sh -a brennus_gaul_defend_boom_and_expand_generic_land_map \
+#     -d 3 -v defensive bot tmp/goal9 s1=1
 set -u
 
 AI=brennus_gaul_boom_and_expand_generic_land_map
@@ -30,8 +35,10 @@ JOBS=${JOBS:-$(nproc)}
 MAP=random/mainland
 BIOME=generic/temperate
 LIMIT=""
+DIFF=0
+BEHAV=""
 
-while getopts "a:t:p:m:b:l:" opt; do
+while getopts "a:t:p:m:b:l:d:v:" opt; do
 	case $opt in
 		a) AI=$OPTARG ;;
 		t) TIMEOUT=$OPTARG ;;
@@ -39,6 +46,8 @@ while getopts "a:t:p:m:b:l:" opt; do
 		m) MAP=$OPTARG ;;
 		b) BIOME=$OPTARG ;;
 		l) LIMIT=$OPTARG ;;
+		d) DIFF=$OPTARG ;;
+		v) BEHAV=$OPTARG ;;
 		*) exit 2 ;;
 	esac
 done
@@ -67,12 +76,12 @@ run_one() {
 		-autostart-biome="$BIOME" -autostart-placement=circle \
 		-autostart-nonvisual -autostart-players=2 -autostart-size=192 \
 		-autostart-victory=conquest_civic_centers \
-		-autostart-ai=1:"$AI" -autostart-ai=2:petra -autostart-aidiff=2:0 \
+		-autostart-ai=1:"$AI" -autostart-ai=2:petra -autostart-aidiff=2:"$DIFF" ${BEHAV:+-autostart-aibehavior=2:"$BEHAV"} \
 		-autostart-civ=1:gaul -autostart-civ=2:rome -autostart-player=-1 \
 		-unique-logs -nosound -mod=public -mod=brennus \
 		> "$OUTDIR/$tag/stdout.log" 2>&1
 	echo "tag=$tag seed=$seed exit=$?"
 }
 export -f run_one
-export TIMEOUT OUTDIR MODDIR MAP BIOME LIMIT AI
+export TIMEOUT OUTDIR MODDIR MAP BIOME LIMIT AI DIFF BEHAV
 printf '%s\n' "${PAIRS[@]}" | xargs -P "$JOBS" -I{} bash -c 'run_one "$1"' _ {}

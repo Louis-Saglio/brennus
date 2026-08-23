@@ -14,7 +14,7 @@ tools/run.sh [options] <moddir> <outdir> <tag=seed>...
 ```
 
 Each `tag=seed` pair runs one match: a fresh copy of `<moddir>` installed as
-the `brennus` mod with the selected AI vs a sandbox Petra, isolated HOME
+the `brennus` mod with the selected AI vs a Petra opponent, isolated HOME
 under `<outdir>/<tag>`, stdout to `<outdir>/<tag>/stdout.log`. Pairs run in
 parallel, one per CPU core (override with `JOBS=` or `-p`).
 
@@ -22,7 +22,9 @@ Options: `-a AI` bot to play (default
 `brennus_gaul_boom_and_expand_generic_land_map`), `-t SEC` wall timeout
 (default 300), `-m MAP` (default `random/mainland`), `-b BIOME` (default
 `generic/temperate`), `-l MIN` override the mod's time-limit trigger
-minutes.
+minutes, `-d DIFF` opponent Petra difficulty 0-5 (default 0 = sandbox),
+`-v BEHAV` opponent Petra behaviour (e.g. `defensive`; omitted by default,
+so the engine autostart default `balanced` applies).
 
 ```sh
 # standard goal check: 5 seeds + seed-1 determinism rerun
@@ -37,6 +39,10 @@ tools/run.sh bot-tweaked tmp/ab tweak-seed1=1 ... tweak-seed5=5
 
 # steppe biome with a 30-minute time limit
 tools/run.sh -b generic/steppe -l 30 bot tmp/steppe s1=1 s2=2
+
+# goal 9: defend bot vs medium defensive Petra
+tools/run.sh -a brennus_gaul_defend_boom_and_expand_generic_land_map \
+    -d 3 -v defensive bot tmp/goal9 s1=1
 ```
 
 ### analyze.py — per-run report
