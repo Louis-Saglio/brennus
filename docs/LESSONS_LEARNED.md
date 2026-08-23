@@ -2,6 +2,17 @@
 
 ## 2026-08-23
 
+- **The engine's `-replay` path skips `InitVfs`**, so `psLogDir()` stays
+  empty and the engine writes `profile.txt` / `crashlog.txt` / `profile2.jsonp`
+  *relative to the process CWD* (main.cpp replay branch creates the VFS and
+  mounts `cache/` directly). Under systemd the CWD is `/`, which is not
+  writable → EACCES → replay aborts without printing `# Final state:`.
+  Fix (no engine patch): always spawn games with a writable CWD (kiln sets
+  `current_dir` to the job HOME). Also makes the profile write retried
+  every turn go away, so replays are much faster.
+- **`-autostart-team=N:TEAM` is 1-based** (`cmd_line_args.js` does
+  `team - 1` internally); passing `-1` corrupts the internal team index and
+  makes both players win instantly at turn 0. "No team" = omit the flag.
 - **`Engine.ReadJSONFile` in map-trigger scripts is restricted to
   `simulation/` paths** (verified building the kiln harness mod):
   `ERROR: JavaScript error: maps/scripts/NonVisualTrigger.js line 51 —
