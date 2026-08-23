@@ -1,9 +1,11 @@
 # Goal 8 — Expand the base
 
 - **Bot**: `brennus_gaul_boom_and_expand_generic_land_map`
-- **Settings**: defaults; opponent Petra sandbox (difficulty 0);
-  30-minute time limit (the match must end at the 30-minute mark —
-  stockpiles and borders are not monotone).
+- **Settings**: `random/mainland` size 192, biome `generic/temperate`,
+  placement `circle`, victory `conquest_civic_centers`; bot plays gaul,
+  opponent Petra (difficulty 0) plays rome; 30-minute time limit (the
+  match must end at the 30-minute mark — stockpiles and borders are not
+  monotone).
 - **Criteria**: boom first — City Phase AND 300 pop ≤ 15 min (the goal-7
   bar: `max(pop300, city) ≤ 15`) — then by 30 in-game minutes control
   **at least 70% of the map** (`percentMapControlled`, share of passable
