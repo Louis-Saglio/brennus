@@ -101,23 +101,6 @@ one core. When several matches must be run (e.g. multi-seed verification),
 run them **in parallel, one per core**, each with its own isolated HOME —
 this speeds up verification batches a lot compared to running them serially.
 
-## Smoke test
-
-```sh
-HOME=$PWD/tmp/smoke-home timeout 150 /usr/games/pyrogenesis \
-  -autostart-placement=circle \
-  -autostart-nonvisual -autostart-players=2 -autostart-size=192 \
-  -autostart-victory=conquest_civic_centers \
-  -autostart-ai=1:brennus -autostart-ai=2:petra -autostart-aidiff=2:3 \
-  -autostart-civ=1:gaul -autostart-civ=2:rome -autostart-player=-1 \
-  -unique-logs -nosound -mod=public -mod=brennus \
-  -autostart=random/mainland -autostart-biome=generic/temperate -autostart-seed=1
-```
-
-`tools/run.sh` (see `tools/README.md`) drives this same base command with a
-sandbox Petra (`-autostart-aidiff=2:0`), per-tag isolated HOMEs and one
-match per core. When the base command changes, update it in both places.
-
 ## Sharing progress
 
 - **Commit and push** to `main` on GitHub (Louis-Saglio/brennus) every time
