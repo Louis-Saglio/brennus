@@ -114,6 +114,10 @@ HOME=$PWD/tmp/smoke-home timeout 150 /usr/games/pyrogenesis \
   -autostart=random/mainland -autostart-biome=generic/temperate -autostart-seed=1
 ```
 
+`tools/run.sh` (see `tools/README.md`) drives this same base command with a
+sandbox Petra (`-autostart-aidiff=2:0`), per-tag isolated HOMEs and one
+match per core. When the base command changes, update it in both places.
+
 ## Sharing progress
 
 - **Commit and push** to `main` on GitHub (Louis-Saglio/brennus) every time
