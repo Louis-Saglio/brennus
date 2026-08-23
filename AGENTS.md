@@ -85,6 +85,11 @@ than strictly necessary:
   seed overfits behavior to that map (e.g. seed 1 mainland is unusually
   poor in berries). Rotate seeds for iteration probes; validate with the
   full multi-seed batch.
+- **The bot is chaotic**: a small, anecdotal change can propagate and derail
+  the whole behavior significantly. When a change that should theoretically
+  be good seems at first to yield bad results, keep it and try to rebalance
+  the behavior around it before discarding it. Discard it only when you
+  understand why the change is theoretically incorrect.
 
 ## Parallel runs
 
