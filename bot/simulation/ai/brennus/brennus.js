@@ -1,41 +1,11 @@
+/**
+ * Brennus: AI bot for 0 A.D. — goal 8 stage: after the boom (city AND 300
+ * pop) it spreads across the map to >= 70% of the passable area and maxes
+ * out every resource stockpile by 30 in-game minutes. The `[HARNESS] brennus:
+ * loaded` banner is the headless smoke test's canary.
+ */
 import { BaseAI } from "simulation/ai/common-api/baseAI.js";
 
-/**
- * Brennus: AI bot for 0 A.D.
- *
- * Current stage — goal 8 (expand the base): first the goal-7 boom (City
- * Phase AND 300 population by 15 in-game minutes, code untouched), then
- * spread across the map: by 30 in-game minutes the bot must control ≥70%
- * of the passable map (statistics percentMapControlled) and stockpile as
- * much of every resource as the map physically allows (statistics
- * resourcesCount). The map carries ~28k stone / ~40k metal in mines, so
- * everything is mined out, market barter converts food/wood surpluses,
- * and nothing is spent past the boom except the expansion itself.
- *
- * The boom stage (goal 7) is unchanged: houses are the pop engine,
- * worker training outranks phase research, techs are gather-rate only,
- * dropsites go next to what they serve, hunting is the cavalry's job
- * (see the herd constants). The expansion stage (city researched AND
- * pop ≥ 300) adds:
- * - Civic centres planted across the map (roots: each claims a ~140 m
- *   territory disk; foundations project influence immediately). Spots
- *   come from a deterministic lattice, filtered by placement rules and
- *   picked greedily by simulated marginal territory coverage until the
- *   70% bar is predicted. CCs are also +20 pop cap and training sites.
- * - The gatherer shares flip to a mining regime: stone/metal miners are
- *   sized to deplete every SERVED mine (a mine is served once a CC or
- *   storehouse sits within ~45 m) by t=30; the rest keep the food/wood
- *   stockpiles and the barter surplus running.
- * - Post-city mining techs (stone/metal +25% each) are researched, and
- *   the market continuously buys stone/metal with food/wood surpluses
- *   (500-unit deals alternate the bought resource so prices recover).
- * - CC foundations take 10 sticky builders (they sit far from the base
- *   and their 500 s build time is the expansion's critical path).
- *
- * The init banner is the load canary used by the headless smoke test: if it
- * appears in stdout, the bot was constructed and initialized without script
- * errors.
- */
 export function BrennusBot(settings)
 {
 	BaseAI.call(this, settings);
@@ -43,34 +13,16 @@ export function BrennusBot(settings)
 
 BrennusBot.prototype = Object.create(BaseAI.prototype);
 
-/** Share of all gatherers each resource should have, per phase. Mining is
- * deliberately thin in town phase: the 750/750 city bank is filled mostly
- * by bartering food/wood surpluses, not by 0.35/s women on rock. */
 BrennusBot.prototype.gathererShares = {
 	1: { "food": 0.55, "wood": 0.45, "stone": 0.0, "metal": 0.0 },
 	2: { "food": 0.47, "wood": 0.53, "stone": 0.0, "metal": 0.0 },
 	3: { "food": 0.62, "wood": 0.36, "stone": 0.01, "metal": 0.01 }
 };
 
-/**
- * Phase shares, with two dynamic overrides:
- * - Town phase splits by trio status: wood-heavy while forge/market/temple
- *   are missing (the city deadline needs their 800 wood in one block each),
- *   food-heavy once they stand (the pop sprint is food-limited — v26 hit
- *   city 14.9 but pop300 17.2 on fixed shares, v27 the reverse).
- * - Mining is rate-matched to the city bank (Louis's bar: 750/750 in hand
- *   by ~13.5 so the research lands before 15.0): just enough miners to
- *   fill the bank (+100 tech allowance) in the time left, zero once full.
- *   Fixed mining shares always lose — too few early (v37/v38: city 16+)
- *   or they starve the wood the boom runs on (v39/v40: pop300 16+).
- */
 BrennusBot.prototype.currentShares = function(total)
 {
 	const phase = this.gameState.currentPhase();
-	// Goal 8: once the boom is over (city researched, pop 300), the shares
-	// switch to the expansion regime — mine every served stone/metal deposit
-	// by the 30-minute deadline, food/wood keep the stockpiles + barter
-	// surplus running (see expansionShares).
+
 	if (this.expansionOn() && phase === 3)
 		return this.expansionShares(total);
 	let base = this.gathererShares[phase] || this.gathererShares[1];
@@ -85,17 +37,12 @@ BrennusBot.prototype.currentShares = function(total)
 		if (total)
 		{
 			const res = this.gameState.getResources();
-			// Once the city research is running the bank is spent: re-mining
-			// it stole ~50 workers from the boom at the worst moment (v41).
+
 			const bankingDone = this.gameState.isResearching("phase_city_generic");
-			// No mining before t=8: the bank fills in the last minutes easily,
-			// and every early miner costs triple in un-trained women (v41/v42:
-			// mining from t=4 put the boom ~40 pop behind by t=15).
+
 			const early = this.gameState.getTimeElapsed() < 480000;
 			const timeLeft = Math.max(60, (810000 - this.gameState.getTimeElapsed()) / 1000);
-			// Metal target: the 750 bank plus whatever the pending grain-rate
-			// techs still cost — they are spent from the bank before the city
-			// research starts, so the miners pre-fill for them.
+
 			let grainMetal = 0;
 			for (const tech of ["gather_farming_plows", "gather_farming_training", "gather_farming_harvester"])
 				if (!this.gameState.isResearched(tech) && !this.gameState.isResearching(tech))
@@ -105,7 +52,7 @@ BrennusBot.prototype.currentShares = function(total)
 			for (const res2 of ["stone", "metal"])
 			{
 				const needed = bankingDone || early ? 0 : target[res2] - res[res2];
-				// Women mine ~0.35/s before techs.
+
 				shares[res2] = needed > 0 ?
 					Math.min(0.18, needed / (0.35 * timeLeft) / total) : 0;
 				mining += shares[res2];
@@ -121,116 +68,86 @@ BrennusBot.prototype.currentShares = function(total)
 
 BrennusBot.prototype.houseTrainingTech = "unlock_civilians_house_generic";
 
-/**
- * Boom technologies in priority order (phase gating is enforced by
- * findResearchers returning nothing before the phase unlocks). Only
- * wood/stone/metal costs: food goes to the woman stream, so food-costing
- * techs (capacity, mining) are deliberately out — women at 50 food are
- * worth more than +25% on a dozen miners.
- */
+/** Boom techs in priority order; wood/stone/metal costs only (food goes to the woman stream). */
 BrennusBot.prototype.boomTechs = [
-	// village
-	"gather_wicker_baskets",       // +50% fruit rate (berries are the early food)
-	"gather_farming_plows",        // +20% grain rate
-	// town — grain-rate techs first: food income is the pop bottleneck, and
-	// they cost the metal the city bank wants, so they must land before the
-	// 750 reserve activates (v41-v43: queued behind, fired at 14.7, useless)
-	"gather_farming_training",     // +20% grain rate
-	"gather_farming_harvester",    // +10% grain rate (gaul, town)
-	"gather_lumbering_ironaxes",   // +25% wood rate (houses eat wood)
-	"pop_house_01",                // houses +20% pop: 5 -> 6
-	"gather_capacity_basket",      // +5 carry capacity: fewer walk trips
+
+	"gather_wicker_baskets",
+
+	"gather_farming_plows",
+
+	"gather_farming_training",
+
+	"gather_farming_harvester",
+
+	"gather_lumbering_ironaxes",
+
+	"pop_house_01",
+
+	"gather_capacity_basket",
+
 	"gather_lumbering_strongeraxes",
-	// city
-	"pop_house_02",                // houses +20% pop: 6 -> 7
+
+	"pop_house_02",
+
 	"gather_farming_fertilizer"
 ];
 
-/**
- * Phase-up costs kept as a reserve: training and construction may only
- * spend above it, so the bank fills without ever pausing production.
- */
 BrennusBot.prototype.phaseUpCost = {
 	"phase_town_generic": { "food": 500, "wood": 500 },
 	"phase_city_generic": { "stone": 750, "metal": 750 }
 };
 
-/** Population margin below which houses are ordered (they ARE production). */
 BrennusBot.prototype.houseMargin = 16;
-/** Concurrent house foundations allowed (houses are both cap and trainers).
- * 3, not more: each foundation pulls 4 gatherers as builders, and the house
- * order rate must stay below the wood income so trio/techs see a surplus. */
+
 BrennusBot.prototype.maxHouseFoundations = 4;
-/** Furthest animal the herder targets, from the CC (m). Probed 200/240/280
- * (2026-08-22): 200 captures the meat gains at no measurable boom cost;
- * beyond, the extra targets pay but the metrics go flat-to-worse (seed 3
- * city 14.1/14.3/14.6 at 200/240/280). v71's 200 m regression (-0.2 min)
- * was BEFORE the food pool — in-territory kills now feed civilians
- * immediately, which is what makes the extension cheap. */
+
+/** Furthest animal the herder targets from the CC (m). */
 BrennusBot.prototype.herdMax = 200;
-/** Skittish animals beyond this distance (m) are not herded: killed in place
- * and collected by the cavalry, like the non-fleeing animals. Probed (140/
- * 160/200 vs 280): herding WINS at every distance — the chase pushes the
- * carcass ~50 m farther out and the cavalry's collection round trips cost
- * far more than the steer (1 vs 6 far deer processed on seed 5). Set equal
- * to herdMax: everything in the band is herded. */
+
+/** Skittish animals beyond this distance (m) are killed in place instead of herded. */
 BrennusBot.prototype.herdCutoff = 200;
-/** Prefer herdable targets (skittish within the cutoff) over nearer
- * collectable ones. Probed (2026-08-22): the preference redirected the
- * herder from 37 m chickens to 127 m deer and cost seed 5 city +0.5 min —
- * nearest-first stays. */
+
 BrennusBot.prototype.herdPrefer = false;
-/** Distance (m) from the pinned food dropsite at which a steered animal is
- * killed mid-flight. Probed 40 (2026-08-22): s1 pop300 15.4→15.1 but s5
- * 14.3→14.6 with a new 167 m orphan — a wash; the flee-away discipline
- * (pinned dropsite, far-side-only attacks) is what fixed the steers, not
- * this threshold. 25 stays. */
+
+/** Distance (m) from the pinned food dropsite at which a steered animal is killed. */
 BrennusBot.prototype.herdKillDist = 25;
-/** Rule 1 (Louis, 2026-08-22): a new wood storehouse may only go up once no
- * existing wood dropsite (CC or storehouse) can still serve ≥ this much
- * harvestable wood within ringServeDist m — exhaust the served ring first,
- * then move the woodline and rebuild. Also the keep-floor of a storehouse
- * woodline zone. 250 ≈ one temperate tree or 2.5 steppe bushes. */
+
+/** Wood a dropsite's ring must still serve before a new wood storehouse is allowed (rule 1). */
 BrennusBot.prototype.ringGateWood = 250;
-/** Distance (m, centre-to-centre) a dropsite serves wood within (rule 1). */
+
+/** Distance (m) a dropsite serves wood within. */
 BrennusBot.prototype.ringServeDist = 40;
-/** Rule 2 (Louis, 2026-08-22): the pinned stone and metal mines closer than
- * this (m, centre-to-centre) share ONE storehouse between them. */
+
+/** Pinned stone and metal mines closer than this (m) share ONE storehouse. */
 BrennusBot.prototype.minePairDist = 55;
 
 BrennusBot.prototype.CustomInit = function(gameState)
 {
 	print(`[HARNESS] brennus: loaded for player ${this.player}\n`);
-	// Placement orientation (Louis): every building is aligned on the civic
-	// centre's own angle. Cached lazily on first use — the CC never turns,
-	// and after a save/load the world state is identical, so re-deriving is
-	// deterministic and nothing needs serializing.
+
 	this.ccAngle = undefined;
-	// entityID -> resource this unit was ordered to gather.
-	this.assignments = this.savedState?.assignments || {};
-	// foundationID -> [entityID] of its sticky builders (never overlapping).
+
+	this.assignments = this.savedState?.assignments || {}; // entityID -> resource
+
 	this.builderAssignments = this.savedState?.builderAssignments || {};
-	// Construct orders awaiting their foundation: [{template, x, z, turn}].
-	this.pendingBuilds = this.savedState?.pendingBuilds || [];
-	// Woodline storehouses that want the choppers as builders (Louis): the
-	// commit of a foundation is blocked while units stand on it, and a busy
-	// woodline always has a chopper crossing it — ordering the choppers to
-	// build stops the traffic AND builds fast. [{x, z, turn}].
-	this.rushBuilds = this.savedState?.rushBuilds || [];
-	// [x, z] spots where a construct command failed; never retried.
+
+	this.pendingBuilds = this.savedState?.pendingBuilds || []; // [{template, x, z, turn}]
+
+	this.rushBuilds = this.savedState?.rushBuilds || []; // [{x, z, turn}] woodline storehouses whose builders come from the choppers
+
 	this.failedSpots = this.savedState?.failedSpots || [];
-	// Gather-rate telemetry (Louis's dropsite verification: effective rate
-	// must be >= 75% of theoretical for wood, >= 85% for grain).
-	this.carry = this.savedState?.carry || {};               // id -> {type, amount} last block
-	this.gatherTarget = this.savedState?.gatherTarget || {}; // id -> {generic, specific, supplyId, dr}
-	this.lastDelivery = this.savedState?.lastDelivery || {}; // id -> sim ms of last drop-off
+
+	this.carry = this.savedState?.carry || {};
+
+	this.gatherTarget = this.savedState?.gatherTarget || {};
+
+	this.lastDelivery = this.savedState?.lastDelivery || {};
+
 	this.rateStats = this.savedState?.rateStats ||
 		{ "wood": { "amount": 0, "theo": 0 }, "grain": { "amount": 0, "theo": 0 },
 		  "fruit": { "amount": 0, "theo": 0 }, "meat": { "amount": 0, "theo": 0 },
 		  "stone": { "amount": 0, "theo": 0 }, "metal": { "amount": 0, "theo": 0 } };
-	// Cavalry herding (Louis: the starting cavalry pushes wild animals toward
-	// the CC; civilians collect the kills). herderId is exempt from the
-	// gatherer shares until herdingDone (no more animals in range).
+
 	this.herderId = this.savedState?.herderId;
 	this.herdTarget = this.savedState?.herdTarget;
 	this.herdingDone = this.savedState?.herdingDone || false;
@@ -242,24 +159,19 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.herdFast = this.savedState?.herdFast || false;
 	this.herdKill = this.savedState?.herdKill || false;
 	this.herdLastPos = this.savedState?.herdLastPos;
-	// Pinned steer target: the food dropsite nearest the animal at WOUND time.
-	// The steer always pushes toward this ONE dropsite (Louis: never let the
-	// animal flee away from the base — an unpinned target flips when the
-	// animal crosses the midpoint between two dropsites and the chase zigzags
-	// outward). herdWoundDist is the wound-time distance to it (stall ref).
+
+	// Pinned food dropsite the steer pushes toward (an unpinned target zigzags between dropsites).
 	this.herdDrop = this.savedState?.herdDrop;
 	this.herdWoundDist = this.savedState?.herdWoundDist || Infinity;
-	// Cached in-territory fruit stock (updateWoodline refresh): berries out-
-	// rank fields while they last (Louis).
+
 	this.fruitStock = 0;
-	// Pinned mine per resource (Louis: concentrate all miners on ONE mine,
-	// like the woodline, until it is full — never spread over several).
-	this.mineId = this.savedState?.mineId || {};
-	// Goal 8 — expansion stage (city researched AND pop >= 300). All state
-	// is derived deterministically from the map; nothing needs re-computing
-	// after a save/load beyond what is serialized here.
-	this.expPlan = this.savedState?.expPlan || null;   // {spots, next, done, simPct}
-	this.expOn = this.savedState?.expOn || false;      // stage latch
+
+	this.mineId = this.savedState?.mineId || {}; // resource -> pinned mine (miners concentrate until full)
+
+	this.expPlan = this.savedState?.expPlan || null; // {spots, next, done, simPct}
+
+	this.expOn = this.savedState?.expOn || false;
+
 };
 
 BrennusBot.prototype.OnUpdate = function()
@@ -270,11 +182,8 @@ BrennusBot.prototype.OnUpdate = function()
 	if (this.turn % 5 === 0)
 	{
 		this.updateEnemyPositions();
-		// Research and construction in the same block both see the pre-
-		// command resource snapshot: a research order + a construct order
-		// together overdraw, the engine rejects the construct at processing,
-		// and the spot lands on the failedSpots blacklist. Hold construction
-		// for one block after any research order.
+
+		// Research + construct in the same block overdraw the pre-command resource snapshot: hold construction one block after any research order.
 		this.constructionHold = false;
 		this.updateWoodline();
 		this.assignGatherers();
@@ -294,8 +203,7 @@ BrennusBot.prototype.OnUpdate = function()
 		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m phase=${this.gameState.getPhaseName(phase)}\n`);
 		this.lastPhase = phase;
 	}
-	// Goal-7 telemetry: the boom deadline is measured on this line and the
-	// phase line above (end-of-game statistics carry no timestamps).
+
 	if (!this.pop300Logged && this.gameState.getPopulation() >= 300)
 	{
 		this.pop300Logged = true;
@@ -307,16 +215,12 @@ BrennusBot.prototype.OnUpdate = function()
 };
 
 // ---------------------------------------------------------------- gathering
-
-/** Find idle gatherers and send them to the most-needed resource. */
 BrennusBot.prototype.assignGatherers = function()
 {
 	const counts = { "food": 0, "wood": 0, "stone": 0, "metal": 0 };
 	const idle = [];
 
-	// The city bank is spent the moment the research starts: stop every
-	// miner once so the shares reassign them to the boom (~25 workers
-	// mined a bank nobody needed anymore until the deadline — v52).
+	// The city bank is spent once the research starts: release all miners once so the shares reassign them.
 	if (!this.minersFreed && (this.gameState.isResearching("phase_city_generic") ||
 		this.gameState.isResearched("phase_city_generic")))
 	{
@@ -327,25 +231,15 @@ BrennusBot.prototype.assignGatherers = function()
 				ent.stopMoving();
 	}
 
-	// Same persistence problem as the miners, but continuous: the engine's
-	// gather autocontinue drifts berry pickers (and now carcass gatherers)
-	// to ever-farther unserved supplies without consulting findSupply (v57:
-	// pickers at 214 m, 20% rate). Stop food gatherers of the served-pool
-	// subtypes working > 45 m from every food dropsite — the shares
-	// reassign them to served food or the fields. Only while actively
-	// gathering and empty-handed: stopping a returner kills its whole
-	// loaded cycle (v58 food collapse).
 	{
+		// The engine's gather autocontinue drifts pickers to far unserved supplies: stop empty-handed fruit/meat gatherers working > 45 m from every food dropsite.
 		const sites = this.foodDropsitePositions();
 		for (const ent of this.gameState.getOwnUnits().values())
 		{
 			if (this.assignments[ent.id()] !== "food" || !ent.isGatherer() ||
 				ent.isIdle() || !ent.position())
 				continue;
-			// The herding cavalry carries a stale turn-0 "food" assignment
-			// and works carcasses beyond 45 m of every dropsite: exempt it,
-			// or the drift stop halts it on every walk back to the carcass
-			// (the micro-pauses Louis saw).
+
 			if (ent.id() === this.herderId && !this.herdingDone)
 				continue;
 			if (ent.unitAIState()?.split(".")[1] !== "GATHER")
@@ -366,7 +260,7 @@ BrennusBot.prototype.assignGatherers = function()
 	{
 		if (!ent.isGatherer() || !ent.position())
 			continue;
-		// The herding cavalry is on animal duty, not in the shares (Louis).
+
 		if (ent.id() === this.herderId && !this.herdingDone)
 			continue;
 		if (ent.isIdle())
@@ -385,9 +279,7 @@ BrennusBot.prototype.assignGatherers = function()
 	this.starvedUnits = 0;
 	for (const ent of idle)
 	{
-		// Resources this unit can gather, most unmet need first; take the
-		// first one with an available supply (surplus workers spill over to
-		// less-needed resources rather than idling).
+
 		const order = ["food", "wood", "stone", "metal"]
 			.filter(res => ent.canGather(res))
 			.sort((a, b) =>
@@ -401,13 +293,12 @@ BrennusBot.prototype.assignGatherers = function()
 				continue;
 			if (resource === "food" && supply.isHuntable() && supply.get("Health"))
 			{
-				// Louis: an attacked animal flees the attacker — approach from
-				// the side opposite the nearest dropsite so it runs TOWARD the
-				// base instead of away from it.
+
 				const sp = supply.position();
 				const drop = this.nearestFoodDropsite(sp);
 				const dx = sp[0] - drop[0], dz = sp[1] - drop[1];
 				const n = Math.hypot(dx, dz) || 1;
+				// Approach a huntable from the far side so it flees toward the base.
 				ent.move(sp[0] + dx / n * 10, sp[1] + dz / n * 10);
 				ent.gather(supply, true);
 			}
@@ -423,20 +314,12 @@ BrennusBot.prototype.assignGatherers = function()
 	}
 };
 
-/** Nearest gatherable supply of the given resource in the unit's land region. */
 BrennusBot.prototype.findSupply = function(unit, resource)
 {
 	const pos = unit.position();
 	const region = this.accessibility.getAccessValue(pos);
-	// Louis: all choppers on the ONE biggest woodline in territory — never
-	// spread over scattered sites; the line is re-picked when it runs out.
-	// Louis (2026-08-22): assign each chopper the unsaturated zone tree
-	// minimizing the FULL walk cycle — the walk to the tree PLUS the tree's
-	// distance to its nearest wood dropoff (where the load gets dropped).
-	// Pure nearest-to-dropoff ignored the unit's position and pulled
-	// choppers across the map (steppe f12 pop300 14.5 -> 16.2); pure
-	// nearest-to-unit let the drop walk grow. First-best in zone order wins
-	// ties.
+
+	// Wood: the zone tree minimizing the full walk cycle (unit -> tree + tree -> nearest dropsite).
 	if (resource === "wood" && this.woodline)
 	{
 		const drops = this.woodDropsitePositions();
@@ -468,19 +351,8 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 		if (best)
 			return best;
 	}
-	// Louis: served berries/fruit and dead in-territory animals are ONE food
-	// pool — same gather rate, carcasses never rot, so they are
-	// interchangeable. The nearest SERVED supply (within 40 m of a food
-	// dropsite) wins: trekking 100+ m to unserved food runs at ~20% rate,
-	// worse than the fields (v55). Unserved patches are made served by the
-	// farmstead chaining in manageDropSites. Alive animals stay the herder's
-	// job. Fields (grain) fall through to the generic path below.
-	// Carve-out: the carcass the herding cavalry is actively collecting (its
-	// slow kills, fast kills landed outside the territory) stays the
-	// herder's — a civilian walking to it only duplicates the collection and
-	// wastes a berry walk. In-territory fast kills are deliberately dropped
-	// by the herder (herdTarget moves on the same block) and stay in the
-	// pool.
+
+	// Food: served fruit and dead in-territory animals are one pool; fields fall through to the generic path below.
 	if (resource === "food")
 	{
 		const dropsites = this.foodDropsitePositions();
@@ -514,8 +386,7 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 		if (best)
 			return best;
 	}
-	// Pinned mine first (Louis: concentrate miners on one mine until it is
-	// full — isFull() spills the surplus to the nearest other mine).
+
 	if ((resource === "stone" || resource === "metal") && this.mineId[resource] !== undefined)
 	{
 		const mine = this.gameState.getEntityById(this.mineId[resource]);
@@ -526,18 +397,13 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 			this.canGatherSupply(unit, mine))
 			return mine;
 	}
-	// filterNearest returns entities sorted nearest-first.
+
 	let candidates = this.gameState.getResourceSupplies(resource).filterNearest(pos, 10).toEntityArray();
 	if (resource === "food")
-		// byResource excludes huntable animals; add them explicitly.
+
 		candidates = candidates.concat(this.gameState.getHuntableSupplies().filterNearest(pos, 10).toEntityArray());
 	const foodSites = resource === "food" ? this.foodDropsitePositions() : null;
 
-	// Note (Louis tip 5, v79/v80, discarded): spreading field workers to the
-	// least-crowded field was probed — global spread gave seed 1 pop300
-	// 14.9 -> 15.1, and a 25 m cluster-window version pushed city back ~0.7
-	// on both probe seeds. The extra walk costs more than the diminishing-
-	// returns gain; nearest-first stays.
 	for (const supply of candidates)
 	{
 		const supplyPos = supply.position();
@@ -549,30 +415,18 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 			continue;
 		if (!this.canGatherSupply(unit, supply))
 			continue;
-		// Louis: never trek across the map for unserved food — a field by a
-		// farmstead beats a 100 m walk (v56: ~6 pickers idling at 17%
-		// effective rate 140+ m out once the fields filled up). Served-only
-		// for fruit AND meat (v84): the drift stop halts any food worker
-		// whose supply sits beyond 45 m of every dropsite, so returning an
-		// unserved supply here loops the unit (stop → reassign → drift →
-		// stop, every block — the micro-pauses Louis saw). Fields (grain)
-		// are exempt: the farmstead chaining serves them.
+
 		if (foodSites &&
 			(supply.resourceSupplyType()?.specific === "fruit" ||
 				supply.resourceSupplyType()?.specific === "meat") &&
 			!foodSites.some(d => SquareDistance(supplyPos, d) < 45 * 45))
 			continue;
-		// Goal 8: miners only work SERVED mines (the shares count served
-		// supply only, so both sides agree). An unserved mine round-trips to
-		// the base dropsite at ~15% rate — the worker is worth more on the
-		// fields until a CC or a proactive storehouse covers the mine.
+
 		if ((resource === "stone" || resource === "metal") && this.expansionOn() &&
 			this.servedMineIds && !this.servedMineIds.has(supply.id()))
 			continue;
-		// Louis: civilians never leave the territory for meat — the walk
-		// costs more than the carcass pays, and non-fleeing animals killed
-		// far out would pull them across the map. The cavalry herds animals
-		// in and gathers the outside-territory carcasses itself.
+
+		// Civilians never leave the territory for meat.
 		if (resource === "food" && supply.isHuntable() && !unit.hasClass("Cavalry") &&
 			!this.inOwnTerritory(supplyPos[0], supplyPos[1]))
 			continue;
@@ -581,7 +435,6 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 	return undefined;
 };
 
-/** Positions of wood-accepting dropsites (CC + built storehouses). */
 BrennusBot.prototype.woodDropsitePositions = function()
 {
 	const gameState = this.gameState;
@@ -593,7 +446,6 @@ BrennusBot.prototype.woodDropsitePositions = function()
 	return sites;
 };
 
-/** Positions of food-accepting dropsites, built or foundation. */
 BrennusBot.prototype.foodDropsitePositions = function()
 {
 	const gameState = this.gameState;
@@ -614,7 +466,6 @@ BrennusBot.prototype.foodDropsitePositions = function()
 	return sites;
 };
 
-/** Nearest food-accepting dropsite position to pos (CC + farmsteads). */
 BrennusBot.prototype.nearestFoodDropsite = function(pos)
 {
 	let best = pos, bestD = Infinity;
@@ -631,37 +482,10 @@ BrennusBot.prototype.nearestFoodDropsite = function(pos)
 };
 
 /**
- * Hunting, two target classes (Louis's strategy):
- * - Herd (preferred): skittish animals (deer/gazelle at 6.3 m/s) up to the
- *   herd cutoff. Wound-then-steer (Louis's idea): a wounded animal flees
- *   directly away from its attacker and keeps fleeing while the attacker
- *   stays within the flee distance (UnitAI.js FLEEING: distanceToFlee =
- *   distance at wound time + FleeDistance 24, fixed at enter — the order
- *   only finishes when the animal reaches that range). So the cav shoots
- *   ONCE from the far side, then follows closely without attacking: the
- *   animal's flight carries it to the nearest food dropsite, where the kill
- *   shot lands (a deer is left at 7/25 HP by the first javelin). Killed
- *   inside the territory they are left to the civilians (the food pool
- *   collects them like berries), killed outside the cavalry gathers the
- *   carcass itself. Stall detection (stopped fleeing, or 30 s without
- *   closing on the dropsite) falls back to killing in place.
- * - Collect: non-fleeing animals (passive-stance domestics — chicken/sheep/
- *   pig — crawl when fleeing, source-verified: flee speed = WalkSpeed x
- *   1.67, so 1.6-4.7 m/s) anywhere in the band, AND skittish animals
- *   beyond the herd cutoff (too far to steer home — Louis: prefer
- *   collecting when the herdable is too far). Killed in place with no
- *   positioning (the attack pursuit chases the far fleer down) and the
- *   cavalry collects each carcass fully BEFORE moving to the next — one at
- *   a time, never batch kills left behind.
- * Civilians collect served in-territory carcasses exactly like berries
- * (findSupply's combined food pool); they never leave the territory for
- * meat (Louis).
- * One herder, exempt from the gatherer shares; when the band runs dry it
- * keeps hunting beyond it in collect mode (the shares have nothing for a
- * meat-only gatherer — it would just idle) until no animals remain in the
- * region at all. Targets are picked in two passes: nearest herdable first,
- * nearest collectable otherwise — herding wins unless every skittish
- * animal sits beyond the cutoff.
+ * Herding: skittish animals are wound-then-steered — a wounded animal flees
+ * away from its attacker until it reaches the flee distance fixed at wound
+ * time; the cavalry shoots once from the far side, follows without attacking,
+ * and kills near the pinned food dropsite. Other animals are killed in place.
  */
 BrennusBot.prototype.manageHerding = function()
 {
@@ -686,8 +510,7 @@ BrennusBot.prototype.manageHerding = function()
 			}
 		this.herderId = herder?.id();
 		if (herder)
-			// Clear the stale turn-0 gatherer assignment so the food
-			// telemetry never mistakes the herder for a food worker.
+
 			delete this.assignments[herder.id()];
 		if (!herder)
 		{
@@ -698,13 +521,10 @@ BrennusBot.prototype.manageHerding = function()
 	let target = this.herdTarget !== undefined ? gameState.getEntityById(this.herdTarget) : undefined;
 	if (target && (!target.position() || !target.isHuntable() || !target.resourceSupplyAmount()))
 		target = undefined;
+	// A dead animal becomes a NEW corpse entity: adopt the carcass by position (within 25 m).
 	if (!target && this.herdTarget !== undefined && this.herdLastPos)
 	{
-		// The animal died and the engine replaced it with a NEW corpse entity
-		// (the old id is gone — verified in-game): adopt the carcass by
-		// position so the kill can be collected before the next animal
-		// (Louis: one at a time, never batch kills left behind). Nearest dead
-		// huntable within 25 m of where the animal was last seen.
+
 		let best, bestD = Infinity;
 		for (const s of gameState.getHuntableSupplies().values())
 		{
@@ -738,11 +558,7 @@ BrennusBot.prototype.manageHerding = function()
 			const dr = this.nearestFoodDropsite(tp);
 			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m carcass ${target.templateName()} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} mode=${this.herdKill ? "collect" : "herd"} inTerr=${this.inOwnTerritory(tp[0], tp[1])} dropDist=${Math.hypot(tp[0] - dr[0], tp[1] - dr[1]).toFixed(0)}\n`);
 		}
-		// Carcass: collect-mode kills (non-fleeing animals, far skittish) are
-		// ALWAYS collected by the cavalry, fully, before the next animal (one
-		// at a time — Louis); herd-mode kills only when they landed outside
-		// the territory (in-territory ones are the civilians' — see the
-		// findSupply food pool).
+
 		if (this.herdKill || !this.inOwnTerritory(target.position()[0], target.position()[1]))
 		{
 			if (this.turn >= this.herdCmdTurn)
@@ -758,20 +574,7 @@ BrennusBot.prototype.manageHerding = function()
 	}
 	if (!target)
 	{
-		// Next animal. Two classes (Louis: prefer herding in general, collect
-		// when the herdable is too far): herdables = skittish animals within
-		// the herd cutoff (wound-then-steer); collectables = non-fleeing
-		// animals anywhere in the band and skittish beyond the cutoff (killed
-		// in place, cavalry collects). With herdPrefer the nearest herdable
-		// wins over nearer collectables; otherwise it is plain nearest-first
-		// and the cutoff only picks the treatment. The band is 35 to herdMax m
-		// from the CC. (200 m was probed as v71 and regressed ~0.2 min —
-		// before the food pool, when in-territory kills sat uncollected until
-		// the berries ran out.) When the band runs dry, keep hunting beyond
-		// it (collect mode) instead of joining the economy: the cavalry's
-		// only gather rate is food.meat, so with no served carcass left the
-		// shares have NOTHING to assign it and it would idle forever while
-		// game remains in sight (Louis's report — steppe horses).
+
 		const nearest = (herdableOnly, inBand) => {
 			let best, bestD = Infinity;
 			for (const s of gameState.getHuntableSupplies().values())
@@ -798,9 +601,7 @@ BrennusBot.prototype.manageHerding = function()
 		this.herdTarget = target?.id();
 		if (!target)
 		{
-			// No animals left anywhere in the region: release the cavalry to
-			// the economy (it will idle — a meat-only gatherer with no meat —
-			// which is fine, there is nothing left to hunt).
+
 			this.herdingDone = true;
 			this.herderId = undefined;
 			print(`[HERDDONE] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m no targets left in region\n`);
@@ -815,11 +616,7 @@ BrennusBot.prototype.manageHerding = function()
 		this.herdKillLog = false;
 		this.herdDrop = undefined;
 		this.herdWoundDist = Infinity;
-		// Fleer class by template stance (source-verified, 0.28.0): domestic
-		// animals (chicken/sheep/pig) are passive and crawl when fleeing
-		// (1.6-4.7 m/s); deer/gazelle are skittish and run (6.3 m/s). Rabbits
-		// are skittish too but die to the first javelin — herded like any
-		// fast animal, which is harmless: they die where they stand.
+
 		this.herdFast = target.get("UnitAI/DefaultStance") === "skittish";
 		this.herdKill = !this.herdFast || this.herdStartDist > this.herdCutoff;
 		this.herdLastPos = target.position();
@@ -830,10 +627,7 @@ BrennusBot.prototype.manageHerding = function()
 	}
 	if (this.herdKill)
 	{
-		// Collect mode: kill in place, no positioning — a non-fleeing animal
-		// barely moves while dying, a far skittish is chased down by the
-		// attack pursuit. The carcass branch above makes the cavalry collect
-		// it right after. Re-attack at most every 10 turns until it dies.
+
 		this.herdLastPos = target.position();
 		if (this.turn >= this.herdCmdTurn)
 		{
@@ -842,18 +636,7 @@ BrennusBot.prototype.manageHerding = function()
 		}
 		return;
 	}
-	// Herd mode: skittish within the cutoff, wound-then-steer (Louis). The
-	// wounded animal flees away from the attacker and keeps fleeing while
-	// the attacker stays within the flee distance — so shoot once from the
-	// far side, then follow closely without attacking, and kill once the
-	// animal is near the food dropsite. The dropsite is PINNED at wound
-	// time: the steer always drives the animal toward that ONE dropsite —
-	// an unpinned target flips when the animal crosses the midpoint between
-	// two dropsites and the chase zigzags away from the base (Louis: never
-	// let the animal flee away from the base). One javelin leaves a deer
-	// at 7/25 HP: the kill shot is the last re-aim. Stall (stopped fleeing,
-	// or 30 s with the animal farther from the pinned dropsite than at the
-	// wound) → kill in place.
+
 	const pos = target.position();
 	this.herdLastPos = pos;
 	const drop = this.herdDrop || this.nearestFoodDropsite(pos);
@@ -861,10 +644,7 @@ BrennusBot.prototype.manageHerding = function()
 	this.herdBestDist = Math.min(this.herdBestDist, dist);
 	if (target.isHurt() && !this.herdWoundTurn)
 	{
-		// First detection of the wound: pin the steer target and cancel the
-		// attack order NOW. The engine's attack keeps firing on its own
-		// (javelin RepeatTime is 1.5 s) and the second shot would kill the
-		// animal before any steering happens.
+
 		this.herdWoundTurn = this.turn;
 		this.herdCmdTurn = 0;
 		this.herdDrop = drop;
@@ -877,13 +657,7 @@ BrennusBot.prototype.manageHerding = function()
 		return;
 	if (!target.isHurt())
 	{
-		// Wound shot: position on the far side first (Louis: the animal flees
-		// AWAY from the attacker, so a shot from the dropsite side pushes it
-		// away from the base), then shoot until the first hit connects
-		// (misses wound nothing, so keep trying). 6 m, not more: the javelin
-		// spread scales with distance and the wound shot must land reliably
-		// (Louis's report: from the old 12 m standoff the kill shot often
-		// missed).
+
 		this.herdCmdTurn = this.turn + 10;
 		const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
 		const n = Math.hypot(dx, dz) || 1;
@@ -897,8 +671,7 @@ BrennusBot.prototype.manageHerding = function()
 		return;
 	}
 	const fleeing = (target.unitAIState() || "").indexOf("FLEEING") !== -1;
-	// Kill: near the dropsite, or the flee stalled, or the steer made no
-	// progress for 30 s (farther from the pinned dropsite than at the wound).
+
 	if (dist < this.herdKillDist ||
 		(!fleeing && this.turn - this.herdWoundTurn > 10) ||
 		(this.turn - this.herdStartTurn > 150 && dist > this.herdWoundDist + 5))
@@ -910,10 +683,7 @@ BrennusBot.prototype.manageHerding = function()
 		}
 		this.herdCmdTurn = this.turn + 10;
 		const hp = herder.position();
-		// Never attack from the dropsite side (Louis): the animal flees away
-		// from the attacker, so a near-side attack pushes it away from the
-		// base. Reposition to the far side first when the herder ended up
-		// between the dropsite and the animal.
+
 		const hd = Math.hypot(hp[0] - drop[0], hp[1] - drop[1]);
 		if (hd < dist - 2)
 		{
@@ -922,14 +692,7 @@ BrennusBot.prototype.manageHerding = function()
 			herder.move(pos[0] + dx / n * 6, pos[1] + dz / n * 6);
 			return;
 		}
-		// Close in before the kill shot (Louis): attacking from the standoff
-		// fires at the javelin's long-range spread and misses — approach to
-		// ~2 m on the far side first (the animal keeps fleeing TOWARD the
-		// dropsite while we do), shoot only from within 5 m. On wood-poor
-		// biomes attack straight away: the approach's stop-and-go churn is
-		// what lets a horse stay ahead, while the attack pursuit moves the
-		// cavalry CONTINUOUSLY (walk 12.6 vs horse flee ~9.4 m/s) and closes
-		// the gap for the kill.
+
 		if (Math.hypot(hp[0] - pos[0], hp[1] - pos[1]) > 5 && !this.woodPoor)
 		{
 			const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
@@ -940,9 +703,7 @@ BrennusBot.prototype.manageHerding = function()
 		herder.attack(target.id(), false);
 		return;
 	}
-	// Steer: stay on the far side, close enough that the animal never
-	// reaches its flee distance (fixed at wound time: ~dist + 24 m), and
-	// close enough that the kill shot won't miss (6 m, Louis's report).
+
 	this.herdCmdTurn = this.turn + 10;
 	const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
 	const n = Math.hypot(dx, dz) || 1;
@@ -954,7 +715,6 @@ BrennusBot.prototype.manageHerding = function()
 		herder.stopMoving();
 };
 
-/** Whether the unit has a non-zero gather rate for this supply's subtype. */
 BrennusBot.prototype.canGatherSupply = function(unit, supply)
 {
 	const rates = unit.get("ResourceGatherer/Rates");
@@ -965,25 +725,17 @@ BrennusBot.prototype.canGatherSupply = function(unit, supply)
 };
 
 /**
- * The one woodline every chopper works (Louis: concentrate on the biggest
- * woodline in the territory, move on only when it is depleted — never
- * spread over scattered sites). Recomputed every 25 turns: wood supplies
- * are binned into 30 m cells, the cell with the most wood in its 90 m
- * neighbourhood is the hotspot, and the zone is the trees within 45 m of
- * its centre — concentrated enough that a single storehouse serves all.
- * (Binning the whole connected forest as one "line" spread the choppers
- * over 200 m of woodland — v36.) The zone is kept until under 800 wood
- * remains, then the next hotspot is picked.
+ * The one woodline every chopper works: wood supplies binned into 30 m
+ * cells, the richest 90 m neighbourhood is the hotspot, the zone is the
+ * trees within 45 m of its centre. Re-picked below 800 wood (ring zones:
+ * the ringGateWood floor).
  */
 BrennusBot.prototype.updateWoodline = function()
 {
 	if (this.turn < (this.woodlineRefresh || 0))
 		return;
 	this.woodlineRefresh = this.turn + 25;
-	// Served fruit stock (Louis: berries outrank fields while they last;
-	// fields start only when this runs low). SERVED = within 45 m of a food
-	// dropsite — distant fruit nobody should walk to must not hold the
-	// fields back (v55). CC-region, no enemies.
+
 	{
 		const cc = this.getCivicCentre();
 		let stock = 0;
@@ -1005,10 +757,7 @@ BrennusBot.prototype.updateWoodline = function()
 		}
 		this.fruitStock = stock;
 	}
-	// Mine concentration (Louis: all miners on ONE mine per resource, like
-	// the woodline, until it can't take more gatherers — spreading miners
-	// over several mines spreads the storehouses thin too). The pin is the
-	// nearest mine to the CC; re-picked only when it is depleted or lost.
+
 	{
 		const cc = this.getCivicCentre();
 		if (cc)
@@ -1044,11 +793,7 @@ BrennusBot.prototype.updateWoodline = function()
 		let remaining = 0;
 		for (const id of this.woodline.ids)
 			remaining += this.gameState.getEntityById(id)?.resourceSupplyAmount() || 0;
-		// A storehouse zone (rule 1) stays until its dropsite's ring is
-		// nearly bare (ringGateWood); a cell zone moves on at the old 800
-		// floor. In expansion the ring floor rises to 800 too: the cutters
-		// otherwise spend the last 250 wood of a ring on its far edge,
-		// walking 30-40 m cycles at ~55% rate.
+
 		const keep = this.woodline.kind === "store" ?
 			(this.expansionOn() ? 800 : this.ringGateWood) : 800;
 		if (remaining > keep)
@@ -1112,12 +857,8 @@ BrennusBot.prototype.updateWoodline = function()
 			return null;
 		return { "ids": new Set(ids), "total": total, "center": [sx / ids.length, sz / ids.length] };
 	};
-	// Rule 1 (Louis): cut the wood an existing dropsite already serves before
-	// building a storehouse somewhere new — pick the dropsite (CC or
-	// storehouse) whose ringServeDist ring still holds the most wood (a
-	// supply counts from 20, so half-cut trees and steppe bushes bind the
-	// ring; only scraps below that don't). Only when no ring holds more than
-	// ringGateWood does the woodline fall back to the biggest hotspot.
+
+	// Rule 1: keep cutting the ring an existing dropsite already serves while it holds >= ringGateWood; else fall back to the biggest hotspot.
 	const dropSites = [];
 	const ccEntity = this.getCivicCentre();
 	if (ccEntity?.position())
@@ -1151,11 +892,7 @@ BrennusBot.prototype.updateWoodline = function()
 		}
 	}
 	this.woodline = bestRing || scan(true) || scan(false);
-	// Wood-poor biome detection (goal 7-S): on the steppe the "trees" are
-	// bushes at ~100 wood each (temperate trees are 200-600). Flag the map
-	// wood-poor when no wood supply can hold 200 — used to gate the field
-	// stream behind the town trio's wood on such biomes. Deterministic and
-	// biome-agnostic (works on any bush-wood map).
+
 	if (this.woodPoor === undefined)
 	{
 		let poor = true;
@@ -1180,17 +917,10 @@ BrennusBot.prototype.inOwnTerritory = function(x, z)
 };
 
 // ------------------------------------------------- gather-rate telemetry
-
 /**
- * Effective vs theoretical gather rates. Every block, watch each gatherer's
- * carried load: when it drops from >0 to 0, a delivery just happened and
- * amount / time-since-previous-delivery is that worker's effective rate over
- * a full gather-walk-drop cycle. The theoretical rate is the template rate
- * for the gathered subtype (technologies included via ent.get), times the
- * supply's diminishing-returns multiplier (fields: dr 0.9), i.e. the rate a
- * worker standing at the supply with a zero-distance dropsite would achieve.
- * Aggregated as sum(delivered) / sum(theoRate * cycleTime) per class; read
- * in logStatus. Louis's bar: wood >= 75%, grain >= 85%.
+ * Telemetry: a delivery (carried load resets) yields effective rate =
+ * amount / cycle time; theoretical = template rate x the diminishing-
+ * returns multiplier. Aggregated per class; read in logStatus.
  */
 BrennusBot.prototype.sampleGatherRates = function()
 {
@@ -1204,9 +934,6 @@ BrennusBot.prototype.sampleGatherRates = function()
 		const id = ent.id();
 		seen[id] = 1;
 
-		// While gathering, remember the target supply: its subtype sets the
-		// theoretical rate and fields carry diminishing returns. (Same order-
-		// data lookup as entity.currentGatherRate.)
 		if (ent.unitAIState()?.split(".")[1] === "GATHER")
 		{
 			for (const order of ent.unitAIOrderData() || [])
@@ -1230,9 +957,7 @@ BrennusBot.prototype.sampleGatherRates = function()
 		const prev = this.carry[id];
 		if (prev && prev.amount > 0 && (!carrying || carrying.type !== prev.type || carrying.amount < prev.amount))
 		{
-			// Drop-off: any delivery resets the cycle clock; only full-ish
-			// loads become samples (partial drops after supply exhaustion
-			// include idle time and would pollute the metric).
+
 			const last = this.lastDelivery[id];
 			this.lastDelivery[id] = now;
 			const tgt = this.gatherTarget[id];
@@ -1266,7 +991,7 @@ BrennusBot.prototype.sampleGatherRates = function()
 		else
 			delete this.carry[id];
 	}
-	// Prune state of dead units.
+
 	for (const map of [this.carry, this.gatherTarget, this.lastDelivery])
 		for (const id in map)
 			if (!seen[id])
@@ -1274,23 +999,13 @@ BrennusBot.prototype.sampleGatherRates = function()
 };
 
 // ---------------------------------------------------------------- phases
-
-/** The phase-up tech for the current phase, if any. */
 BrennusBot.prototype.nextPhaseTech = function()
 {
 	return { 1: "phase_town_generic", 2: "phase_city_generic" }[this.gameState.currentPhase()];
 };
 
-/**
- * Phase research, two regimes:
- * - Town (500f/500w): a short hard bank — all spending pauses once the
- *   tech is researchable, the bank fills in under a minute at early-game
- *   income, research fires, everything resumes. The reserve approach
- *   fought the boom for 3-4 minutes instead (v6-v8: town at 5.8-7.7).
- * - City (750s/750m): a resource reserve that training/construction spend
- *   only above — it taxes stone/metal only, which the woman stream and
- *   the houses don't touch, so the boom never stalls for it.
- */
+/** Town: a short hard bank (pause spending, fill, research). City: a
+ * reserve that training/construction only spend above. */
 BrennusBot.prototype.managePhaseUp = function()
 {
 	const gameState = this.gameState;
@@ -1302,25 +1017,18 @@ BrennusBot.prototype.managePhaseUp = function()
 		return;
 	if (!gameState.canResearch(tech))
 		return;
-	// Fertility before the town bank: the house trainers it unlocks ARE the
-	// boom (v24/v25: banking first pushed fertility to t=10-11). Delay the
-	// town bank until fertility is at least researching — hard fallback at
-	// t=4 so a resource-starved fertility can't deadlock the phase-up.
+
 	if (tech === "phase_town_generic")
 	{
 		const fert = this.houseTrainingTech;
+		// Delay the town bank until the house-training tech is at least researching.
 		const t = gameState.getTimeElapsed();
 		if (!gameState.isResearched(fert) && !gameState.isResearching(fert) &&
 			gameState.canResearch(fert) && t >= 240000 && t < 540000)
 			return;
-		// Sticky-builder re-tune: hold the hard bank until the 2 bootstrap
-		// fields are COMPLETED while the served fruit is running down. The
-		// bank freezes all construction, and the sticky crews complete the
-		// houses fast enough to trigger it before wicker/fields get ordered
-		// (seed 1: bank at 1.5m, first field 3.9m, pop300 16.0). The fruit
-		// gate leaves berry-rich seeds on the houses-first path, and the
-		// t=5m fallback keeps a placement failure from stalling the phase.
+
 		const fieldType = gameState.applyCiv("structures/{civ}/field");
+		// Hold the town bank until 2 bootstrap fields stand while the served fruit is low.
 		let bootstrapFields = 0;
 		for (const ent of gameState.getOwnStructures().values())
 			if (ent.templateName() === fieldType)
@@ -1333,10 +1041,8 @@ BrennusBot.prototype.managePhaseUp = function()
 		this.banking = true;
 	else
 		this.phaseReserve = cost;
-	// City: hold the research start until the grain-rate and house-cap techs
-	// (the pop bottleneck multipliers) are out — the bank fills minutes
-	// before the deadline, so spend the wait on them instead of sitting on
-	// it. Hard fallback at 13:20 so a starved tech can't deadlock the phase.
+
+	// City: hold the research start until the grain-rate and house-cap techs are out (fallback 13:20).
 	if (tech === "phase_city_generic" && gameState.getTimeElapsed() < 800000 &&
 		["gather_farming_plows", "gather_farming_training", "gather_farming_harvester",
 			"pop_house_01"].some(t2 =>
@@ -1344,10 +1050,7 @@ BrennusBot.prototype.managePhaseUp = function()
 		return;
 	if (!gameState.getResources().canAfford(cost))
 		return;
-	// The cost is banked: stop feeding the CC queue so it drains and the
-	// research can start (a full queue would postpone the phase forever —
-	// trainWorkers refills it every block otherwise). Houses keep training
-	// during the city banking (only the CC queue must drain).
+
 	this.phaseReady = true;
 	const cc = this.getCivicCentre();
 	if (cc && !cc.trainingQueue()?.length)
@@ -1356,11 +1059,8 @@ BrennusBot.prototype.managePhaseUp = function()
 		this.constructionHold = true;
 	}
 	else if (cc && gameState.getPopulation() >= gameState.getPopulationLimit())
-		// Pinned at the pop cap: the queued batch can never progress, so the
-		// queue never drains and the phase research waits forever — a full
-		// deadlock while banking freezes construction (seed 3: pop 30/30,
-		// town never researched, resources piling to 5000). Cancel the queue
-		// (refunded) so the research starts.
+
+		// Pinned at the pop cap: cancel the full CC queue so it can drain and the research can start.
 		for (const item of cc.trainingQueue() || [])
 			cc.stopProduction(item.id);
 };
@@ -1375,26 +1075,13 @@ BrennusBot.prototype.getCivicCentre = function()
 };
 
 // ---------------------------------------------------------------- training
-
-/**
- * Keep every woman trainer producing. The CC trains in batches of 5 (its
- * BatchTimeModifier is 0.8: 5 women in ~29 s instead of 40); houses train
- * singly (their house-woman takes 30 s and batching has no discount).
- * Training spends only food above the phase reserve.
- */
 BrennusBot.prototype.trainWorkers = function()
 {
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
-	// Town banking: training keeps running above the 500-food floor (the
-	// hard pause of v11/v12 threw away ~15 women at the worst moment of the
-	// boom); only construction orders and techs pause for the bank. Once
-	// the bank is full (phaseReady) the CC queue must drain so the research
-	// can start — houses may keep training, they don't block the CC queue.
+
 	const reserveFood = this.banking ? 500 : (this.phaseReserve?.food || 0);
-	// Fertility Festival outranks the woman stream: while fertPending, the CC
-	// trains only above its 300-food cost. Construction is frozen at the same
-	// time (see manageResearch/manageConstruction) so wood accumulates too.
+
 	const fertFloor = this.fertPending ? 300 : 0;
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const houseTraining = gameState.isResearched(this.houseTrainingTech);
@@ -1404,7 +1091,7 @@ BrennusBot.prototype.trainWorkers = function()
 		let type, batch;
 		if (ent.templateName() === ccType)
 		{
-			// While the phase-up waits for the queue to drain, stop feeding it.
+
 			if (this.phaseReady)
 				continue;
 			type = gameState.applyCiv("units/{civ}/support_civilian");
@@ -1428,17 +1115,8 @@ BrennusBot.prototype.trainWorkers = function()
 };
 
 // ---------------------------------------------------------------- research
-
-/**
- * Boom techs, one per block, from genuine surplus only: every cost must
- * leave the phase reserve, the pending trio wood and a house buffer intact,
- * so techs never stall construction or the woman stream (seen in v3: a wood
- * tech reserve starved houses/fields for minutes — the boom engine must
- * always win). Unaffordable techs are skipped, not blocking — in v11 one
- * expensive tech plus the 750/750 city reserve froze the whole list at 2/9.
- * Fertility Festival comes first, at the first completed
- * house — doubling the trainer count is worth banking for.
- */
+/** Boom techs, one per block, from genuine surplus only (reserve and
+ * pending wood kept intact); Fertility Festival first. */
 BrennusBot.prototype.manageResearch = function()
 {
 	const gameState = this.gameState;
@@ -1447,9 +1125,6 @@ BrennusBot.prototype.manageResearch = function()
 	if (this.banking)
 		return;
 
-	// Fertility Festival first — but not before t=5: earlier the food income
-	// can't feed extra trainers anyway and the 250 f + banking freeze just
-	// slows the bootstrap (v32: fertility at 1.1, pop behind all game).
 	const fert = this.houseTrainingTech;
 	this.fertPending = false;
 	if (!gameState.isResearched(fert) && !gameState.isResearching(fert) &&
@@ -1469,17 +1144,9 @@ BrennusBot.prototype.manageResearch = function()
 		return;
 	}
 
-	// Goal 8: post-city, the expansion techs (mining rates, trade gains)
-	// outrank the boom's leftovers — the boom list returns after every
-	// iteration and would starve them forever (seed 2: zero expansion techs
-	// by t=28, mining ran at 0.35 base rate instead of 0.68). The call is
-	// gated on the expansion stage internally.
 	if (this.manageExpansionTechs())
 		return;
 
-	// On wood-poor biomes the wood rate is the whole economy: ironaxes
-	// (+25% wood) jumps ahead of the grain-rate techs (goal 7-S) — the
-	// grain techs feed the pop stream, but wood pays for everything.
 	const techOrder = this.woodPoor ?
 		["gather_wicker_baskets", "gather_lumbering_ironaxes",
 			...this.boomTechs.filter(t => t !== "gather_wicker_baskets" && t !== "gather_lumbering_ironaxes")] :
@@ -1492,18 +1159,10 @@ BrennusBot.prototype.manageResearch = function()
 		if (!researchers)
 			continue;
 		const cost = gameState.getTemplate(tech).cost();
-		// Priority order, but an unaffordable tech only defers itself — in
-		// v11 returning here let one expensive tech block every cheaper one
-		// behind it for the whole game. Stone/metal have a floor even before
-		// the phase reserve kicks in: the city bank (750/750) is coming, and
-		// metal techs that spend below it pushed city past the deadline
-		// (v29/v30: bank 33-700 short at t=15).
+
 		const bankFloor = gameState.currentPhase() === 2 ? 300 : 0;
-		// Food-rate and house-cap techs may spend into the city bank: the
-		// miners pre-fill for them (see currentShares) and the city research
-		// waits for them (see managePhaseUp) — they multiply the boom's
-		// binding constraints. Without this they stall behind the 750
-		// reserve until past the deadline (v46: plows at 12.1).
+
+		// Food-rate and house-cap techs may spend into the city bank: the miners pre-fill for them and the city research waits for them.
 		const bankTech = ["gather_farming_plows", "gather_farming_training",
 			"gather_farming_harvester", "pop_house_01"].includes(tech);
 		if (!resources.canAfford({
@@ -1524,18 +1183,10 @@ BrennusBot.prototype.manageResearch = function()
 		}
 		return;
 	}
-	// Goal 8: post-city mining/trade techs (walked only once the boom's
-	// list is exhausted; each call handles at most one order).
+
 	this.manageExpansionTechs();
 };
 
-/**
- * Wood cost of the next missing town-trio structure (0 once forge, temple
- * and market all exist). Discretionary spending must leave this untouched:
- * the trio is on the critical path to the city deadline, and in v11 houses
- * at 75 wood a pop kept the stock below the 300 the market needed until
- * t=16.5.
- */
 BrennusBot.prototype.nextTrioWood = function()
 {
 	if (this.gameState.currentPhase() < 2)
@@ -1546,11 +1197,6 @@ BrennusBot.prototype.nextTrioWood = function()
 	return next ? (this.gameState.getTemplate(next).cost().wood || 0) : 0;
 };
 
-/**
- * The three Town structures the city phase needs: forge, market, and the
- * gaul tavern where it exists — 100w+100s with +10 pop and class House (it
- * trains women too) where the temple costs 300w for nothing else.
- */
 BrennusBot.prototype.trioTypes = function()
 {
 	if (!this._trioTypes)
@@ -1564,27 +1210,13 @@ BrennusBot.prototype.trioTypes = function()
 };
 
 // ---------------------------------------------------------------- construction
-
 BrennusBot.prototype.manageConstruction = function()
 {
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
 	const foundations = gameState.getOwnFoundations().toEntityArray();
 
-	// Send builders to foundations that lack them (trio/dropsites 4, houses
-	// 3, fields 2 — every builder is a gatherer not gathering). Assignments
-	// are sticky and never overlap: the old nearest-per-foundation sweep
-	// re-issued repair orders every block, and when two foundations stood
-	// close together the same units were the nearest to BOTH — the last
-	// order won, and the workers ping-ponged between the sites without ever
-	// building (Louis's report). Now a unit claimed by one foundation is
-	// never re-targeted to another until the first is done or gone. The
-	// herder is excluded: its hunting orders override repair every block,
-	// so a claim on it would be a phantom builder. Sticky-builder re-tune:
-	// houses take 2 builders in village phase — the crews otherwise hold
-	// 3 workers off gathering exactly while the wood for wicker/fields is
-	// being accumulated — and 3 from town phase on (the sprint needs the
-	// house build rate; see LESSONS_LEARNED).
+	// Sticky, non-overlapping builders per foundation (dropsites 4, houses 2-3, fields 2, CC 10, wonder 16); the herder is excluded.
 	const assigned = this.builderAssignments;
 	for (const fId in assigned)
 	{
@@ -1607,13 +1239,9 @@ BrennusBot.prototype.manageConstruction = function()
 		const isCC = built.hasClass("CivCentre");
 		const isWonder = built.hasClass("Wonder");
 		const fpos = foundation.position();
-		// Louis (2026-08-22): a woodline storehouse foundation whose commit is
-		// starved by chopper traffic — units standing on a foundation block
-		// its construction start (Foundation.js Commit). The wood choppers
-		// become its builders: the traffic stops AND it goes up fast.
+
 		const rush = this.rushBuilds.some(r => Math.abs(r.x - fpos[0]) < 6 && Math.abs(r.z - fpos[1]) < 6);
-		// Goal 8: expansion CCs take 10 builders, the wonder 12 — their long
-		// build times are the expansion's critical path.
+
 		const target = (isField ? 2 : isHouse ? (this.gameState.currentPhase() === 1 ? 2 : 3) :
 			isCC ? 10 : isWonder ? 16 : rush ? 8 : 4);
 		let cur = assigned[foundation.id()];
@@ -1637,8 +1265,7 @@ BrennusBot.prototype.manageConstruction = function()
 			unit.repair(foundation);
 		}
 	}
-	// Rush markers die with their storehouse (built structure at the spot)
-	// or after 200 turns (the order failed; failedSpots blacklists the spot).
+
 	this.rushBuilds = this.rushBuilds.filter(r => {
 		const done = gameState.getOwnStructures().toEntityArray().some(s =>
 			s.templateName() === storeType && s.position() &&
@@ -1646,9 +1273,6 @@ BrennusBot.prototype.manageConstruction = function()
 		return !done && this.turn - r.turn < 200;
 	});
 
-	// Track construct orders: success once the foundation exists at the
-	// ordered spot; on timeout blacklist the spot (rejected orders used to
-	// burn it silently).
 	this.pendingBuilds = this.pendingBuilds.filter(pb => {
 		const nearSpot = ent => {
 			const pos = ent.position();
@@ -1669,8 +1293,6 @@ BrennusBot.prototype.manageConstruction = function()
 	if (this.constructionHold)
 		return;
 
-	// Hard bank for the town phase: no new construct orders until the 500
-	// wood are in hand (builders keep working existing foundations above).
 	if (this.banking)
 		return;
 
@@ -1678,8 +1300,6 @@ BrennusBot.prototype.manageConstruction = function()
 	const fieldType = gameState.applyCiv("structures/{civ}/field");
 	const reserve = this.phaseReserve || {};
 
-	// Population margin: queued unit batches reserve their slots only when
-	// they reach the head of the queue, so count queued units explicitly.
 	let queuedPop = 0;
 	for (const ent of gameState.getOwnStructures().values())
 		for (const item of ent.trainingQueue() || [])
@@ -1694,15 +1314,10 @@ BrennusBot.prototype.manageConstruction = function()
 			resources.subtract({ "wood": houseCost });
 		else if (this.turn % 750 === 0)
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m house placement FAILED (margin=${margin})\n`);
-		return true; // one order per block either way
+		return true;
+
 	};
 
-	// 1. One-time drop sites, next to what they serve (Louis: walking time is
-	// the real efficiency loss). Farmstead where the food within 30 m is
-	// maximal, storehouse at the assigned woodline. Before houses: they pay
-	// for themselves immediately. A failed placement must NOT block the rest
-	// of construction (v35: a top-scoring fruit patch outside the territory
-	// froze ALL building for the whole game).
 	for (const name of ["farmstead", "storehouse"])
 	{
 		const type = gameState.applyCiv(`structures/{civ}/${name}`);
@@ -1722,12 +1337,6 @@ BrennusBot.prototype.manageConstruction = function()
 		}
 	}
 
-	// 2. Town phase: the three Town-class structures the city phase needs
-	// (forge 200w, market 300w, tavern 100w+100s for gaul — see trioTypes).
-	// Market before the third: it unlocks barter for topping up the
-	// stone/metal bank. Ahead of houses: the trio is on the critical path to
-	// the city deadline (in v4/v6 urgent houses kept eating the bank at 75
-	// wood a pop and the trio never finished).
 	if (gameState.currentPhase() >= 2)
 	{
 		const trioType = this.trioTypes()
@@ -1749,28 +1358,14 @@ BrennusBot.prototype.manageConstruction = function()
 		}
 	}
 
-	// 2.5. Continuous dropsites (Louis: the #1 economy blocker — effective
-	// gather rate collapses with walk distance). Storehouses must follow the
-	// receding woodline; farmsteads must sit by the field clusters.
 	if (this.manageDropSites(foundations, reserve))
 		return;
 
-	// 3. Emergency houses when the population is truly pinned. They leave the
-	// bootstrap field's 100 wood (the queue-inflated margin fires this branch
-	// most early blocks and would otherwise hold wood under 100 forever —
-	// v63/v65: fields=0 until t=5.5). Safe because fieldDemand is bootstrap-
-	// only (2 fields): the pin lasts ~1 min, not the whole game (v64: demand
-	// for 5 fields delayed town to 5.6).
 	if (margin < 2 && houseFoundations < this.maxHouseFoundations &&
 		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
 		resources.wood >= houseCost + (this.fieldDemand ? 100 : 0))
 		return tryHouse();
 
-	// Rate techs outrank discretionary construction: while one is wanted but
-	// unaffordable, the house/field stream would eat the wood it needs (the
-	// house trainers are food-starved at this stage anyway — the wood is
-	// worth more as +20% grain / +25% wood). v45: farming_training slipped
-	// to 15.1 because the house stream kept wood under its 300 cost.
 	this.techPendingWood = 0;
 	for (const tech of ["gather_farming_plows", "gather_farming_training",
 		"gather_farming_harvester", "gather_lumbering_ironaxes"])
@@ -1784,16 +1379,6 @@ BrennusBot.prototype.manageConstruction = function()
 		break;
 	}
 
-	// 4. Fields: Louis — pickers take the berries first while they last (the
-	// assignment priority handles that; early fields stand empty, they don't
-	// steal pickers). But they must STAND before the fruit runs out: the
-	// town bank + fertility freeze block all construction from ~t=2.5 to
-	// ~t=5.5 (v59: gate opened at t=2.5, first field only after the freeze,
-	// 10 pickers piled onto 1 field at 22% rate). So open at t=1:30 or when
-	// the served stock drops under ~4 minutes of runway. Exempt from every
-	// wood reserve (phase, trio) — starving fields flatlines food within
-	// minutes (v3, v5). In village, cap at 4 so they don't drain the
-	// 500-wood town bank (v7).
 	const cc = this.getCivicCentre();
 	if (!cc)
 		return;
@@ -1803,6 +1388,7 @@ BrennusBot.prototype.manageConstruction = function()
 		if (res === "food")
 			foodGatherers++;
 	const fieldCap = this.expansionOn() ? 60 : (gameState.currentPhase() === 1 ? 4 : 30);
+	// Fields open at t=1:30 or when served fruit runs low: they must stand before the fruit runs out.
 	const desiredFields = this.fruitStock < 4000 || gameState.getTimeElapsed() > 90000 ?
 		Math.min(fieldCap, Math.max(2, Math.ceil(foodGatherers / 3) + 1)) : 0;
 	let fields = 0;
@@ -1811,44 +1397,24 @@ BrennusBot.prototype.manageConstruction = function()
 			fields++;
 	const fieldFoundations = foundations.filter(f =>
 		gameState.getBuiltTemplate(f.templateName()).templateName() === fieldType).length;
-	// Bootstrap reserve only: the FIRST 2 fields outrank the house stream,
-	// and only when the served fruit is nearly out (v62 deadlock: berries
-	// gone at t=3.5 with zero fields). When berries abound, houses come
-	// first — pinning the 25-cap to save wood for unneeded fields stalls
-	// the village boom (seed 2: houses=1 at t=3, town 5.0). Demanding ALL
-	// desired fields would pin the cap for minutes (v64: town 5.6) and
-	// throttle the sprint houses (v65: cap 195 at t=15).
+
+	// Bootstrap only: the first 2 fields outrank the house stream while served fruit is nearly out.
 	this.fieldDemand = (fields + fieldFoundations) < Math.min(2, desiredFields) &&
 		this.fruitStock < 800;
-	// Wood demand (goal 7-S): on wood-poor biomes the field stream stalls
-	// whenever the wood stock hovers under 100 (s1: ONE field built in
-	// t=15-18 while wood sat at 78 and the houses ate every 75 w window) —
-	// the sprint's grain ramp never comes. Detect the stall directly (the
-	// field count has not moved for 20 s while under half the target) and
-	// demand wood: the houses then leave the 100 w window. (Time-boxed
-	// variants helped s1 less; demanding at any deficit throttled s5's
-	// house stream — pop300 20.6.)
+
 	this.fieldStallTurns = fields === this.lastFields ? (this.fieldStallTurns || 0) + 1 : 0;
 	this.lastFields = fields;
 	if (this.woodPoor && fields + fieldFoundations < desiredFields / 2 &&
 		this.fieldStallTurns > 100)
 		this.fieldDemand = true;
-	// Steppe fix (goal 7-S): on wood-poor biomes (bush "trees", detected
-	// in updateWoodline), fields in town phase with the trio pending must
-	// leave the trio's wood untouched — the field stream ate every 100 w
-	// window (~2000 w on steppe seed 5) and the trio waited 12 min for its
-	// 300 w (trio 19.5m, city never). Delaying grain for the trio is
-	// Louis's accepted trade (city is the slower metric). Village-phase
-	// bootstrap fields are untouched, and on wood-rich biomes the gate is
-	// off entirely.
+
+	// On wood-poor biomes fields leave the town trio's wood untouched.
 	const fieldTrioWood = gameState.currentPhase() === 2 && this.woodPoor ?
 		this.nextTrioWood() : 0;
 	if (fields < desiredFields && fieldFoundations < 2 &&
 		resources.wood >= 100 + fieldTrioWood)
 	{
-		// Louis: fields go next to an existing farmstead that still has room —
-		// the walk to the dropsite is the grain-rate killer. Least crowded
-		// farmstead first; the grid is the fallback when none has free space.
+
 		const farmType = gameState.applyCiv("structures/{civ}/farmstead");
 		const farms = gameState.getOwnStructures().toEntityArray()
 			.filter(ent => ent.templateName() === farmType &&
@@ -1873,26 +1439,9 @@ BrennusBot.prototype.manageConstruction = function()
 		return;
 	}
 
-	// Fertility Festival freeze: while the research is wanted but
-	// unaffordable, construction pauses so wood accumulates for it (the
-	// training half is the fertFloor in trainWorkers). BELOW the fields on
-	// purpose: fields cost wood only, and they are the food income that pays
-	// fertility's 250 food — freezing them deadlocks the freeze itself (v61:
-	// berries out at t=3.5, fert=1 from t=4 to t=7.5, zero fields).
 	if (this.fertPending)
 		return;
 
-	// 6. Discretionary houses, at raw cost: the boom wants the cap growing
-	// always. But leave the trio's wood untouched (the v11 stall: houses at
-	// 75 a pop kept the stock under the 300 the market needed); the
-	// 3-foundation cap throttles the house drain below wood income. While a
-	// dropsite is demanded, houses must also leave its 100 wood (v19: the
-	// house stream pinned wood under 100 and the woodline receded unserved).
-	// And while a rate tech is pending they wait entirely (see step 4).
-	// From t=10, keep the cap climbing to the 300 max regardless of margin:
-	// queued women block the margin for minutes (the food can't pop them
-	// faster) and the sprint then ends cap-short (v48/v49/v51: cap 260-278
-	// at t=15, pop300 ~0.5 min late).
 	const sprintCap = gameState.getTimeElapsed() > 600000 &&
 		gameState.getPopulationLimit() < gameState.getPopulationMax();
 	if ((margin < this.houseMargin || sprintCap) && houseFoundations < this.maxHouseFoundations &&
@@ -1908,13 +1457,6 @@ BrennusBot.prototype.hasStructureOrFoundation = function(type, foundations)
 		foundations.some(f => this.gameState.getBuiltTemplate(f.templateName()).templateName() === type);
 };
 
-/**
- * Louis: the first farm goes where there is room to build AND the food in a
- * 30 m radius is maximal. Only in-territory, reachable patches are scored
- * (a far richer patch outside the territory can never place and must not
- * starve the base). Distinct patches are tried best-first — positions 30 m
- * apart are the same patch. Returns true when an order went out.
- */
 BrennusBot.prototype.placeFirstFarmstead = function(type)
 {
 	const gameState = this.gameState;
@@ -1948,29 +1490,17 @@ BrennusBot.prototype.placeFirstFarmstead = function(type)
 	return false;
 };
 
-/**
- * Continuous dropsite coverage. The initial farmstead/storehouse pair is
- * block 1 above; this keeps coverage as the economy moves: the woodline
- * recedes as trees die and new fields appear far from the first farmstead.
- * One order per block when a group of gatherers is underserved (nearest
- * accepting dropsite farther than ~20 m edge-to-edge), placed at the
- * centroid of the underserved anchors. Costs leave the phase reserve
- * untouched; the caps keep it from draining the boom.
- */
+/** Continuous dropsite coverage: one order per block at the centroid of an underserved gatherer clump. */
 BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 {
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
 	const cc = this.getCivicCentre();
 	if (!cc)
-		return false;	// Gated on raw wood + phase reserve only — never on the trio reserve:
-	// dropsites ARE the income (Louis's #1 blocker); reserving them behind
-	// the trio starves the economy that pays for the trio (v14: wood stock
-	// pinned at 30-110, zero dropsites built, wood rate fell to 27%).
+		return false;
+
 	const woodFloor = 100 + (reserve.wood || 0);
-	// Set when a dropsite is needed: discretionary houses must then leave 100
-	// wood or the storehouse never gets built (v19: houses at 75 a pop kept
-	// the stock under 100 while the woodline receded past 60 m).
+
 	this.dropsiteDemand = false;
 
 	const halfDiag = ent => {
@@ -1989,11 +1519,6 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 	const minEdgeDist = (pos, sites) =>
 		Math.min(...sites.map(s => Math.hypot(pos[0] - s.pos[0], pos[1] - s.pos[1]) - s.half));
 
-	// Wood: a storehouse by the woodline being cut. Anchors are the target
-	// trees when known (gatherTarget), else the unit's own position. Target
-	// ONE local clump: the worst-served anchor and the anchors within 25 m of
-	// it — the centroid of the whole cutting front lands between clumps and
-	// serves none (v20: 13 storehouses, mean distance still 40+ m).
 	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
 	const woodSites = [{ "pos": cc.position(), "half": halfDiag(cc) }];
 	const storePositions = [];
@@ -2014,20 +1539,10 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			storePositions.push(ent.position());
 			storeCount++;
 		}
-	// A storehouse order still in flight (no foundation yet — the builder
-	// walks, or the engine rejected the spot and the blacklist is pending)
-	// counts as planned: without this, the branch re-orders the same spot
-	// every block, burning 100 wood of budget and piling failed orders on
-	// one spot (11 construct FAILED at one steppe spot in the probe).
+
 	const storePending = center => this.pendingBuilds.some(pb =>
 		pb.template === storeType && Math.hypot(pb.x - center[0], pb.z - center[1]) < 30);
-	// Louis (2026-08-22): destroy every storehouse farther than 60 m from
-	// its nearest wood/stone/metal supply (one per block). The old rule
-	// (< 200 resources within 40 m + no busy gatherer within 40 m) kept
-	// half-dead storehouses alive and needed the busy guard against
-	// build/destroy oscillation; with the rebuild-on-the-remaining-woodline
-	// logic (rule 1 + median placement) a destroyed storehouse gets
-	// replaced at the right spot instead of oscillating.
+
 	for (const ent of gameState.getOwnStructures().values())
 	{
 		if (ent.templateName() !== storeType || ent.foundationProgress() !== undefined || !ent.position())
@@ -2048,12 +1563,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			return true;
 		}
 	}
-	// Rule 1 (Louis): a new wood storehouse only once no existing dropsite
-	// (CC or storehouse) can still serve ≥ ringGateWood wood within its
-	// ringServeDist ring — exhaust the served ring first; the picker keeps
-	// the woodline on such a ring while one has wood, and its kind "store"
-	// covers the tail until the next re-pick. Supplies count from 20 (half-
-	// cut trees and steppe bushes bind the ring), scraps below don't.
+
 	let servedWood = 0;
 	const ringSites = [cc.position(), ...storePositions];
 	const r2 = this.ringServeDist * this.ringServeDist;
@@ -2095,33 +1605,19 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		}
 		if (underserved.length >= 4 && !(this.expansionOn() &&
 			(this.turn - (this.lastWoodStoreTurn || -1000) < 150 ||
-				// Store-ring zones already have a dropsite (the ring is
-				// defined around one): a second storehouse for the same ring
-				// was the storehouse flood on seed 1. Rich rings get ONE
-				// extra on the far side — the walk to the ring edge is what
-				// holds the wood rate at ~55%.
+
 				(this.woodline?.kind === "store" && (this.woodline.total || 0) < 2000))))
 		{
 			this.dropsiteDemand = true;
 			const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
-			// Rule 3 (Louis): the spot minimizes the walking to cut the
-			// woodline's trees — the amount-weighted median of the zone, not
-			// the cutting front's centroid. Falls back to the front clump
-			// when there is no zone (scattered wood).
+
 			const center = this.woodlineDropSpot() || centroid(clump);
-			// Wood storehouses leave the town trio's wood on wood-poor
-			// biomes (goal 7-S): on the steppe the storehouse stream ate
-			// every 100 w window (10 storehouses before the market could
-			// order on seed 5) — same treatment as the fields. The trio
-			// reserve only binds in town phase with the trio pending.
+
 			const trioWood = this.gameState.currentPhase() === 2 && this.woodPoor ?
 				this.nextTrioWood() : 0;
 			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 60) ||
 				storePending(center);
-			// Expansion: the zone median can sit on the territory edge or in
-			// neutral territory (the tight 10-28 m dropsite search then
-			// fails silently every block) — widen the ring search so an
-			// in-territory spot next to the zone is found.
+
 			const pos = resources.wood >= woodFloor + trioWood && !planned &&
 				(this.expansionOn() ?
 					this.findExpansionWoodStorehouse(storeType, center) :
@@ -2136,12 +1632,6 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		}
 	}
 
-	// Stone/metal (Louis: miners need a storehouse at the mine — watch their
-	// effective rate). Same underserved-anchor clump logic as the woodline;
-	// storehouses accept stone and metal too, so the wood sites list applies.
-	// Rule 2 (Louis): the starting stone and metal blocks usually sit close
-	// together — ONE storehouse between the two (minimax over both mine
-	// positions) instead of one each.
 	if (storeCount < (this.expansionOn() ? 40 : 18))
 	{
 		let worst, worstDist = 18;
@@ -2172,6 +1662,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			const mMine = this.mineId.metal !== undefined ?
 				gameState.getEntityById(this.mineId.metal) : undefined;
 			const sPos = sMine?.position(), mPos = mMine?.position();
+			// Pinned stone and metal mines close together share ONE storehouse between them.
 			const pairNear = sPos && mPos &&
 				Math.hypot(sPos[0] - mPos[0], sPos[1] - mPos[1]) < this.minePairDist;
 			if (pairNear)
@@ -2207,15 +1698,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			}
 		}
 	}
-	// Goal 8: proactively serve big in-territory mines. The expansion shares
-	// only count served supply and findSupply only serves miners from it, so
-	// a large mine between 45 and 140 m of a dropsite would never get miners
-	// (and the reactive branch above never fires for it) — the storehouse
-	// must come to the mine first. In own territory only: beyond the CC
-	// disks a storehouse cannot be placed (template territory "own").
-	// Capped and cooled: without both, the branch ordered a storehouse every
-	// few blocks (117 on seed 1 — each depleted-mine destroy freed a slot
-	// for an instant rebuild) and burned the wood stockpile the goal needs.
+
 	if (this.expansionOn() && resources.wood >= woodFloor &&
 		storeCount < 40 && this.turn - (this.lastMineStoreTurn || -1000) > 40)
 	{
@@ -2255,10 +1738,6 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		}
 	}
 
-	// Grain: a farmstead by each field cluster. A field is underserved when
-	// its edge is over 15 m from the nearest farmstead/CC edge (field half-
-	// diagonal is 15.5 m). Target one local cluster (same clump logic as
-	// storehouses); farmstead foundations suppress re-orders nearby.
 	const farmType = gameState.applyCiv("structures/{civ}/farmstead");
 	const fieldType = gameState.applyCiv("structures/{civ}/field");
 	const foodSites = [{ "pos": cc.position(), "half": halfDiag(cc) }];
@@ -2306,8 +1785,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			return true;
 		}
 	}
-	// Fruit (Louis: berry/fruit pickers need a farmstead at the patch — watch
-	// their effective rate). Same clump logic as the wood storehouses.
+
 	let worstFruit, worstFruitDist = 18;
 	const unservedFruit = [];
 	for (const ent of gameState.getOwnUnits().values())
@@ -2342,11 +1820,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			return true;
 		}
 	}
-	// Fruit chaining (Louis: when the served berry groups run out, look for
-	// the next group in the territory, build a farmstead by it, then collect
-	// it — the farmstead goes up BEFORE the pickers trek over, so they never
-	// walk the round trip). Best patch = most fruit within 30 m, unserved =
-	// no food dropsite within 45 m.
+
 	if (this.fruitStock < 600 && farmCount < 12 && resources.wood >= woodFloor)
 	{
 		const region = this.accessibility.getAccessValue(cc.position());
@@ -2385,14 +1859,8 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 	return false;
 };
 
-/**
- * Barter converts whatever piles up into whatever is scarce — the market
- * from the town trio unlocks it. While banking the city phase, surplus
- * food/wood (500-deals from 700, 100-deals from 400) buys the missing
- * stone/metal; stone/metal mined far past the bank (1300+) is sold back
- * for wood (the boom's bottleneck) or food.
- * Kept from goal 6: the ability stays even when a run doesn't need it.
- */
+/** Barter: while banking, surplus food/wood buys the missing stone/metal;
+ * mining surplus far past the bank is sold back for wood/food. */
 BrennusBot.prototype.manageBarter = function()
 {
 	const gameState = this.gameState;
@@ -2403,12 +1871,11 @@ BrennusBot.prototype.manageBarter = function()
 	if (!market)
 		return;
 	const res = gameState.getResources();
-	// One deal per 5-turn block; 500-unit deals drift prices ~8% each, so
-	// alternate what is sold instead of hammering one resource.
+
+	// One deal per block; 500-unit deals drift prices ~8%, so alternate the sold resource.
 	if (!gameState.isResearched("phase_city_generic"))
 	{
-		// The 750/750 bank comes from the boom's surpluses: sell whichever
-		// of food/wood is rich for whichever of stone/metal is short.
+
 		if ((res.stone < 750 || res.metal < 750))
 		{
 			const want = res.stone <= res.metal ? "stone" : "metal";
@@ -2426,9 +1893,7 @@ BrennusBot.prototype.manageBarter = function()
 				return;
 			}
 		}
-		// Sell mining surplus only far above the bank: a 500-deal at 1000
-		// would drop the stock under 750 and trigger an immediate buy-back
-		// at a worse rate.
+
 		const excess = res.stone - 800 >= res.metal - 800 ? "stone" : "metal";
 		if (res[excess] >= 1300 && (res.wood < 250 || res.food < 200))
 		{
@@ -2440,11 +1905,10 @@ BrennusBot.prototype.manageBarter = function()
 	}
 	else if (this.expansionOn())
 	{
-		// Goal 8: buy stone/metal with food/wood surpluses (manageExpansionBarter).
+
 		if (!this.manageExpansionBarter(market) && (res.stone >= 600 || res.metal >= 600))
 		{
-			// Emergency rebalancing only: sell mining surplus back if food or
-			// wood ever starves below the boom floors.
+
 			const excess = res.stone >= res.metal ? "stone" : "metal";
 			if (res[excess] >= 1000 && (res.wood < 250 || res.food < 200))
 			{
@@ -2457,35 +1921,13 @@ BrennusBot.prototype.manageBarter = function()
 };
 
 // ---------------------------------------------------------------- placement
-
-/**
- * Order the construct command for a building. `kind` selects the placement
- * policy: "house" and "field" go on the aligned grids, "dropsite" near the
- * given supply centroid, "civic" anywhere handy. Returns true if the order
- * was sent.
- */
-/**
- * The initial wood storehouse, at the woodline's walking optimum (rule 3).
- * Skipped entirely when the zone is already served by a dropsite (rule 1:
- * the CC covers the first woodline when it picked the CC-adjacent forest).
- */
 BrennusBot.prototype.placeWoodStorehouse = function(type)
 {
 	const spot = this.woodlineDropSpot();
-	// No rush for the first storehouse: at bootstrap time there is no
-	// chopper traffic to block the commit, and drafting every chopper at
-	// t=0 delayed the whole boom (temperate s1 pop300 14.6 -> 15.0). The
-	// rebuilds (manageDropSites wood branch) are the traffic cases.
+
 	return spot ? this.tryConstruct(type, "dropsite", spot, false) : false;
 };
 
-/**
- * Where the woodline's storehouse should stand (rule 3, Louis): the
- * amount-weighted median of the zone's trees — the point that minimizes the
- * total walking to cut them (a 400-wood tree hosts twice the cutting of a
- * 200-wood one). null when the zone is already served (kind "store",
- * rule 1) or has no trees left.
- */
 BrennusBot.prototype.woodlineDropSpot = function()
 {
 	const zone = this.woodline;
@@ -2505,11 +1947,6 @@ BrennusBot.prototype.woodlineDropSpot = function()
 	return this.weightedMedian(trees);
 };
 
-/**
- * Amount-weighted geometric median of [x, z, weight] points via 30 Weiszfeld
- * iterations, from the weighted centroid. A point exactly under the median
- * is skipped for that iteration (the standard fix for the 1/d singularity).
- */
 BrennusBot.prototype.weightedMedian = function(points)
 {
 	let sx = 0, sz = 0, sw = 0;
@@ -2541,13 +1978,6 @@ BrennusBot.prototype.weightedMedian = function(points)
 	return [x, z];
 };
 
-/**
- * Spot minimizing the worst walk to a set of anchor points (rule 2: ONE
- * storehouse between the stone and metal blocks). Rings around the anchors'
- * midpoint, fine (2 m × 64); among all valid spots the best-scoring (min
- * max-distance) wins. Returns undefined when nothing valid exists nearby —
- * the caller's clump logic then places per mine as before.
- */
 BrennusBot.prototype.findMinimaxSpot = function(templateType, points, region)
 {
 	const template = this.gameState.getTemplate(templateType);
@@ -2601,37 +2031,28 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 	if (!cc)
 		return false;
 	const ccPos = cc.position();
-	// Reachability: a spot across a cliff or river is buildable on paper but
-	// its foundation sits unbuilt forever (the v10 market, 7 min at 0
-	// builders). Only place in the CC's land region.
+
 	const region = this.accessibility.getAccessValue(ccPos);
+	// Only place in the CC's land region: a spot across a cliff or river sits unbuilt forever.
 	let pos;
 	if (kind === "house")
 		pos = this.findGridSpot(templateType, this.housePlots(ccPos), region);
 	else if (kind === "field")
 		pos = this.findGridSpot(templateType, this.fieldPlots(ccPos), region);
 	else if (kind === "dropsite")
-		// A dropsite's whole value is its location: search tightly around the
-		// target and never fall back to the base — a farmstead dumped 45 m
-		// from its fields serves nothing but still counts against the cap
-		// (v16/v19). No fallback: a failed order retries next block for free.
+
 		pos = this.findBuildingPosition(templateType, center || ccPos, 10, 28, true, region);
 	else
-		// Big civic buildings (temple/market footprints are 20+ m) need a
-		// wide, fine search — a coarse 90 m ring in a packed base finds
-		// nothing and the city requirement silently stalls (v8).
+
 		pos = this.findBuildingPosition(templateType, center || ccPos, 10, 130, true, region);
 	if (!pos && kind !== "dropsite")
-		// Grid exhausted (terrain): fall back to the free ring search.
+
 		pos = this.findBuildingPosition(templateType, ccPos, 12, 120, true, region);
 	if (!pos)
 		return false;
 	return this.placeOrder(templateType, pos, rush) ? pos : false;
 };
 
-/** Send the nearest unit to build templateType at pos; track the order.
- * rush: the choppers will be drafted as builders once the foundation exists
- * (woodline storehouses — see rushBuilds). */
 BrennusBot.prototype.placeOrder = function(templateType, pos, rush)
 {
 	const builder = this.gameState.getOwnUnits().filterNearest(pos, 1).toEntityArray()[0];
@@ -2644,13 +2065,7 @@ BrennusBot.prototype.placeOrder = function(templateType, pos, rush)
 	return true;
 };
 
-/**
- * Buildings are aligned on the civic centre's orientation (Louis): one
- * shared angle keeps the base coherent AND keeps the aligned plot grids
- * grid-consistent — since every structure rotates by the same angle, the
- * relative geometry of the grid is exactly the unrotated one (a rigid
- * rotation of the whole plot set preserves all distances).
- */
+/** All buildings share the CC's orientation angle (keeps the grids consistent). */
 BrennusBot.prototype.getPlacementAngle = function()
 {
 	if (this.ccAngle === undefined)
@@ -2664,14 +2079,6 @@ BrennusBot.prototype.getPlacementAngle = function()
 	return this.ccAngle;
 };
 
-/**
- * Aligned house plots (Louis: houses in straight rows free up base space).
- * A square grid with 14 m pitch (11 m footprint + 3 m lanes) around the CC,
- * near plots first, skipping the CC footprint and the field wedge. The grid
- * is rotated onto the CC's orientation: the houses share that angle, so the
- * rows stay aligned with the footprints (axis-aligned rows would overlap at
- * the corners once the buildings rotate).
- */
 BrennusBot.prototype.housePlots = function(ccPos)
 {
 	if (this._housePlots)
@@ -2696,11 +2103,6 @@ BrennusBot.prototype.housePlots = function(ccPos)
 	return plots;
 };
 
-/**
- * Field plots: aligned 24 m pitch (22 m footprint) on the far side of the
- * base from the house core, 30-80 m out, rotated with the CC like the
- * houses.
- */
 BrennusBot.prototype.fieldPlots = function(ccPos)
 {
 	if (this._fieldPlots)
@@ -2725,7 +2127,6 @@ BrennusBot.prototype.fieldPlots = function(ccPos)
 	return plots;
 };
 
-/** First grid plot that is free, in territory, reachable and away from enemies. */
 BrennusBot.prototype.findGridSpot = function(templateType, plots, region)
 {
 	const template = this.gameState.getTemplate(templateType);
@@ -2748,11 +2149,6 @@ BrennusBot.prototype.findGridSpot = function(templateType, plots, region)
 	return undefined;
 };
 
-/**
- * Free spot on rings around `center`: passable for buildings
- * ("building-land" passability class over the whole footprint), inside
- * own territory and in the CC's land region (reachable by builders).
- */
 BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRadius, maxRadius, fine, region)
 {
 	const gameState = this.gameState;
@@ -2784,19 +2180,7 @@ BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRa
 	return undefined;
 };
 
-/**
- * Placement prefilter for the rotated footprint (angle = the CC
- * orientation). Passability uses the TRUE rotated rectangle, inflated by
- * half a navcell diagonal (0.75 m) so that any navcell the footprint
- * overlaps is caught by its centre — conservative, but barely larger than
- * the footprint itself, so the tight farmstead field clusters and the
- * 14/24 m grids keep packing exactly as before the rotation. (The rotated
- * axis-aligned box would be up to 41% larger and pushes near-tree
- * placements outward, which measurably slows the boom.) Territory keeps
- * the conservative box semantics of the original check: every 4 m cell
- * under the rotated box must be own. The engine's own validation is the
- * final arbiter either way.
- */
+/** Placement prefilter: true rotated footprint (inflated 0.75 m) passable, territory box own. */
 BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mask, terr)
 {
 	const hw = halfW + 0.75, hd = halfD + 0.75;
@@ -2812,7 +2196,7 @@ BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mas
 	for (let j = z0; j <= z1; ++j)
 		for (let i = x0; i <= x1; ++i)
 		{
-			// Inverse-rotate the cell centre into the footprint frame.
+
 			const dx = (i + 0.5) * cell - x;
 			const dz = (j + 0.5) * cell - z;
 			const u = dx * cosa + dz * sina;
@@ -2835,13 +2219,7 @@ BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mas
 };
 
 // ---------------------------------------------------------------- threats
-
-/**
- * Threat positions, refreshed at the start of each 5-turn block: enemy
- * structures, enemy mobile units, and aggressive gaia animals. (Gaia is an
- * "enemy" diplomatically, so getEnemyEntities includes every tree on the
- * map — filter owner 0 out, keeping only animals that can attack.)
- */
+/** Threat lists refreshed each block; owner 0 is gaia — only animals with Attack count (every tree is "enemy"). */
 BrennusBot.prototype.updateEnemyPositions = function()
 {
 	this.enemyStructuresPos = [];
@@ -2874,7 +2252,6 @@ BrennusBot.prototype.nearEnemy = function(pos, structureDist, mobileDist)
 };
 
 // ---------------------------------------------------------------- logging
-
 BrennusBot.prototype.logStatus = function()
 {
 	const gameState = this.gameState;
@@ -2905,24 +2282,20 @@ BrennusBot.prototype.logStatus = function()
 	}
 	const techs = this.boomTechs.filter(t => gameState.isResearched(t)).length;
 	const res = gameState.getResources();
-	// Effective/theoretical gather rates over the last window (Louis's
-	// dropsite check): aggregate deliveries / aggregate theoretical output.
+
 	const rate = cls => {
 		const s = this.rateStats[cls];
 		return s.theo > 0 ? `${Math.round(100 * s.amount / s.theo)}%` : "-";
 	};
 	const rates = `wood=${rate("wood")} grain=${rate("grain")} fruit=${rate("fruit")} stone=${rate("stone")} metal=${rate("metal")}`;
-	// Food composition of the window (delivered amounts by subtype).
+
 	const foodmix = ["fruit", "grain", "meat"].map(c => `${c}=${Math.round(this.rateStats[c].amount)}`).join(" ");
 	for (const s of Object.values(this.rateStats))
 	{
 		s.amount = 0;
 		s.theo = 0;
 	}
-	// Placement telemetry: mean edge distance of active woodcutters' trees to
-	// the nearest wood dropsite, and of fields to the nearest food dropsite
-	// (minus the field half-diagonal) — separates "no dropsite nearby" from
-	// other cycle losses (construction churn, retargeting).
+
 	const dropsiteDist = this.meanDropsiteDistances();
 	const terr = this.expansionOn() ? this.territoryPercent() : undefined;
 	print(`[HARNESS] t=${Math.round(gameState.getTimeElapsed() / 60000)}m ` +
@@ -2941,8 +2314,6 @@ BrennusBot.prototype.logStatus = function()
 		`stock ${Math.floor(res.food)}/${Math.floor(res.wood)}/${Math.floor(res.stone)}/${Math.floor(res.metal)}\n`);
 };
 
-/** Mean edge distance (m) from active woodcutters / fields to their nearest
- * serving dropsite; "-" when no workers/fields. Diagnostic for logStatus. */
 BrennusBot.prototype.meanDropsiteDistances = function()
 {
 	const gameState = this.gameState;
@@ -3007,24 +2378,12 @@ BrennusBot.prototype.meanDropsiteDistances = function()
 	};
 };
 
-/** Expansion woodline storehouse: rings 10-90 m around the zone median,
- * in-territory only (a storehouse cannot be placed in neutral territory —
- * the template's Territory list is "own"). The wide search finds a spot
- * when the median sits on the territory edge; for a fully neutral zone the
- * choppers are better re-pointed by updateWoodline's in-territory scan. */
 BrennusBot.prototype.findExpansionWoodStorehouse = function(storeType, center)
 {
 	const pos = this.findBuildingPosition(storeType, center, 10, 90, true, this.expansionRegion);
 	return pos && this.placeOrder(storeType, pos, false) ? pos : false;
 };
 
-/** Wonder spot: rings around the base CC (12-95 m — deep inside its own
- * territory disk, immune to the AI's occasionally stale territory grid)
- * and then around each far CC (12-60 m — a root's disk interior is just
- * as solidly ours). The engine rejects the wonder — an own-territory-only
- * template — in neutral/unconnected territory; the 8-order flood on seed 1
- * was spots at the border (stale grid) plus floors below the 1500-stone
- * cost. */
 BrennusBot.prototype.findWonderSpot = function(wonderType)
 {
 	const template = this.gameState.getTemplate(wonderType);
@@ -3061,12 +2420,6 @@ BrennusBot.prototype.findWonderSpot = function(wonderType)
 };
 
 // ---------------------------------------------------------------- expansion
-
-/**
- * Goal 8 stage: the boom is done (city researched AND population 300 — the
- * goal-7 bars), from here the expansion program runs. Everything before this
- * gate is the untouched goal-7 code.
- */
 BrennusBot.prototype.expansionOn = function()
 {
 	if (this.expOn)
@@ -3083,48 +2436,26 @@ BrennusBot.prototype.expansionOn = function()
 	return this.expOn;
 };
 
-/** Distance (m) a mine may be from a CC/storehouse to count as served: a
- * CC's territory disk covers mines up to ~140 m out, and the CC IS the
- * dropsite — the walks are long (~0.15-0.25 effective rate), so the
- * shares assume the low end and the proactive storehouse then moves the
- * dropsite next to the big mines to lift the rate. Mines beyond the CC
- * disks wait for more CCs. */
+/** Distance (m) from a CC/storehouse at which a mine counts as served. */
 BrennusBot.prototype.mineServeDist = 130;
-/** Barter and trader spending only touches food/wood/metal above this
- * floor: the goal-8 stockpile bar is 50k and the floors keep spending
- * strictly above it. */
+
 BrennusBot.prototype.expBarterTarget = 52000;
-/** Trader fleet (goal-6 mechanic, restored at scale): trained at markets,
- * shuttling the farthest pair. The population cap is the currency — the
- * fleet is 40 traders, and idle civilians are dismissed to make room. */
+
 BrennusBot.prototype.targetTraders = 40;
 BrennusBot.prototype.traderType = "units/{civ}/support_trader";
-/** Number of extra markets to plant at the far end of the map. */
+
 BrennusBot.prototype.expMarkets = 2;
 
-/**
- * Expansion gatherer shares: size the stone/metal crews to deplete every
- * SERVED mine (within mineServeDist m of a CC/storehouse dropsite) by the
- * 30-minute mark at the post-tech rate. Mining is capped at 26% of the
- * workforce — the map's deposits cannot carry the 50k bars, so every
- * worker moved to the fields/woodline trades unreachable stockpile for
- * reachable one. The rest splits food/wood 52/48: food feeds the 50k
- * bar, the +60 wonder pop and the trader fleet. Served-only on purpose:
- * a miner on an unserved mine round-trips to the base at ~15% rate —
- * better as a field worker until a CC or a proactive storehouse covers
- * the mine. Also refreshes the served-mine id cache that findSupply
- * gates on.
- */
+/** Expansion shares: mine crews sized to deplete every served mine by t=30
+ * at ~0.4 effective rate, capped at 26% of the workforce; the rest splits
+ * food/wood evenly. */
 BrennusBot.prototype.expansionShares = function(total)
 {
 	if (!total)
 		return { "food": 0.5, "wood": 0.33, "stone": 0.1, "metal": 0.07 };
 	const gameState = this.gameState;
 	const timeLeft = Math.max(90, (1800000 - gameState.getTimeElapsed()) / 1000);
-	// Effective mining rate with the +25% techs and the long walk cycles to
-	// CC-served mines (measured 50-85% of the 0.68 theoretical once the
-	// mine storehouses land; 0.4 sizes the crews so the mines deplete on
-	// time without starving wood).
+
 	const rate = 0.4;
 	const region = this.expansionRegion;
 	const sites = this.expansionMineDropsites();
@@ -3151,11 +2482,7 @@ BrennusBot.prototype.expansionShares = function(total)
 		shares[res] = Math.min(0.31, served[res] / (rate * timeLeft) / total);
 		mining += shares[res];
 	}
-	// The mining cap is the food/wood lever: the map's deposits (~28k stone
-	// / ~40k metal) are far under the 50k bars anyway, so workers moved
-	// from mining to the fields/woodline trade unreachable stockpile for
-	// reachable one. Food gets the slightly larger half — it feeds the
-	// 50k bar, the +60 wonder pop and the trader fleet.
+
 	if (mining > 0.26)
 	{
 		const scale = 0.26 / mining;
@@ -3164,16 +2491,12 @@ BrennusBot.prototype.expansionShares = function(total)
 		mining = 0.26;
 	}
 	const rest = 1 - mining;
-	// The fields run at ~95% effective and the woodline at ~55-80% (with
-	// sharpaxes + the storehouse coverage): food gets the larger half — it
-	// feeds the 50k bar, the +60 wonder pop and the trader fleet.
+
 	shares.food = rest * 0.50;
 	shares.wood = rest * 0.50;
 	return shares;
 };
 
-/** Positions of every dropsite accepting stone/metal: CCs and storehouses,
- * built or foundation (a planned storehouse serves its mine already). */
 BrennusBot.prototype.expansionMineDropsites = function()
 {
 	const gameState = this.gameState;
@@ -3194,14 +2517,8 @@ BrennusBot.prototype.expansionMineDropsites = function()
 	return sites;
 };
 
-/**
- * The CC lattice: hex-packed grid points on ~210 m spacing tiling the
- * circular 768 m map — every candidate is ≥200 m from every other (the
- * engine's min CC distance), so the greedy can pick freely without the
- * mutual-exclusion deadlock a finer pitch creates. CC territory radius is
- * 140 m, so the overlapping disks cover every passable gap. Deterministic:
- * fixed order, fixed offsets.
- */
+/** CC lattice: hex-packed grid on ~210 m spacing (the engine's min CC
+ * distance is 200 m) tiling the 768 m map. */
 BrennusBot.prototype.expansionCandidates = function()
 {
 	const spots = [];
@@ -3210,9 +2527,7 @@ BrennusBot.prototype.expansionCandidates = function()
 		{
 			const x = 384 + gx * 210 + (gz & 1 ? 105 : 0);
 			const z = 384 + gz * 182;
-			// Allow the outer band: a CC near the edge still claims the
-			// in-map half of its disk (the map's outer annulus is a third
-			// of its area).
+
 			if (Math.hypot(x - 384, z - 384) > 430)
 				continue;
 			spots.push([x, z]);
@@ -3220,10 +2535,7 @@ BrennusBot.prototype.expansionCandidates = function()
 	return spots;
 };
 
-/** CC footprint placement check for expansion spots: passable for buildings
- * (true rotated footprint, inflated like placementOK) and the territory
- * under it is own or NEUTRAL (a CC is plantable in neutral territory — it
- * is a territory root). */
+/** CC placement check: clear rotated footprint on own OR neutral territory (a CC is a territory root). */
 BrennusBot.prototype.expansionSpotOK = function(spot, halfW, halfD)
 {
 	const pass = this.gameState.getPassabilityMap();
@@ -3262,10 +2574,6 @@ BrennusBot.prototype.expansionSpotOK = function(spot, halfW, halfD)
 	return true;
 };
 
-/** Nearest placeable CC spot on rings around an anchor (0-60 m), honouring
- * the CC build rules: clear rotated footprint on own/neutral territory,
- * 200 m from every CC, base land region, away from enemies, not
- * blacklisted. Deterministic ring order. */
 BrennusBot.prototype.expansionSpotNear = function(anchor, halfW, halfD, ccSpots)
 {
 	for (let r = 0; r <= 60; r += 4)
@@ -3288,17 +2596,9 @@ BrennusBot.prototype.expansionSpotNear = function(anchor, halfW, halfD, ccSpots)
 	return undefined;
 };
 
-/**
- * The CC plan (goal 8): deterministic lattice candidates filtered by the
- * build rules (passable footprint, own/neutral territory, 200 m from every
- * CC on the map, base land region, away from enemies), then greedy
- * marginal-coverage selection using a local simulation of the engine's
- * territory influence (linear falloff floodfill, cost 1 passable / 4
- * impassable, diagonal ~sqrt2 — CCmpTerritoryManager.cpp). Petra's current
- * territory is ground truth and never contested, so the sim is
- * conservative; the target is 72% of the passable map (margin over the
- * 70% bar), and the real border will do at least as well.
- */
+/** Greedy marginal-coverage CC plan over the lattice, scored with a
+ * simulation of the engine's territory influence (linear-falloff
+ * floodfill); target 72% of the passable map. */
 BrennusBot.prototype.computeExpansionPlan = function()
 {
 	const gameState = this.gameState;
@@ -3307,16 +2607,11 @@ BrennusBot.prototype.computeExpansionPlan = function()
 	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
 	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
 
-	// Every CC on the map (ours + Petra's): a new CC must keep 200 m.
 	const ccSpots = [];
 	for (const ent of gameState.getStructures().values())
 		if (ent.hasClass("CivCentre") && ent.position())
 			ccSpots.push(ent.position());
 
-	// Lattice anchors rarely land on clear 30x30 ground (forests, mountains,
-	// Petra's territory): search rings around each anchor for the nearest
-	// placeable position, like findBuildingPosition does for every other
-	// building. Deterministic (fixed anchor order, fixed ring angles).
 	const lattice = this.expansionCandidates();
 	const candidates = [];
 	for (const anchor of lattice)
@@ -3329,11 +2624,10 @@ BrennusBot.prototype.computeExpansionPlan = function()
 	for (const c of ccSpots)
 		print(`[HARNESS]   existing CC at ${c[0].toFixed(0)},${c[1].toFixed(0)}\n`);
 
-	// Territory cost grid (8 m tiles): 1 passable, 4 impassable — the same
-	// downsampling as CCmpTerritoryManager::CalculateCostGrid.
 	const terr = this.territoryMap;
 	const pass = gameState.getPassabilityMap();
 	const tmask = gameState.getPassabilityClassMask("default-terrain-only");
+	// Territory cost grid (8 m tiles): 1 passable, 4 impassable — the engine's own downsampling.
 	const terrW = terr.width, terrH = terr.height;
 	const tcell = terr.cellSize / pass.cellSize;
 	const costGrid = new Uint8Array(terrW * terrH);
@@ -3354,7 +2648,6 @@ BrennusBot.prototype.computeExpansionPlan = function()
 			}
 		}
 
-	// Currently owned passable tiles (ground truth from the engine grid).
 	const own = new Uint8Array(terrW * terrH);
 	let ownCount = 0;
 	for (let j = 0; j < terrH; ++j)
@@ -3368,8 +2661,8 @@ BrennusBot.prototype.computeExpansionPlan = function()
 			}
 		}
 
-	// Influence floodfill (engine-style, max-weight).
-	const falloff = 10000 * 8 / 140; // Weight x 8 / Radius per orthogonal tile
+	const falloff = 10000 * 8 / 140; // weight x 8 / radius per orthogonal tile
+
 	const DIAG = 362 / 256;
 	const influence = spots => {
 		const w = new Float32Array(terrW * terrH);
@@ -3407,10 +2700,6 @@ BrennusBot.prototype.computeExpansionPlan = function()
 		return w;
 	};
 
-	// Greedy marginal-coverage selection. `cov` is the running covered
-	// bitmap (own + disks of chosen spots); a candidate's gain is its disk
-	// tiles NOT already covered — strictly marginal, unlike the first
-	// attempt which counted the whole union and over-planned by ~20%.
 	const cov = new Uint8Array(own);
 	let covered = ownCount;
 	const spots = [];
@@ -3420,8 +2709,7 @@ BrennusBot.prototype.computeExpansionPlan = function()
 		let best = -1, bestGain = 0, bestW = null;
 		for (const cand of candidates)
 		{
-			// The engine's 200 m CC rule: a candidate too close to an
-			// already-chosen spot would be rejected at construction.
+
 			if (spots.some(s => SquareDistance(s, cand) < 200 * 200))
 				continue;
 			const w = influence([cand]);
@@ -3440,7 +2728,8 @@ BrennusBot.prototype.computeExpansionPlan = function()
 		if (bestGain < 60 && covered >= target)
 			break;
 		if (best === -1)
-			break; // every remaining candidate is too close to a chosen spot
+			break;
+
 		const idx = candidates.indexOf(best);
 		candidates.splice(idx, 1);
 		spots.push(best);
@@ -3449,26 +2738,14 @@ BrennusBot.prototype.computeExpansionPlan = function()
 				cov[i] = 1;
 		covered += bestGain;
 	}
-	// Order: nearest-first so the walking builders reach the first
-	// foundations sooner (foundations project territory immediately).
+
 	const base = this.getCivicCentre()?.position() || [384, 384];
 	spots.sort((a, b) => SquareDistance(a, base) - SquareDistance(b, base));
 	print(`[HARNESS] expansion plan: ${spots.length} CCs, sim coverage ${(100 * covered / totalPassable).toFixed(1)}% of ${totalPassable} passable tiles (bar 70%)\n`);
 	return { "spots": spots, "next": 0, "done": false, "simPct": 100 * covered / totalPassable };
 };
 
-/**
- * The expansion program, one order per block:
- * 1. Latch the stage and compute the CC plan once.
- * 2. Order the next planned CC (nearest unit carries the construct; the
- *    engine plants the foundation at command processing — territory from
- *    the same block — and sticky builders finish it).
- * 3. Advance the plan when the CC completes; a construct failure skips the
- *    spot (the pendingBuilds timeout blacklists it).
- * 4. Once the plan is done, plant the extra markets at the two farthest
- *    planned spots (own territory by then — their CCs stand) so the trader
- *    fleet gets the longest routes.
- */
+/** Expansion program, one order per block: wonder, far markets, corral, then the next planned CC. */
 BrennusBot.prototype.manageExpansion = function()
 {
 	if (!this.expansionOn())
@@ -3478,12 +2755,8 @@ BrennusBot.prototype.manageExpansion = function()
 	const gameState = this.gameState;
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const plan = this.expPlan;
-	// The wonder: Glorious Expansion (+20% max population), a territory
-	// root and a 0.5/s trickle of every resource. Ordered once the first
-	// expansion CC stands, BEFORE the CC stream (the CC block returns on
-	// every order and would otherwise monopolise the stone until the plan
-	// is done — seen: wonder ordered at t=27.9). Its tech sits in the
-	// expansion list and researches itself once the wonder exists.
+
+	// Wonder (Glorious Expansion +20% pop): ordered once the first expansion CC stands, before the CC stream.
 	if (!plan.wonderDone && plan.next >= 1)
 	{
 		const wonderType = gameState.applyCiv("structures/{civ}/wonder");
@@ -3494,15 +2767,13 @@ BrennusBot.prototype.manageExpansion = function()
 		else if (gameState.getOwnFoundations().toEntityArray().some(f =>
 			gameState.getBuiltTemplate(f.templateName()).templateName() === wonderType))
 		{
-			// Foundation placed, builders on it — wait for the structure.
+
 		}
 		else if (!this.pendingBuilds.some(pb => pb.template === wonderType) &&
 			!this.constructionHold)
 		{
 			const res = gameState.getResources();
-			// Floors above the 1000/1500/1000 cost: the floor must COVER the
-			// cost — a lower floor orders on credit and the engine rejects on
-			// cost every time (seed 1: 8 failed wonder orders at stone < 1500).
+
 			if (res.canAfford({ "wood": 1100, "stone": 1550, "metal": 1100 }))
 			{
 				const spot = this.findWonderSpot(wonderType);
@@ -3515,29 +2786,21 @@ BrennusBot.prototype.manageExpansion = function()
 			}
 		}
 	}
-	// Markets at the far end of the map for the trader fleet: ordered as
-	// soon as a far CC owns territory (placement retries until then), so
-	// the routes are long and early. BEFORE the CC stream — the CC block
-	// returns on every one of its paths and would otherwise starve this
-	// block until the whole plan is done (seed 1: first market at t=28).
-	// Early blocks find no completed far CC anchor and fall through
-	// harmlessly.
+
 	if ((plan.marketsPlaced || 0) < this.expMarkets)
 	{
 		const marketType = gameState.applyCiv("structures/{civ}/market");
 		const base = this.getCivicCentre()?.position() || [384, 384];
 		const marketSpots = [];
-		// foundationProgress() !== undefined is required: foundations are
-		// Structure-class entities and appear in getOwnStructures too —
-		// without the guard a market is counted twice (structure + its
-		// foundation) and the block thinks the map is full of markets.
+
 		for (const ent of gameState.getOwnStructures().values())
 			if (ent.hasClass("Market") && ent.position() && ent.foundationProgress() === undefined)
 				marketSpots.push(ent.position());
 		for (const f of gameState.getOwnFoundations().values())
 			if (f.position() && gameState.getBuiltTemplate(f.templateName()).hasClass("Market"))
 				marketSpots.push(f.position());
-		if (marketSpots.length >= 1 + this.expMarkets) // the town-trio market is #1
+		if (marketSpots.length >= 1 + this.expMarkets)
+
 			plan.marketsPlaced = this.expMarkets;
 		else if (!this.pendingBuilds.some(pb => pb.template === marketType &&
 				SquareDistance([pb.x, pb.z], base) > 150 * 150) &&
@@ -3546,10 +2809,7 @@ BrennusBot.prototype.manageExpansion = function()
 			const res = gameState.getResources();
 			if (res.wood >= 600)
 			{
-				// Far anchors = the farthest COMPLETED CCs without a market
-				// nearby. (Anchoring on the planned far spots stalled the
-				// order to t=28 on seed 1: their territory only exists once
-				// the LAST CCs — built last — go up.)
+
 				const ccType2 = gameState.applyCiv("structures/{civ}/civil_centre");
 				const anchors = gameState.getOwnStructures().toEntityArray()
 					.filter(ent => ent.templateName() === ccType2 && ent.position() &&
@@ -3569,9 +2829,7 @@ BrennusBot.prototype.manageExpansion = function()
 			}
 		}
 	}
-	// The corral, so stockbreeding (the last econ tech) has a researcher:
-	// the tech modifies corral build times, the building itself is a 100
-	// wood formality for the tech tree.
+
 	if (plan.corralDone === undefined)
 		plan.corralDone = false;
 	if (plan.corralDone === false)
@@ -3607,8 +2865,8 @@ BrennusBot.prototype.manageExpansion = function()
 		const foundation = gameState.getOwnFoundations().toEntityArray().some(f =>
 			gameState.getBuiltTemplate(f.templateName()).templateName() === ccType && near(f.position()));
 		if (foundation)
-			return; // builders are on it (manageConstruction assigns them)
-		// A failed construct blacklists the spot: move on.
+			return;
+
 		if (this.failedSpots.some(f => Math.abs(f[0] - spot[0]) < 6 && Math.abs(f[1] - spot[1]) < 6))
 		{
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC spot ${spot[0].toFixed(0)},${spot[1].toFixed(0)} failed, skipping\n`);
@@ -3617,13 +2875,10 @@ BrennusBot.prototype.manageExpansion = function()
 		}
 		if (this.pendingBuilds.some(pb => pb.template === ccType &&
 			Math.hypot(pb.x - spot[0], pb.z - spot[1]) < 30))
-			return; // order in flight
-		// Re-validate the spot against the LIVE state right before ordering:
-		// the plan was computed minutes ago and Petra's borders, our own
-		// foundations and the 200 m CC rule can all have moved (seed 1: the
-		// engine rejected a stale spot). Skip stale spots instead of burning
-		// a construct round trip on a rejection.
+			return;
+
 		{
+			// Re-validate the spot against the live state before ordering (borders and the 200 m rule move).
 			const template = gameState.getTemplate(ccType);
 			const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
 			const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
@@ -3649,14 +2904,10 @@ BrennusBot.prototype.manageExpansion = function()
 			}
 		}
 		const res = gameState.getResources();
-		// Floors above the raw 300/300/250 cost: the engine checks the REAL
-		// stock when the command is processed (~1 turn later), and the same
-		// block may also fire a research and a barter order — a tight
-		// affordability check overdraws and the engine rejects the construct
-		// (seed 1: CC at 164,604 rejected on cost). The hold is the same
-		// one-block-after-research discipline the rest of construction uses.
+
 		if (this.constructionHold)
 			return;
+		// Floors above the raw cost: the engine checks the real stock at processing.
 		if (!res.canAfford({ "wood": 600, "stone": 750, "metal": 550 }))
 			return;
 		if (!this.placeOrder(ccType, spot))
@@ -3667,16 +2918,7 @@ BrennusBot.prototype.manageExpansion = function()
 	}
 };
 
-/**
- * Trade (goal-6 mechanic, restored, goal 8 at scale): traders shuttle
- * between the two farthest completed markets — the gain grows with the
- * square of the route distance, and each completed trip credits the trip's
- * good (goods cycle evenly across the four resources). The fleet is
- * trained at the markets; when the population cap pins, an idle civilian
- * is dismissed per block to make room (Louis: traders produce stone/metal
- * from nothing after the mines run dry — a woman has no deposit left to
- * work, a trader always has the route).
- */
+/** Traders shuttle the farthest market pair; at the cap pin an idle civilian is dismissed to make room. */
 BrennusBot.prototype.manageTrade = function()
 {
 	if (!this.expansionOn())
@@ -3693,9 +2935,7 @@ BrennusBot.prototype.manageTrade = function()
 	if (traders < this.targetTraders)
 	{
 		const res = gameState.getResources();
-		// Pop management: the cap is hard (300, or 360 with Glorious
-		// Expansion). When it's pinned, dismiss an idle woman (never a
-		// working one, never the herder) to make room for a trader.
+
 		if (gameState.getPopulation() >= gameState.getPopulationLimit())
 			for (const ent of gameState.getOwnUnits().values())
 				if (ent.isGatherer() && !ent.hasClass("Cavalry") && ent.isIdle() &&
@@ -3738,30 +2978,36 @@ BrennusBot.prototype.manageTrade = function()
 			ent.tradeRoute(far, near);
 };
 
-/**
- * Post-city techs (goal 8): the full economic tree — mining rates +25%
- * each, the wood-rate techs, carry capacity, trade gains and the wonder's
- * Glorious Expansion (+20% max population per wonder). They never touch
- * the boom's tech order — this list is only walked after the city research
- * is done.
- */
 BrennusBot.prototype.expansionTechs = [
-	"gather_mining_servants",       // stone +25% (village)
-	"gather_mining_serfs",          // stone +25% (town)
-	"gather_mining_slaves",         // stone +25% (city)
-	"gather_mining_wedgemallet",    // metal +25% (village)
-	"gather_mining_shaftmining",    // metal +25% (town)
-	"gather_mining_silvermining",   // metal +25% (city)
-	"gather_lumbering_sharpaxes",   // wood +25% (city) — the wood bar
-	"gather_capacity_wheelbarrow",  // +5 carry: fewer walk trips
-	"gather_capacity_carts",        // +5 carry (city)
-	"trade_gain_01",                // traders +15%
-	"trade_gain_02",                // traders +15%
-	"trade_commercial_treaty",      // market international bonus +0.1
+	"gather_mining_servants",
+
+	"gather_mining_serfs",
+
+	"gather_mining_slaves",
+
+	"gather_mining_wedgemallet",
+
+	"gather_mining_shaftmining",
+
+	"gather_mining_silvermining",
+
+	"gather_lumbering_sharpaxes",
+
+	"gather_capacity_wheelbarrow",
+
+	"gather_capacity_carts",
+
+	"trade_gain_01",
+
+	"trade_gain_02",
+
+	"trade_commercial_treaty",
+
 	"trader_health",
 	"gather_animals_stockbreeding",
 	"health_civilians_01",
-	"wonder_population_cap"         // +20% max pop (needs the wonder)
+	"wonder_population_cap"
+
 ];
 
 BrennusBot.prototype.manageExpansionTechs = function()
@@ -3770,10 +3016,7 @@ BrennusBot.prototype.manageExpansionTechs = function()
 		return false;
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
-	// Parallelize: the facilities (storehouse, farmstead, market, house,
-	// CC, wonder) research independently — keep up to 3 expansion techs in
-	// flight at once, otherwise the 16-tech list would take ~20 min
-	// serialized (each tech is 40-120 s of research time).
+
 	let researching = 0;
 	for (const tech of this.expansionTechs)
 		if (gameState.isResearching(tech))
@@ -3788,10 +3031,7 @@ BrennusBot.prototype.manageExpansionTechs = function()
 		if (!researchers)
 			continue;
 		const cost = gameState.getTemplate(tech).cost();
-		// Leave the CC stream (300s/250m each) and the training floor intact.
-		// The research order sets constructionHold, which keeps the CC order
-		// out of the same block, so only the barter order can race us — and
-		// barter never spends stone/metal.
+
 		if (!resources.canAfford({
 			"food": (cost.food || 0) + 150,
 			"wood": (cost.wood || 0) + 400,
@@ -3813,15 +3053,8 @@ BrennusBot.prototype.manageExpansionTechs = function()
 	return false;
 };
 
-/**
- * Goal 8 barter: buy stone/metal with food/wood surpluses. Price-aware:
- * the seller is whichever of food/wood gets the better current ratio
- * (getBarterPrices — each 500-unit deal drifts the sold resource's price
- * ~8% down and the bought one ~8% up, restoration is 0.5 per 5 s), and
- * deals pause entirely below a 0.3 ratio so the prices recover instead of
- * being hammered to 200:1. Spending stops above the stockpile floors, so
- * the 50k bars are never eaten into.
- */
+/** Price-aware stone/metal buying: pick the better-ratio seller, pause
+ * below 0.35 so prices recover, spend only above the stockpile floors. */
 BrennusBot.prototype.manageExpansionBarter = function(market)
 {
 	const gameState = this.gameState;
@@ -3835,9 +3068,7 @@ BrennusBot.prototype.manageExpansionBarter = function(market)
 		const woodRatio = ratio("wood");
 		const sell = foodRatio >= woodRatio ? "food" : "wood";
 		const bestRatio = Math.max(foodRatio, woodRatio);
-		// Floor 45k + one deal per 3 blocks: the drain (33/s) stays below the
-		// food/wood income so the stock still climbs toward the 50k bar while
-		// the market works, and the spacing lets the prices recover.
+
 		if (bestRatio >= 0.35 && res[sell] >= 47000 && this.turn % 15 === 0)
 		{
 			market.barter(want, sell, 500);
@@ -3848,11 +3079,7 @@ BrennusBot.prototype.manageExpansionBarter = function(market)
 	return false;
 };
 
-/** percentMapControlled equivalent, computed the way the engine does: own
- * AND connected AND passable territory tiles over all passable tiles
- * (passable = every navcell of the 8 m tile clear of default-terrain-only
- * obstructions). The end-of-game statistics carry the authoritative number;
- * this one drives the live telemetry. */
+/** percentMapControlled equivalent: own + connected + passable tiles over all passable tiles. */
 BrennusBot.prototype.territoryPercent = function()
 {
 	const terr = this.territoryMap;
@@ -3888,7 +3115,6 @@ BrennusBot.prototype.territoryPercent = function()
 };
 
 // ---------------------------------------------------------------- save/load
-
 BrennusBot.prototype.Serialize = function()
 {
 	return {
