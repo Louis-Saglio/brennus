@@ -1,2 +1,5 @@
 # Scratch: isolated match HOMEs, smoke-run logs
 tmp/
+
+# Python bytecode
+__pycache__/
