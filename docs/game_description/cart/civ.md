@@ -160,7 +160,7 @@ fights for it.
 | Gallic Mercenary Swordsman (`infantry_swordsman_gaul_b`) | embassy_celtic (+ vestigial embassy) | Town | 100 HP, sword 8.8 hack, 60 metal, 7 s, 1 pop — no gathering |
 | Samnite Swordsman (`infantry_swordsman_ital_b`) | vestigial embassy only | Town | identical stats — unreachable through the build UI |
 | Samnite Spearman (`infantry_spearman_ital_b`) | embassy_italic | Town | 100 HP, spear 4.95 + 4.4 (2.5× vs Cavalry), 60 metal, 7 s |
-| Iberian Mercenary Skirmisher (`infantry_javelineer_iber_b`) | embassy_iberian (+ vestigial embassy) | Town | 50 HP, javelin 17.6 pierce @ 30 m, 80 metal, 7 s |
+| Iberian Mercenary Skirmisher (`infantry_javelineer_iber_b`) | embassy_iberian (+ vestigial embassy) | Town | 50 HP, javelin 17.6 pierce @ 30 m, 80 metal, 7 s — flaming javelins (stacking Burning status, +1 fire/3 s for 9 s) |
 | Balearic Slinger (`infantry_slinger_iber_b`) | embassy_iberian (+ vestigial embassy) | Town | 50 HP, sling 14.55 pierce + 1.39 crush @ 50 m, 75 metal, 7 s |
 | Gallic Mercenary Cavalry (`cavalry_swordsman_gaul_b`) | embassy_celtic (+ vestigial embassy) | Town | 160 HP, sword 9.9 hack, 20 food + 90 metal, 10.5 s |
 | Iberian Heavy Cavalry (`cavalry_swordsman_iber_b`) | vestigial embassy only | Town | identical stats — unreachable through the build UI |

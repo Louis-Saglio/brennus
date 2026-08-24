@@ -6,7 +6,7 @@ Stats resolved from `simulation/templates/units/cart/infantry_javelineer_iber_b`
 
 ## Guide
 
-The Iberian Mercenary Skirmisher is the metal-paid ranged harasser: 80 metal (the most metal of the infantry mercenaries) buys a 50 HP skirmisher throwing 17.6-pierce javelins at 30 m — +10% damage over a citizen javelineer — trained in 7 s at the Iberian embassy from the Town phase. It is fragile (1/1 armor, 50 HP) and cannot gather, so it must stay behind the melee line and kite; its fast feet (walk 11.4 m/s) help it run from trouble. It auto-promotes to Advanced at 0 XP, tightening its spread immediately. Because mercenaries cannot harvest, every one trained is a permanent net consumer of metal rather than a worker that pays for itself — train it for fire support, not as the backbone of the army.
+The Iberian Mercenary Skirmisher is the metal-paid ranged harasser: 80 metal (the most metal of the infantry mercenaries) buys a 50 HP skirmisher throwing 17.6-pierce javelins at 30 m — +10% damage over a citizen javelineer — trained in 7 s at the Iberian embassy from the Town phase. Its javelins are **flaming**: each hit applies a stacking Burning status (+1 fire damage every 3 s for 9 s — 4 fire per hit, unmitigated by armor). It is fragile (1/1 armor, 50 HP) and cannot gather, so it must stay behind the melee line and kite; its fast feet (walk 11.4 m/s) help it run from trouble. It auto-promotes to Advanced at 0 XP, tightening its spread immediately. Because mercenaries cannot harvest, every one trained is a permanent net consumer of metal rather than a worker that pays for itself — train it for fire support, not as the backbone of the army.
 
 ## Basic stats
 
@@ -15,6 +15,7 @@ The Iberian Mercenary Skirmisher is the metal-paid ranged harasser: 80 metal (th
 - **Armor:** 1 hack / 1 pierce / 10 crush
 - **Attack:** Capture — strength 2.5 — range 4 m — repeat 1 s — restricted Field Palisade Wall
 - **Attack:** Ranged "Javelin" — damage 17.6 pierce — range 30 m — prepare 0.4 s — repeat 1.5 s — preferred Human
+- **Attack:** Ranged "Javelin" applies a Burning status: +1 fire damage every 3 s for 9 s, stacking
 - **Speed:** walk 11.4 m/s, run 19.04 m/s
 - **Vision:** 80 m
 - **Cost:** 80 metal
