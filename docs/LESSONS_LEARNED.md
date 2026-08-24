@@ -246,3 +246,33 @@
 - **Pop discipline under the 300 cap**: 150 workers + 10 healers + 6
   rams (3 pop each) + 120 soldiers = 298. A 175-worker cap pop-blocked
   the army at ~60 while 14k food sat banked.
+## 2026-08-24
+
+- **Iberian data quirks** (verified against templates while writing the
+  iber docs): the iber **archery range is buildable but useless** — the
+  generic range template has no `Researcher` and iber has no archer
+  templates, so it trains nothing and researches nothing (and
+  `archer_attack_spread` is `notciv: iber` anyway). The iber
+  **monument has no `TerritoryInfluence`** and is **uncapturable**
+  (`Capturable` disabled); it is built by the iber women and the four
+  citizen infantry types (their templates add it to the builder list —
+  cavalry and champions do not). The iber **fortress trains the three
+  heroes** (unlike pers/ptol, whose fortresses train none);
+  `hero_indibil_infantry` is vestigial (no trainer, no upgrade link).
+  Iberia has **no civ-specific techs at all** — every bonus is template-
+  or map-level (the Massive Towers tower, the Starting Walls skirmish
+  replacements, the monument aura).
+- **`civs/iber.json`'s "Massive Towers" description is stale**: it claims
+  "+60% health", but `structures/iber/defense_tower` sets 2400 HP vs the
+  generic stone tower's 1000 (+140%). The other claims (−50% wood, +150%
+  stone, +33% build time, +3 garrison, +1 arrow) all match the template.
+  Trust the templates over `civs/*.json` descriptions.
+- **`unit_elite`/`unit_advanced` rank-tech artifacts in Guides**: the
+  standard "Gather base speed ×0.7/×0.49" rank lines are meaningless for
+  units whose `ResourceGatherer` is disabled (mercenaries, champions) —
+  the docs keep them for format consistency, but don't read them as real
+  gather rates.
+- **Auras with `"type": "garrison"`** (iber Caros "Valiant Defender")
+  apply only while the carrier is garrisoned, modifying the *building's*
+  stats (BuildingAI/GarrisonArrowMultiplier, MaxArrowCount) — the only
+  garrison-type hero aura among the civs documented so far.
