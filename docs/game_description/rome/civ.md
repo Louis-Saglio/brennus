@@ -7,7 +7,9 @@ generic (non-civ-specific) civilisation** in 0 A.D. 0.28.0. The baseline
 civ-specific content), the standard tech tree (`phase_town_generic` /
 `phase_city_generic`, all techs with no civ requirement), the standard
 `StartEntities` pattern, and no civ or team bonuses. Per-entity details are
-in [`romans/`](../romans/) (rome-only entities) and [`generic/`](../generic/)
+in this folder's [`auras/`](auras/), [`buildings/`](buildings/),
+[`technologies/`](technologies/) and [`units/`](units/) directories
+(rome-only entities) and in [`generic/`](../generic/)
 (shared entities with per-civ variants); this file is the complete delta.
 
 Data sources: `civs/rome.json`, `templates/structures/rome/`,
