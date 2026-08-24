@@ -198,12 +198,17 @@
   Researcher as `{pair: true, top, bottom}`; the UI presents the two
   referenced techs as one paired slot. No engine-level exclusivity
   between top and bottom.
-- **Errors found in the pre-existing generic docs (not fixed — docs are
-  off-limits without instruction)**: `generic/units/infantry_swordsman_merc_b.md`
-  says the mercenary swordsman costs "60 metal plus 50 food, 40 wood" and
-  "can gather" — wrong on both counts: `mixins/merc_inf` zeroes the
+- **Errors found in the pre-existing generic docs (fixed after Louis
+  confirmed)**: `generic/units/infantry_swordsman_merc_b.md` said the
+  mercenary swordsman costs "60 metal plus 50 food, 40 wood" and "can
+  gather" — wrong on both counts: `mixins/merc_inf` zeroes the
   food/wood/stone costs and the `mercenary` mixin `disable`s
   `ResourceGatherer` (resolved cost: 60 metal, 7 s, no gather rates). The
+  same "can gather" error existed in
+  `generic/units/cavalry_spearman_merc_b.md` and
+  `generic/units/cavalry_javelineer_merc_b.md` (all four civ variants use
+  `merc_inf`/`merc_cav`). Fixed the Guides and added "no gathering
+  (ResourceGatherer disabled)" to each civilisation-override block. The
   merc infantry DO keep the `Builder` class, which is how they build the
   ptol special buildings. Also: the library building (`mace`/`ptol`/`sele`)
   and its "Center of Scholarship" aura have no files in `generic/` — they

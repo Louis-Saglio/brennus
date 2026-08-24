@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-A mercenary melee swordsman trained at the **military_colony** (Ptolemies and Seleucids only). Both variants pay **60 metal** (plus 50 food, 40 wood) but build in only **7 s**, making it a fast-to-field frontline fighter when metal is available — metal is a scarce, premium resource, so spamming it is expensive so it suits emergency or supplementary recruitment rather than a main-line army. Its melee attack (8.8 hack, preferred Unit+!Ship) is a general-purpose anti-unit weapon with no class bonus, and it keeps modest worker abilities (can gather and has the Builder class). Mercenaries auto-promote at 0 XP via `upgrade_rank_advanced_mercenary`, so survivors reach Advanced/Elite rank (up to ~156 HP) without needing to earn experience in combat.
+A mercenary melee swordsman trained at the **military_colony** (Ptolemies and Seleucids only). Both variants pay **60 metal** — the mercenary mixin zeroes the food, wood and stone components — and build in only **7 s**, making it a fast-to-field frontline fighter when metal is available — metal is a scarce, premium resource, so spamming it is expensive so it suits emergency or supplementary recruitment rather than a main-line army. Its melee attack (8.8 hack, preferred Unit+!Ship) is a general-purpose anti-unit weapon with no class bonus. Like all mercenaries it **cannot gather** (the mercenary mixin disables ResourceGatherer), though it keeps the Builder class. Mercenaries auto-promote at 0 XP via `upgrade_rank_advanced_mercenary`, so survivors reach Advanced/Elite rank (up to ~156 HP) without needing to earn experience in combat.
 
 ## Basic stats
 
@@ -63,8 +63,10 @@ These civilisations override the generic stats above (only differing values are 
   - Melee "Sword" — damage 8.8 hack — range 3 m — prepare 0.375 s — repeat 0.75 s — preferred Unit+!Ship
   - cost 60 metal
   - build time 7 s
+  - no gathering (ResourceGatherer disabled)
 - **sele** — `units/sele/infantry_swordsman_merc_b`
   - Capture — strength 2.5 — range 4 m — repeat 1 s — restricted Field Palisade Wall
   - Melee "Rhomphaia" — damage 8.8 hack — range 3 m — prepare 0.375 s — repeat 0.75 s — preferred Unit+!Ship
   - cost 60 metal
   - build time 7 s
+  - no gathering (ResourceGatherer disabled)

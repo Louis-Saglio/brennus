@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-A mercenary cavalry spearman available to Ptolemies and Seleucids, trained at the Military Colony rather than the Civic Centre. It is the anti-cavalry choice among cavalry: the Spear attack carries a documented 1.75× bonus vs Cavalry, and its speed (run 25.2 m/s) lets it intercept or raid. The civilisation variants cost 20 food + 90 metal — metal instead of food — so it is metal-intensive, a premium unit that is hard to mass, and mercenaries promote automatically (the rank upgrades require 0 XP). Like other CitizenSoldiers it can gather meat (5 food/s), but that is a side use, not its role.
+A mercenary cavalry spearman available to Ptolemies and Seleucids, trained at the Military Colony rather than the Civic Centre. It is the anti-cavalry choice among cavalry: the Spear attack carries a documented 1.75× bonus vs Cavalry, and its speed (run 25.2 m/s) lets it intercept or raid. The civilisation variants cost 20 food + 90 metal — the citizen cavalry's wood (and most of its food) replaced by metal — so it is metal-intensive, a premium unit that is hard to mass, and mercenaries promote automatically (the rank upgrades require 0 XP). Like all mercenaries it **cannot gather** (the mercenary mixin disables ResourceGatherer), unlike the citizen cavalry it replaces.
 
 ## Basic stats
 
@@ -63,8 +63,10 @@ These civilisations override the generic stats above (only differing values are 
   - Melee "Spear" — damage 6.6 hack + 6.05 pierce — range 4 m — prepare 0.625 s — repeat 1.25 s — bonus 1.75× vs Cavalry — preferred Unit+!Ship
   - cost 20 food, 90 metal
   - build time 10.5 s
+  - no gathering (ResourceGatherer disabled)
 - **sele** — `units/sele/cavalry_spearman_merc_b`
   - Capture — strength 1.75 — range 4 m — repeat 1 s — restricted Field Palisade Wall
   - Melee "Spear" — damage 6.6 hack + 6.05 pierce — range 4 m — prepare 0.625 s — repeat 1.25 s — bonus 1.75× vs Cavalry — preferred Unit+!Ship
   - cost 20 food, 90 metal
   - build time 10.5 s
+  - no gathering (ResourceGatherer disabled)
