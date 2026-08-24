@@ -64,8 +64,9 @@ end-of-game summaries), and when in doubt measure the turn rate with and
 without the logging enabled.
 
 ## Running a game
-Use kiln through its MCP to run games in headless mode efficiently.  
+Use kiln through its MCP to run games in headless mode efficiently.
 You can use this project custom game running harness only as a fallback if kiln is not available.
+See "Running test games with kiln" below for the how-to.
 
 ## Iterating on goals
 
