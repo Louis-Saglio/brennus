@@ -79,3 +79,47 @@
   the same bot scored 45% and 59% on seed 1 across consecutive versions
   because one fewer enemy CC had been razed by t=45m. Evaluate map%
   across several seeds, never one.
+
+## 2026-08-24
+
+- **The game_description generator scripts don't exist in the repo.**
+  `docs/game_description/README.md` claims the entity files are generated
+  by versioned `tools/analyze.py` / `buildings.py` / `technologies.py` /
+  `auras.py` / `civ.py`, but no such scripts are in `tools/` (the current
+  `tools/analyze.py` is the match-report analyzer). The carthage docs were
+  hand-written, with stats resolved by a scratch extractor
+  (`tmp/extract_cart.py`) that reimplements the template merge. Do not
+  regenerate those docs until the scripts are recreated — regeneration
+  would overwrite the handwritten Guide sections.
+- **CParamNode merge semantics** (verified in `ParamNode.cpp ApplyLayer`,
+  used to resolve template stats): parent chains apply deepest-first;
+  multi-parents `"A|B"` apply **right-to-left** (B as base, A on top);
+  `datatype="tokens"` lists merge with `-token` removal; plain elements
+  override by name; `op="add"`/`"mul"` modify the parent value;
+  `disable=""` removes a node; **XML attributes are stored as
+  `@`-prefixed child nodes** (so `Square width="37"` becomes the `@width`
+  child — attribute overrides resolve through the normal merge, which is
+  why "last block wins" footprint logic is wrong when a child omits the
+  Height).
+- **Engine arithmetic is CFixed_15_16 integer fixed-point**:
+  `int(v*65536)` (truncating), multiply = `(a*b)>>16`. The docs' displayed
+  values only reproduce with this emulation: run speed 9.5 × 1.67 →
+  15.86 (not 15.87), cart merc spear damage 4.95 × 1.1 → 5.44 (not 5.45).
+  Run speed is never stored — it is walk × `RunMultiplier` (infantry
+  1.67, cavalry 1.4) computed in fixed point.
+- **Carthage data quirks** (all verified against templates): the
+  mercenary mixin `disable`s `ResourceGatherer` (mercs cannot gather);
+  `mixins/merc_inf` sets 60-metal / ×0.7-build-time costs,
+  `mixins/merc_cav` 90 metal + 20 food and a 300-XP elite promotion
+  (infantry mercs: 100 XP); `structures/cart/embassy` (the all-in-one
+  embassy) and `tophet` are vestigial (no builder lists them), which
+  makes the Samnite Swordsman and Iberian Heavy Cavalry unreachable
+  through the build UI; the "Triple Walls" bonus (class `Wall`) skips the
+  palisade and the cart Low Wall because their segments carry no `Wall`
+  class; cart's stone walls are own-territory-only while the Low Wall is
+  own+neutral.
+- **Pre-existing doc gaps found while writing the cart docs** (not
+  fixed — docs are off-limits without instruction): `ship_movement_speed`
+  (cart+pers) and `ship_capture_resistance` (all but rome) have no files
+  in `generic/technologies/`, though the civ.md files reference them as
+  generic techs.
