@@ -39,3 +39,20 @@
 - `-autostart-aibehavior` values (0.28.0): `random` / `balanced` /
   `defensive` / `aggressive` (autostart default `balanced`); difficulty
   index 3 = medium.
+
+## 2026-08-24
+
+- **The kiln harness mod wins mod precedence over the tested mod's
+  `maps/scripts/NonVisualTrigger.js`** — a time-limit trigger shipped in
+  the bot mod is inert on kiln runs. The in-game limit on kiln comes only
+  from the job spec's `in_game_limit_min`; full goal-9 runs must pass 45.
+- **Foundations report a `foundation|…` `templateName()`**, so any "do we
+  already have building X" check that only compares `templateName()`
+  against the built template misses foundations and spams duplicate
+  orders (goal-9 defense v1 ordered 7 barracks). Count foundations via
+  `gameState.getBuiltTemplate(f.templateName()).templateName()`.
+- **A construct order given to an army unit is cancelled by the army's
+  next rally/attack-move command.** `placeOrder` picked the nearest own
+  unit regardless of role; once a standing army exists it must exclude
+  army members (`filter(ent => !this.army[ent.id()])`), else CC/corral
+  orders randomly "construct FAILED" when the nearest unit is a soldier.

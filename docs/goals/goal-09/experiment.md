@@ -58,8 +58,94 @@ Readings:
   ~5:10 wall incl. startup) vs ~113 with a sandbox — plan goal-9 batches
   accordingly (a full 45-min match ≈ 7 wall minutes serial).
 
+## 2026-08-24 — fresh kiln baseline (seeds 1-3, 45-min no cap reached)
+
+Runs moved to kiln (MCP). Note: the kiln harness mod mounts its own
+`NonVisualTrigger.js` last, so the mod's 45-minute trigger is inert on kiln —
+the per-run limit comes from the job spec's `in_game_limit_min`.
+
+| seed | outcome | turn | peak map% | units lost (civ) | enemy killed | Petra trained |
+|---|---|---|---|---|---|---|
+| 1 | defeated | 8461 ≈ 28.2m | 38 | 928 (923) | 48 | 312 (212 inf, 44 cav, 18 champ, 8 siege) |
+| 2 | defeated | 8673 ≈ 28.9m | 23 | 1207 (1202) | 32 | 309 (211 inf, 44 cav, 27 champ, 6 siege) |
+| 3 | defeated | 8827 ≈ 29.4m | 43 | 1151 (1146) | 48 | 329 (229 inf, 55 cav, 33 champ) |
+
+Threat telemetry (seed 1, enemy totals everywhere on the map): 49 soldiers
+at 10 min, 97 at 15, 149 at 20, first siege at ~23 min when the army
+reaches the base (88 m from the home CC), 213 + 8 siege at 28 min (defeat).
+Petra builds 2 fortresses and mass-produces infantry; the bot's only kills
+come from CC arrows and workers fighting back.
+
+## Defense v1 (this iteration)
+
+Post-boom only (boom logic untouched): roster of every Soldier (minus the
+herder), 2 barracks + 1 temple near the home CC, alternating
+spearman/javelineer batches + fanatics up to 80 pop of army, women
+dismissed for pop room, the civilian stream paused at cap-5 while the army
+musters, workers garrison the nearest garrisonable structure when an enemy
+soldier/siege is within 60 m (eject after 20 turns clear of 100 m), and the
+army blob attack-moves to whichever own CC has enemies within 120 m
+(nearest-to-home wins), rallying at the home CC otherwise.
+
 ## Next
 
 - Defend logic is the goal: something must notice the Petra army and
   either contest it or wall/tower the expansion before the CCs fall.
 - Re-tune expansion shares from the 30- to the 45-minute deadline.
+
+## 2026-08-24 — defense iterations (kiln probes, 30-min cap, seeds rotated)
+
+All probes: `random/mainland` 192, temperate, circle, conquest_civic_centers,
+Petra medium defensive rome, `in_game_limit_min=30`.
+
+- **def1** (defense v1 as above): seeds 1-2 survived to the cap but map
+  control stuck at 23%, zero expansion CCs. Bugs found: barracks spam
+  (foundation `templateName()` is `foundation|…` — the "already have it"
+  count missed them, 7 barracks ordered); CC/corral orders randomly failed
+  because `placeOrder` picks the nearest own unit — often an army soldier
+  whose construct order the rally/attack-move code cancels next block.
+- **def2** (foundation-aware counts, `placeOrder` excludes army): seeds
+  2-3 won, seed 1 died at 29.9 min. Muster stalled at 4 soldiers from 15
+  to 21 min: training required stock ≥ 1000 food/wood (the post-boom
+  economy sits far below that), and pop hovered at 299/300 so the
+  `pop >= limit` dismissal never fired (trainWorkers stops at limit-5).
+  Once it fired it never stopped: 145-384 women dismissed per game,
+  gutting the food economy. Expansion blocked: CC spots went stale
+  (nearEnemy / enemy CC within 200 m) and were skipped forever, and a
+  lone builder walking to a contested spot died (50-turn pendingBuilds
+  timeout then poisoned the spot via failedSpots).
+- **def3** (training floor 300/300, one batch per trainer per call,
+  dismissal throttled to 1/3 turns with a 200-worker floor and trigger
+  pop > limit-6, 3 barracks): all 3 seeds won. s3 reached 55% with 2
+  CCs. Seed 2 showed the sequential plan flaw: one permanently-contested
+  spot blocked all later spots.
+- **def4** (stale spots rotate to the back of the queue with a retry cap,
+  CC afford floor lowered to 400w/400s/300m, CC orders get a 4-worker
+  party, pending CC timeout 150 turns, army rallies at the pending CC as
+  escort): all won, but s4's 2 expansion CCs were razed — the army
+  returns home after construction and 80 basics cannot hold a frontier
+  against the 150-200-unit waves.
+- **def5/def6** (forge + soldier attack/resistance techs, towers with the
+  engine's 60 m Tower-to-Tower BuildRestrictions enforced in placement —
+  the generic placer ignored it and every tower order failed silently;
+  shelter no longer garrisons workers in `INDIVIDUAL.REPAIR.*` states,
+  which was cancelling CC builders): all won, 38-45% map, one expansion
+  CC standing at 30 min on every seed, losses way down (30-121 civ).
+  Expansion is now rate-limited by Petra's territory: their CCs claim
+  most planned spots before we get there (Petra peak 50-66%).
+- **def7** (offense: with no home threat and army ≥ 70, raid the
+  least-defended enemy CC, retreat below 45; stale spots now fully
+  rotate/retry since razing clears nearCC): the s1 raid (army 71 vs 20
+  defenders) was spent in 80 seconds — basic infantry cannot raze a
+  garrisoned CC before reinforcements arrive; s2/s4 never reached army
+  70 under churn.
+
+## Defense v2 (current)
+
+v1 plus: 3 barracks + temple + forge + arsenal at home, 3 towers at home
++ 2 per expansion CC (60-m spacing enforced), forge attack/armor techs
+cheapest-first, worker dismissal throttled with a 200-worker floor,
+builder parties of 4 for CCs, army escort of pending CC foundations,
+stale-spot rotation, and the raid: army ≥ 70 + no home threat → raze the
+least-defended enemy CC with 3 rams (300w/150m each, trained once the
+army hits 60) while the infantry screens; retreat at 45.

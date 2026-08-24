@@ -174,6 +174,13 @@ BrennusBot.prototype.CustomInit = function(gameState)
 
 	this.expOn = this.savedState?.expOn || false;
 
+	// Defense (goal 9): standing army roster (entityID -> 1), command throttle, shelter memory.
+	this.army = this.savedState?.army || {};
+	this.rams = this.savedState?.rams || {};
+	this.armyCmdTurn = 0;
+	this.shelterDanger = {};
+	this.spearNext = true;
+
 };
 
 BrennusBot.prototype.OnUpdate = function()
@@ -198,6 +205,7 @@ BrennusBot.prototype.OnUpdate = function()
 		this.manageBarter();
 		this.manageExpansion();
 		this.manageTrade();
+		this.manageDefense();
 	}
 	const phase = this.gameState.currentPhase();
 	if (phase !== this.lastPhase)
@@ -260,7 +268,7 @@ BrennusBot.prototype.assignGatherers = function()
 
 	for (const ent of this.gameState.getOwnUnits().values())
 	{
-		if (!ent.isGatherer() || !ent.position())
+		if (!ent.isGatherer() || !ent.position() || this.army[ent.id()])
 			continue;
 
 		if (ent.id() === this.herderId && !this.herdingDone)
@@ -1082,6 +1090,11 @@ BrennusBot.prototype.trainWorkers = function()
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
 
+	// Leave pop room for the mustering army: stop the civilian stream at the cap.
+	if (this.expansionOn() && this.armyCount() < this.defenseArmyTarget &&
+		gameState.getPopulation() >= gameState.getPopulationLimit() - 5)
+		return;
+
 	const reserveFood = this.banking ? 500 : (this.phaseReserve?.food || 0);
 
 	const fertFloor = this.fertPending ? 300 : 0;
@@ -1255,6 +1268,7 @@ BrennusBot.prototype.manageConstruction = function()
 		const builders = gameState.getOwnUnits()
 			.filter(ent => ent.isGatherer() && ent.isBuilder() && ent.position() &&
 				!(ent.id() === this.herderId && !this.herdingDone) &&
+				!this.army[ent.id()] &&
 				!taken.has(ent.id()) &&
 				(!rush || this.assignments[ent.id()] === "wood"))
 			.filterNearest(fpos, needed);
@@ -1283,7 +1297,7 @@ BrennusBot.prototype.manageConstruction = function()
 		if (foundations.some(nearSpot) ||
 			gameState.getOwnStructures().toEntityArray().some(nearSpot))
 			return false;
-		if (this.turn - pb.turn > 50)
+		if (this.turn - pb.turn > (pb.template.indexOf("civil_centre") !== -1 ? 150 : 50))
 		{
 			print(`[HARNESS] construct FAILED: ${pb.template} at ${pb.x.toFixed(0)},${pb.z.toFixed(0)}\n`);
 			this.failedSpots.push([pb.x, pb.z]);
@@ -2057,7 +2071,8 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 
 BrennusBot.prototype.placeOrder = function(templateType, pos, rush)
 {
-	const builder = this.gameState.getOwnUnits().filterNearest(pos, 1).toEntityArray()[0];
+	const builder = this.gameState.getOwnUnits().filter(ent =>
+		(!this.army || !this.army[ent.id()]) && (!this.rams || !this.rams[ent.id()])).filterNearest(pos, 1).toEntityArray()[0];
 	if (!builder)
 		return false;
 	builder.construct(templateType, pos[0], pos[1], this.getPlacementAngle(), undefined);
@@ -2151,7 +2166,7 @@ BrennusBot.prototype.findGridSpot = function(templateType, plots, region)
 	return undefined;
 };
 
-BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRadius, maxRadius, fine, region)
+BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRadius, maxRadius, fine, region, extraCheck)
 {
 	const gameState = this.gameState;
 	const template = gameState.getTemplate(templateType);
@@ -2175,6 +2190,8 @@ BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRa
 			if (this.nearEnemy([x, z], 100, 60))
 				continue;
 			if (region !== undefined && this.accessibility.getAccessValue([x, z]) !== region)
+				continue;
+			if (extraCheck && !extraCheck(x, z))
 				continue;
 			if (this.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
 				return [x, z];
@@ -2226,6 +2243,8 @@ BrennusBot.prototype.updateEnemyPositions = function()
 {
 	this.enemyStructuresPos = [];
 	this.enemyMobilesPos = [];
+	let army = 0, siege = 0, nearest = Infinity;
+	const ccPos = this.getCivicCentre()?.position();
 	for (const ent of this.gameState.getEnemyEntities().values())
 	{
 		if (ent.owner() === 0 && !(ent.hasClass("Animal") && ent.get("Attack")))
@@ -2234,10 +2253,31 @@ BrennusBot.prototype.updateEnemyPositions = function()
 		if (!pos)
 			continue;
 		if (ent.hasClass("Structure"))
+		{
 			this.enemyStructuresPos.push(pos);
-		else
-			this.enemyMobilesPos.push(pos);
+			continue;
+		}
+		this.enemyMobilesPos.push(pos);
+		if (ent.owner() === 0)
+			continue;
+		if (ent.hasClass("Siege"))
+			siege++;
+		else if (ent.hasClass("Soldier"))
+			army++;
+		if (ccPos)
+			nearest = Math.min(nearest, SquareDistance(pos, ccPos));
 	}
+	this.enemyArmy = army;
+	this.enemySiege = siege;
+	this.enemyNearestHome = Math.sqrt(nearest);
+
+	// First-contact telemetry: log once per threshold crossing (tightening).
+	for (const th of [400, 250, 150, 80])
+		if (this.enemyNearestHome < th && (this.threatLogged === undefined || this.threatLogged > th))
+		{
+			this.threatLogged = th;
+			print(`[THREAT] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m enemy army=${army} siege=${siege} nearest=${Math.sqrt(nearest).toFixed(0)}m from home CC\n`);
+		}
 };
 
 BrennusBot.prototype.nearEnemy = function(pos, structureDist, mobileDist)
@@ -2251,6 +2291,537 @@ BrennusBot.prototype.nearEnemy = function(pos, structureDist, mobileDist)
 		if (SquareDistance(epos, pos) < md2)
 			return true;
 	return false;
+};
+
+// ---------------------------------------------------------------- defense
+/** Post-boom standing army size (pop is shared with workers/traders under the 360 cap). */
+BrennusBot.prototype.defenseArmyTarget = 80;
+
+BrennusBot.prototype.armyCount = function()
+{
+	let n = 0;
+	for (const id in this.army)
+		n++;
+	return n;
+};
+
+/**
+ * Goal-9 defense: a standing army mustered after the boom (barracks
+ * spearmen/javelineers + temple fanatics, women dismissed for pop room),
+ * workers sheltering in garrisonable structures when enemies are close, and
+ * the army blob sent to whichever CC has enemies near it.
+ */
+BrennusBot.prototype.manageDefense = function()
+{
+	const gameState = this.gameState;
+
+	// Roster: drop the dead; once the expansion stage is on, every Soldier joins the army.
+	for (const id in this.army)
+		if (!gameState.getEntityById(+id))
+			delete this.army[id];
+	for (const id in this.rams)
+		if (!gameState.getEntityById(+id))
+			delete this.rams[id];
+	if (this.expansionOn())
+		for (const ent of gameState.getOwnUnits().values())
+		{
+			const id = ent.id();
+			if (ent.hasClass("Siege") && !this.rams[id])
+			{
+				this.rams[id] = 1;
+				continue;
+			}
+			if (this.army[id] || !ent.hasClass("Soldier") || id === this.herderId)
+				continue;
+			this.army[id] = 1;
+			delete this.assignments[id];
+			if (ent.position())
+				ent.setStance("defensive");
+		}
+
+	this.manageDefenseBuildings();
+	this.manageDefenseTraining();
+	this.manageMilitaryTechs();
+
+	// Enemy soldiers/siege in the world, once for the threat scan and the shelter.
+	const mil = [];
+	for (const ent of gameState.getEnemyUnits().values())
+	{
+		if (ent.owner() === 0 || (!ent.hasClass("Soldier") && !ent.hasClass("Siege")))
+			continue;
+		const pos = ent.position();
+		if (pos)
+			mil.push(pos);
+	}
+
+	// Threat: enemies within 120 m of an own CC; the CC nearest home wins.
+	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
+	const homePos = this.getCivicCentre()?.position();
+	let threat;
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		if (ent.templateName() !== ccType || !ent.position())
+			continue;
+		const cp = ent.position();
+		let n = 0, sx = 0, sz = 0;
+		for (const p of mil)
+		{
+			if (SquareDistance(p, cp) > 120 * 120)
+				continue;
+			n++;
+			sx += p[0];
+			sz += p[1];
+		}
+		if (!n)
+			continue;
+		const score = homePos ? SquareDistance(cp, homePos) : -n;
+		if (!threat || score < threat.score)
+			threat = { "x": sx / n, "z": sz / n, "n": n, "score": score };
+	}
+
+	const armyEnts = [];
+	for (const id in this.army)
+	{
+		const ent = gameState.getEntityById(+id);
+		if (ent?.position())
+			armyEnts.push(ent);
+	}
+	if (threat)
+	{
+		// Defense takes precedence over any raid.
+		if (this.offense)
+		{
+			this.offense = undefined;
+			for (const ent of armyEnts)
+				ent.setStance("defensive");
+		}
+		if (!this.hadThreat)
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m engaging ${threat.n} enemies near CC ${threat.x.toFixed(0)},${threat.z.toFixed(0)} (army=${armyEnts.length})\n`);
+		if (this.turn >= this.armyCmdTurn)
+		{
+			this.armyCmdTurn = this.turn + 10;
+			for (const ent of armyEnts)
+				ent.attackMove(threat.x, threat.z, "Unit", false);
+		}
+	}
+	else if (this.manageOffense(gameState, armyEnts, mil, homePos))
+	{
+		// raid in progress, commands issued there
+	}
+	else if (this.turn >= this.armyCmdTurn)
+	{
+		// Rally: at a pending expansion CC (escort the builders) else home.
+		let rally = homePos;
+		for (const pb of this.pendingBuilds)
+			if (pb.template === ccType)
+			{
+				rally = [pb.x, pb.z];
+				break;
+			}
+		if (rally === homePos)
+			for (const f of gameState.getOwnFoundations().values())
+				if (f.position() && gameState.getBuiltTemplate(f.templateName()).templateName() === ccType)
+				{
+					rally = f.position();
+					break;
+				}
+		if (rally)
+		{
+			let far = false;
+			for (const ent of armyEnts)
+				if (SquareDistance(ent.position(), rally) > 60 * 60)
+				{
+					far = true;
+					break;
+				}
+			if (far)
+			{
+				this.armyCmdTurn = this.turn + 25;
+				for (const ent of armyEnts)
+					if (SquareDistance(ent.position(), rally) > 60 * 60)
+						ent.move(rally[0], rally[1]);
+			}
+		}
+	}
+	this.hadThreat = !!threat;
+
+	// Shelter: workers garrison the nearest holder with room when enemies are
+	// close (60 m); holders eject once no enemy has been within 100 m for 20 turns.
+	const holders = [];
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		if (!ent.position() || ent.foundationProgress() !== undefined || !ent.isGarrisonHolder())
+			continue;
+		if (ent.healthLevel() < 0.15)
+			continue;
+		holders.push({ "ent": ent, "pos": ent.position(),
+			"free": (+ent.garrisonMax() || 0) - ent.garrisonedSlots() });
+	}
+	for (const h of holders)
+		for (const p of mil)
+			if (SquareDistance(p, h.pos) < 100 * 100)
+			{
+				this.shelterDanger[h.ent.id()] = this.turn;
+				break;
+			}
+	for (const h of holders)
+		if (h.ent.garrisonedSlots() > 0 &&
+			this.turn - (this.shelterDanger[h.ent.id()] ?? -1000) > 20)
+			h.ent.unloadAll();
+	if (!mil.length)
+		return;
+	for (const ent of gameState.getOwnUnits().values())
+	{
+		if (!ent.isGatherer() || !ent.position() || this.army[ent.id()] || ent.id() === this.herderId)
+			continue;
+		const state = ent.unitAIState() || "";
+		if (state.indexOf("GARRISON") !== -1 || state.indexOf("REPAIR") !== -1)
+			continue;
+		const wp = ent.position();
+		let danger = false;
+		for (const p of mil)
+			if (SquareDistance(p, wp) < 60 * 60)
+			{
+				danger = true;
+				break;
+			}
+		if (!danger)
+			continue;
+		let best, bestD = 90 * 90;
+		for (const h of holders)
+		{
+			if (h.free <= 0)
+				continue;
+			const d2 = SquareDistance(h.pos, wp);
+			if (d2 < bestD)
+			{
+				bestD = d2;
+				best = h;
+			}
+		}
+		if (best)
+		{
+			best.free--;
+			ent.garrison(best.ent);
+		}
+	}
+};
+
+/**
+ * Goal-9 offense: with no threat at home and a strong army, raze the least
+ * defended enemy CC — enemy CCs claim the spots our expansion plan needs
+ * (200 m rule) and their territory caps our map control. Retreat and regroup
+ * below 45 soldiers. Returns true while a raid is being commanded.
+ */
+BrennusBot.prototype.manageOffense = function(gameState, armyEnts, mil, homePos)
+{
+	if (!this.expansionOn() || !armyEnts.length)
+		return false;
+
+	const ramEnts = [];
+	for (const id in this.rams)
+	{
+		const ent = gameState.getEntityById(+id);
+		if (ent?.position())
+			ramEnts.push(ent);
+	}
+	const sendRamsHome = () => {
+		if (homePos)
+			for (const ram of ramEnts)
+				ram.move(homePos[0], homePos[1]);
+	};
+
+	if (this.offense)
+	{
+		const target = gameState.getEntityById(this.offense.id);
+		if (!target || !target.position())
+		{
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m razed enemy CC at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)}\n`);
+			this.offense = undefined;
+			this.armyCmdTurn = 0;	// rally home next block
+			for (const ent of armyEnts)
+				ent.setStance("defensive");
+			sendRamsHome();
+		}
+	}
+	if (!this.offense)
+	{
+		if (this.armyCount() < 70)
+			return false;
+		let best, bestScore;
+		for (const ent of gameState.getEnemyStructures().values())
+		{
+			if (!ent.hasClass("CivCentre") || !ent.position() ||
+				ent.foundationProgress() !== undefined)
+				continue;
+			const cp = ent.position();
+			let defenders = 0;
+			for (const p of mil)
+				if (SquareDistance(p, cp) < 100 * 100)
+					defenders++;
+			const score = defenders * 10000 + (homePos ? SquareDistance(cp, homePos) : 0);
+			if (best === undefined || score < bestScore)
+			{
+				best = ent;
+				bestScore = score;
+			}
+		}
+		if (!best)
+			return false;
+		const bp = best.position();
+		this.offense = { "id": best.id(), "x": bp[0], "z": bp[1] };
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${Math.floor(bestScore / 10000)}, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+		for (const ent of armyEnts)
+			ent.setStance("aggressive");
+	}
+	if (this.armyCount() < 45)
+	{
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid spent, regrouping (army=${armyEnts.length})\n`);
+		this.offense = undefined;
+		this.armyCmdTurn = 0;
+		for (const ent of armyEnts)
+			ent.setStance("defensive");
+		sendRamsHome();
+		return false;
+	}
+	if (this.turn < this.armyCmdTurn)
+		return true;
+	this.armyCmdTurn = this.turn + 10;
+	for (const ent of armyEnts)
+	{
+		if (SquareDistance(ent.position(), [this.offense.x, this.offense.z]) < 60 * 60)
+			ent.attack(this.offense.id, false);
+		else
+			ent.attackMove(this.offense.x, this.offense.z, "Unit", false);
+	}
+	for (const ram of ramEnts)
+	{
+		if (SquareDistance(ram.position(), [this.offense.x, this.offense.z]) < 50 * 50)
+			ram.attack(this.offense.id, false);
+		else
+			ram.attackMove(this.offense.x, this.offense.z, "Structure", false);
+	}
+	return true;
+};
+
+/** Post-boom military buildings: barracks + temple + forge around the home CC, and towers (3 home, 2 per expansion CC). */
+BrennusBot.prototype.manageDefenseBuildings = function()
+{
+	if (!this.expansionOn() || this.constructionHold)
+		return;
+	const gameState = this.gameState;
+	const wants = [
+		[gameState.applyCiv("structures/{civ}/barracks"), 3],
+		[gameState.applyCiv("structures/{civ}/temple"), 1],
+		[gameState.applyCiv("structures/{civ}/forge"), 1],
+		[gameState.applyCiv("structures/{civ}/arsenal"), 1]
+	];
+	for (const [type, want] of wants)
+	{
+		let have = 0;
+		for (const ent of gameState.getOwnStructures().values())
+			if (ent.templateName() === type)
+				have++;
+		// getOwnStructures misses foundations' built name: count them separately.
+		for (const f of gameState.getOwnFoundations().values())
+			if (gameState.getBuiltTemplate(f.templateName()).templateName() === type)
+				have++;
+		if (have >= want || this.pendingBuilds.some(pb => pb.template === type))
+			continue;
+		if (gameState.getResources().wood < 500)
+			return;
+		if (this.tryConstruct(type, "military"))
+		{
+			gameState.getResources().subtract({ "wood": 300 });
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m defense building ${type.split("/").pop()}\n`);
+			this.constructionHold = true;
+		}
+		return;
+	}
+
+	// Towers: 3 around the home CC, 2 per expansion CC.
+	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
+	const home = this.getCivicCentre();
+	if (!home)
+		return;
+	for (const cc of gameState.getOwnStructures().values())
+	{
+		if (cc.templateName() !== ccType || !cc.position() ||
+			cc.foundationProgress() !== undefined)
+			continue;
+		const isHome = cc.id() === home.id();
+		if (!isHome && this.armyCount() < 30)
+			continue;	// no point fortifying a frontier the army cannot reach yet
+		if (this.placeTower(cc.position(), isHome ? 3 : 2))
+			return;
+	}
+};
+
+/**
+ * Order one defense tower near `center` if fewer than `want` stand (or are
+ * planned) within 60 m. Towers must be ≥ 60 m from any other Tower
+ * (BuildRestrictions) — the generic placer ignores that, so the candidate
+ * filter enforces 65 m against built, foundation and pending towers.
+ */
+BrennusBot.prototype.placeTower = function(center, want)
+{
+	const gameState = this.gameState;
+	const towerType = gameState.applyCiv("structures/{civ}/defense_tower");
+	const towers = [];
+	for (const ent of gameState.getOwnStructures().values())
+		if (ent.templateName() === towerType && ent.position())
+			towers.push(ent.position());
+	for (const f of gameState.getOwnFoundations().values())
+		if (f.position() && gameState.getBuiltTemplate(f.templateName()).templateName() === towerType)
+			towers.push(f.position());
+	for (const pb of this.pendingBuilds)
+		if (pb.template === towerType)
+			towers.push([pb.x, pb.z]);
+	let near = 0;
+	for (const p of towers)
+		if (SquareDistance(p, center) < 60 * 60)
+			near++;
+	if (near >= want)
+		return false;
+	const res = gameState.getResources();
+	if (res.wood < 300 || res.stone < 300)
+		return false;
+	const clearOfTowers = (x, z) => !towers.some(p => SquareDistance(p, [x, z]) < 65 * 65);
+	const spot = this.findBuildingPosition(towerType, center, 12, 80, true,
+		this.accessibility.getAccessValue(center), clearOfTowers);
+	if (!spot || !this.placeOrder(towerType, spot))
+		return false;
+	res.subtract({ "wood": 100, "stone": 100 });
+	print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m tower at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} for CC ${center[0].toFixed(0)},${center[1].toFixed(0)}\n`);
+	return true;
+};
+
+/** Forge upgrades for the standing army, cheapest first. */
+BrennusBot.prototype.militaryTechs = [
+	["soldier_attack_melee_01", { "food": 200, "metal": 100 }],
+	["soldier_attack_ranged_01", { "wood": 200, "metal": 100 }],
+	["soldier_resistance_hack_01", { "food": 200, "metal": 100 }],
+	["soldier_resistance_pierce_01", { "wood": 200, "metal": 100 }],
+	["soldier_attack_melee_02", { "food": 350, "metal": 250 }],
+	["soldier_attack_ranged_02", { "wood": 350, "metal": 250 }],
+	["soldier_resistance_hack_02", { "food": 350, "metal": 250 }],
+	["soldier_resistance_pierce_02", { "wood": 350, "metal": 250 }]
+];
+
+BrennusBot.prototype.manageMilitaryTechs = function()
+{
+	if (!this.expansionOn() || this.constructionHold)
+		return;
+	const gameState = this.gameState;
+	const res = gameState.getResources();
+	for (const [tech, cost] of this.militaryTechs)
+	{
+		if (gameState.isResearched(tech) || gameState.isResearching(tech))
+			continue;
+		const facility = gameState.findResearchers(tech)?.toEntityArray()
+			.filter(ent => ent.foundationProgress() === undefined &&
+				(ent.trainingQueue()?.length || 0) <= 1)[0];
+		if (!facility || !gameState.canResearch(tech))
+			return;
+		if (!res.canAfford(cost) || res.metal < (cost.metal || 0) + 150)
+			return;
+		facility.research(tech);
+		res.subtract(cost);
+		print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${tech}\n`);
+		this.constructionHold = true;
+		return;
+	}
+};
+
+/** Army production: barracks spearmen/javelineers (alternating), temple fanatics; dismiss women for pop room. */
+BrennusBot.prototype.manageDefenseTraining = function()
+{
+	if (!this.expansionOn())
+		return;
+	const gameState = this.gameState;
+	const res = gameState.getResources();
+	const barracksType = gameState.applyCiv("structures/{civ}/barracks");
+	const templeType = gameState.applyCiv("structures/{civ}/temple");
+	let queued = 0;
+	const trainers = [];
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		if (ent.foundationProgress() !== undefined)
+			continue;
+		if (ent.templateName() !== barracksType && ent.templateName() !== templeType)
+			continue;
+		for (const item of ent.trainingQueue() || [])
+			queued += item.count;
+		if ((ent.trainingQueue()?.length || 0) <= 1)
+			trainers.push(ent);
+	}
+	const missing = this.defenseArmyTarget - this.armyCount() - queued;
+	if (missing > 0 && res.food >= 300 && res.wood >= 300)
+		for (const ent of trainers)
+		{
+			if (ent.templateName() === barracksType)
+			{
+				const type = gameState.applyCiv(this.spearNext ?
+					"units/{civ}/infantry_spearman_b" : "units/{civ}/infantry_javelineer_b");
+				this.spearNext = !this.spearNext;
+				ent.train(gameState.getPlayerCiv(), type, 5, {});
+				res.subtract({ "food": 250, "wood": 250 });
+				continue;
+			}
+			ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_fanatic"), 5, {});
+			res.subtract({ "food": 600, "wood": 500 });
+		}
+	// Rams for the raid: keep 3 once the army is mostly mustered.
+	const arsenalType = gameState.applyCiv("structures/{civ}/arsenal");
+	let rams = 0;
+	const arsenals = [];
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		if (ent.templateName() !== arsenalType || ent.foundationProgress() !== undefined)
+			continue;
+		for (const item of ent.trainingQueue() || [])
+			rams += item.count;
+		if ((ent.trainingQueue()?.length || 0) <= 1)
+			arsenals.push(ent);
+	}
+	for (const id in this.rams)
+		rams++;
+	if (this.armyCount() >= 60 && rams < 3 && arsenals.length &&
+		res.wood >= 450 && res.metal >= 300)
+	{
+		arsenals[0].train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/siege_ram"), 1, {});
+		res.subtract({ "wood": 300, "metal": 150 });
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams + 1}/3)\n`);
+	}
+	// Pop room for a batch of 5: dismiss workers (idle first) until 5 slots are
+	// free, throttled and never below a floor that keeps the economy alive.
+	if (missing > 0 &&
+		gameState.getPopulation() > gameState.getPopulationLimit() - 6 &&
+		this.turn >= (this.nextDismissTurn || 0))
+	{
+		let victim, fallback, workers = 0;
+		for (const ent of gameState.getOwnUnits().values())
+		{
+			if (!ent.position() || !ent.isGatherer() || this.army[ent.id()] ||
+				ent.id() === this.herderId || ent.hasClass("Soldier") || ent.hasClass("Trader"))
+				continue;
+			workers++;
+			if (ent.isIdle())
+			{
+				victim = victim || ent;
+				continue;
+			}
+			fallback = fallback || ent;
+		}
+		victim = victim || fallback;
+		if (victim && workers > 200)
+		{
+			this.nextDismissTurn = this.turn + 3;
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m dismissing a civilian for army pop room (workers=${workers})\n`);
+			delete this.assignments[victim.id()];
+			victim.destroy();
+		}
+	}
 };
 
 // ---------------------------------------------------------------- logging
@@ -2309,6 +2880,8 @@ BrennusBot.prototype.logStatus = function()
 		`dist wood=${dropsiteDist.wood}m grain=${dropsiteDist.grain}m fruit=${dropsiteDist.fruit}m ` +
 		`founds=${gameState.getOwnFoundations().toEntityArray().length} failedSpots=${(this.failedSpots || []).length} ` +
 		`fruitStock=${Math.round(this.fruitStock)} ` +
+		`enemyArmy=${this.enemyArmy || 0} siege=${this.enemySiege || 0} enemyNear=${(this.enemyNearestHome || 0).toFixed(0)}m ` +
+		`army=${this.armyCount ? this.armyCount() : 0} ` +
 		`woodline=${this.woodline ? this.woodline.kind + "@" +
 			(this.woodline.center ? this.woodline.center[0].toFixed(0) + "," + this.woodline.center[1].toFixed(0) : "-") +
 			"=" + Math.round(this.woodline.total) : "none"} ` +
@@ -2891,8 +3464,9 @@ BrennusBot.prototype.manageExpansion = function()
 			for (const f of gameState.getOwnFoundations().values())
 				if (gameState.getBuiltTemplate(f.templateName()).hasClass("CivCentre") && f.position())
 					ccSpots.push(f.position());
-			const stale = ccSpots.some(c => SquareDistance(c, spot) < 200 * 200) ||
-				this.nearEnemy(spot, 100, 60) ||
+			const nearCC = ccSpots.some(c => SquareDistance(c, spot) < 200 * 200);
+			const enemyNear = this.nearEnemy(spot, 100, 60);
+			const stale = nearCC || enemyNear ||
 				(this.expansionRegion !== undefined &&
 					this.accessibility.getAccessValue(spot) !== this.expansionRegion) ||
 				!this.expansionSpotOK(spot, halfW, halfD);
@@ -2900,7 +3474,25 @@ BrennusBot.prototype.manageExpansion = function()
 			{
 				const terr = this.territoryMap;
 				const ti = Math.floor(spot[0] / terr.cellSize) + Math.floor(spot[1] / terr.cellSize) * terr.width;
-				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC spot ${spot[0].toFixed(0)},${spot[1].toFixed(0)} stale (owner=${terr.data[ti] & 0x1F} nearCC=${ccSpots.some(c => SquareDistance(c, spot) < 200 * 200)} nearEnemy=${this.nearEnemy(spot, 100, 60)} spotOK=${this.expansionSpotOK(spot, halfW, halfD)}) skipping\n`);
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC spot ${spot[0].toFixed(0)},${spot[1].toFixed(0)} stale (owner=${terr.data[ti] & 0x1F} nearCC=${nearCC} nearEnemy=${enemyNear} spotOK=${this.expansionSpotOK(spot, halfW, halfD)}) skipping\n`);
+				// Stale spots rotate to the back of the queue instead of
+				// blocking the plan; nearEnemy clears when their patrol moves,
+				// nearCC clears when the raid razes their CC. Only terrain-level
+				// failures (bad spot, wrong region) are dropped immediately.
+				if (this.expansionSpotOK(spot, halfW, halfD) &&
+					(this.expansionRegion === undefined ||
+						this.accessibility.getAccessValue(spot) === this.expansionRegion))
+				{
+					plan.staleRetries = plan.staleRetries || {};
+					const key = `${spot[0].toFixed(0)},${spot[1].toFixed(0)}`;
+					plan.staleRetries[key] = (plan.staleRetries[key] || 0) + 1;
+					if (plan.staleRetries[key] < 100)
+					{
+						plan.spots.splice(plan.next, 1);
+						plan.spots.push(spot);
+						return;
+					}
+				}
 				plan.next++;
 				return;
 			}
@@ -2910,10 +3502,17 @@ BrennusBot.prototype.manageExpansion = function()
 		if (this.constructionHold)
 			return;
 		// Floors above the raw cost: the engine checks the real stock at processing.
-		if (!res.canAfford({ "wood": 600, "stone": 750, "metal": 550 }))
+		if (!res.canAfford({ "wood": 400, "stone": 400, "metal": 300 }))
 			return;
 		if (!this.placeOrder(ccType, spot))
 			return;
+		// A lone builder dies or gets sheltered en route: send a party of 4.
+		const party = gameState.getOwnUnits()
+			.filter(ent => ent.isGatherer() && ent.position() &&
+				!this.army[ent.id()] && ent.id() !== this.herderId)
+			.filterNearest(spot, 4).toEntityArray();
+		for (const ent of party)
+			ent.construct(ccType, spot[0], spot[1], this.getPlacementAngle(), undefined);
 		res.subtract({ "wood": 300, "stone": 300, "metal": 250 });
 		print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC order at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} (${plan.next + 1}/${plan.spots.length})\n`);
 		return;
@@ -2940,7 +3539,7 @@ BrennusBot.prototype.manageTrade = function()
 
 		if (gameState.getPopulation() >= gameState.getPopulationLimit())
 			for (const ent of gameState.getOwnUnits().values())
-				if (ent.isGatherer() && !ent.hasClass("Cavalry") && ent.isIdle() &&
+				if (ent.isGatherer() && !ent.hasClass("Cavalry") && ent.isIdle() && !this.army[ent.id()] &&
 					!(ent.id() === this.herderId && !this.herdingDone))
 				{
 					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m dismissing idle civilian for a trader\n`);
@@ -3142,7 +3741,9 @@ BrennusBot.prototype.Serialize = function()
 		"herdWoundDist": this.herdWoundDist,
 		"mineId": this.mineId,
 		"expPlan": this.expPlan,
-		"expOn": this.expOn
+		"expOn": this.expOn,
+		"army": this.army,
+		"rams": this.rams
 	};
 };
 
