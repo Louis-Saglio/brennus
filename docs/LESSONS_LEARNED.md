@@ -311,3 +311,33 @@
   bonuses (starting elephant, pillar, maidens, food pair) are
   template/tech/map-level, with nothing listed in the civ file. Another
   case of the civ file under-describing the civ.
+## 2026-08-24
+
+- **Athenian data quirks** (verified against templates while writing the
+  athen docs): the athen **citizen archer and javelineer are
+  mercenary-mixin units** (`merc_inf` parents — 60 metal each, no
+  gathering, ×0.7 build time, +10% damage, 0-XP promotion), while the
+  hoplite spearman and slinger are ordinary citizens. The athen special
+  buildings (gymnasium, prytaneion) are **added to every athen unit's
+  builder list by the `mixins/civ/athen.xml` civ mixin** (the `civ/athen`
+  first-parent pattern on all athen templates) — unlike cart/ptol/maur,
+  whose special builders are per-unit overrides. The **slave is
+  vestigial** (no trainer), as are `hero_xenophon` and the standalone
+  `infantry_marine_archer_b` (the dock trains `infantry_archer_b_dock`
+  instead), and the **`pheidian_workshop` tech has no researcher** —
+  reachable only by direct command. The **`arsenal_philon` tech is
+  researched at the dock** (it lives in the generic dock's researcher
+  list, filtered by its `civ: athen` gate).
+- **`unlock_champion_infantry` gates nothing for athen**: the
+  `template_unit_champion_infantry_spearman` base carries no
+  `Requirements` (pers's variant adds them, athen's does not), so the
+  gymnasium's City Guard needs only the Town-phase building, and the
+  elite-spearman → champion promotion at 250 XP is a pure XP check.
+- **The `slave` template**: `Cost/Population 0`, `Health/RegenRate
+  −0.25` (finite lifespan — 100 HP ≈ 400 s), `Unhealable true`,
+  `Builder/Rate 0.5`, gather rates wood/stone/metal 1.0 vs the women's
+  0.7/0.35/0.35 — the pop-free worker pattern, if ever un-vestigialised.
+- **Base healer heals 5 HP per 2 s tick** (`template_unit_support_healer`
+  `Heal/Health 5`, interval 2000 ms) — so Hippocrates' "Hippocratic
+  Oath" (+3/tick) is a **+60%** heal-output buff, not the ~40% a naive
+  reading suggests. Hero healers use `Heal/Health 15` (7.5 HP/s).
