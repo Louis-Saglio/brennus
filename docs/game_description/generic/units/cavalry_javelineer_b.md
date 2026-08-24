@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-A cheap, fast ranged cavalry harasser: it costs only 100 food / 50 wood and 1 population, moves at run 22.68 m/s, and throws 18-pierce javelins at 30 m range, so it can kite slower units and raid exposed workers with little risk. As a CitizenSoldier it also gathers (meat at 5/s, 20 food capacity), making it a workable early-game hunter while it doubles as a skirmisher. Train it at the civil centre (and stable) once a mobile response force is needed, but note its fragility — 100 HP with only 2 hack / 1 pierce armor means it must avoid melee contact. Its attack prefers Human targets; it has no counter bonuses against any class.
+A cheap, fast ranged cavalry harasser: it costs only 100 food / 50 wood, moves at run 22.68 m/s, and throws 18-pierce javelins at 30 m range, so it can kite slower units and raid exposed workers with little risk. As a CitizenSoldier it also gathers (meat at 5/s, 20 food capacity), making it a workable early-game hunter while it doubles as a skirmisher. Train it at the civil centre (and stable) once a mobile response force is needed, but note its fragility — 100 HP with only 2 hack / 1 pierce armor means it must avoid melee contact. Its attack prefers Human targets; it has no counter bonuses against any class.
 
 ## Basic stats
 

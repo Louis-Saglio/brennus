@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-A champion-tier melee unit trained at the barracks: for a bot, this is a late-game damage dealer, not a citizen-soldier. At 80 food / 60 wood / 80 metal for 1 population slot, it is metal-intensive — a premium, hard-to-mass investment — but packs 16 hack damage every 0.75 s against Units (not Ships) with 200 HP and solid 6/6/20 armor. Its capture attack is restricted to fields, palisades and walls, so rely on other units to take down buildings. No attack bonuses against specific classes, so it wins fights by raw stats rather than by countering a particular enemy type.
+A champion-tier melee unit trained at the barracks: for a bot, this is a late-game damage dealer, not a citizen-soldier. At 80 food / 60 wood / 80 metal, it is metal-intensive — a premium, hard-to-mass investment — but packs 16 hack damage every 0.75 s against Units (not Ships) with 200 HP and solid 6/6/20 armor. Its capture attack is restricted to fields, palisades and walls, so rely on other units to take down buildings. No attack bonuses against specific classes, so it wins fights by raw stats rather than by countering a particular enemy type.
 
 ## Basic stats
 

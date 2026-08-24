@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-A cheap economic worker costing only 50 food — an abundant resource, so easy to mass — and 1 population, trained at houses, letting a bot produce gatherers in parallel with the civic centre — but only after researching the house technology "Fertility Festival" (`unlock_civilians_house_generic`, 250 food / 100 wood / 100 metal, Village Phase), whose 100 metal is a premium cost, metal being scarce. Its gather rates favour food (fruit and meat 1/s) over stone and metal (0.35/s), so assign it to food or wood. With 25 HP and only a 2-hack "Dagger" attack it is not a fighter: keep it away from combat. Note that all civilisation variants raise the build time from 8 s to 30 s.
+A cheap economic worker costing only 50 food — an abundant resource, so easy to mass — trained at houses, letting a bot produce gatherers in parallel with the civic centre — but only after researching the house technology "Fertility Festival" (`unlock_civilians_house_generic`, 250 food / 100 wood / 100 metal, Village Phase), whose 100 metal is a premium cost, metal being scarce. Its gather rates favour food (fruit and meat 1/s) over stone and metal (0.35/s), so assign it to food or wood. With 25 HP and only a 2-hack "Dagger" attack it is not a fighter: keep it away from combat. Note that all civilisation variants raise the build time from 8 s to 30 s.
 
 ## Basic stats
 

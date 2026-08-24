@@ -6,7 +6,7 @@ Stats resolved from `simulation/templates/units/rome/infantry_antesignanus` (ful
 
 ## Guide
 
-The Legionary Skirmisher is the romans' elite ranged citizen-soldier, trained at the army camp. It fights at 30 m with a fast 16-pierce javelin attack (preferred target Human) while still gathering resources at CitizenSoldier rates, making it a flexible pick for an army camp producing both economy and combat units. Already Elite rank, it costs 50 food, 50 wood, 15 metal and 1 population: the food and wood are abundant and easy to mass, but the 15 metal is a scarce premium resource, so massing it is a modest investment. Its 50 HP and 1 hack/pierce armor make it fragile in melee.
+The Legionary Skirmisher is the romans' elite ranged citizen-soldier, trained at the army camp. It fights at 30 m with a fast 16-pierce javelin attack (preferred target Human) while still gathering resources at CitizenSoldier rates, making it a flexible pick for an army camp producing both economy and combat units. Already Elite rank, it costs 50 food, 50 wood, 15 metal: the food and wood are abundant and easy to mass, but the 15 metal is a scarce premium resource, so massing it is a modest investment. Its 50 HP and 1 hack/pierce armor make it fragile in melee.
 
 ## Basic stats
 

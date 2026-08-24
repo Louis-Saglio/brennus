@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-The Fishing Boat is the naval food gatherer: trained at the dock for only 50 wood, 15 s and 1 population, it harvests fish at 1.8 food/s with a 40 food capacity. Train it whenever fish are available near a dock to add a food income line that does not compete with land farms. It is not a warship — its "Harpoon" attack (10 hack, 5 m range) is restricted to sea creatures, so keep it away from enemy military ships. It can also pick up floating treasure.
+The Fishing Boat is the naval food gatherer: trained at the dock for only 50 wood and 15 s, it harvests fish at 1.8 food/s with a 40 food capacity. Train it whenever fish are available near a dock to add a food income line that does not compete with land farms. It is not a warship — its "Harpoon" attack (10 hack, 5 m range) is restricted to sea creatures, so keep it away from enemy military ships. It can also pick up floating treasure.
 
 ## Basic stats
 

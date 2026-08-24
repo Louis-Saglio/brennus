@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-Fast melee cavalry trained at the stable (also at the civil centre for han) for 100 food, 40 wood, 10 metal and 1 population — the metal cost is a scarce, premium resource, so it is not as easy to mass as food/wood-only units. Its high speed (run 25.2 m/s) makes it suited to raiding, hunting (meat 5 /s) and quickly reaching fights, while the capture attack (strength 1.75, restricted to Field Palisade Wall) lets it capture that field fortification class. Like other cavalry it relies on speed rather than armor (3 hack / 2 pierce) to survive; ranks multiply its health and damage at the cost of gather speed and build time.
+Fast melee cavalry trained at the stable (also at the civil centre for han) for 100 food, 40 wood, 10 metal — the metal cost is a scarce, premium resource, so it is not as easy to mass as food/wood-only units. Its high speed (run 25.2 m/s) makes it suited to raiding, hunting (meat 5 /s) and quickly reaching fights, while the capture attack (strength 1.75, restricted to Field Palisade Wall) lets it capture that field fortification class. Like other cavalry it relies on speed rather than armor (3 hack / 2 pierce) to survive; ranks multiply its health and damage at the cost of gather speed and build time.
 
 ## Basic stats
 

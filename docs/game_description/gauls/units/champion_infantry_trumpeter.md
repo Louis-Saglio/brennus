@@ -6,7 +6,7 @@ Stats resolved from `simulation/templates/units/gaul/champion_infantry_trumpeter
 
 ## Guide
 
-A support champion whose main value is its "Intimidating Sound" aura (`auras/units/carnyx.json`): enemy Soldiers within 20 m get −10% attack damage and capture strength, so it pays off when kept alive inside a melee blob rather than sent in alone. It still fights as a solid champion in its own right (200 HP, 5 hack / 5 pierce armor, 18 hack melee with `Unit+!Ship` preference) and is cheap on population at 1 pop, though its 120 metal cost makes it a metal-heavy investment. Its capture attack (strength 5) is restricted to Field Palisade Walls, so it cannot help raze civic buildings.
+A support champion whose main value is its "Intimidating Sound" aura (`auras/units/carnyx.json`): enemy Soldiers within 20 m get −10% attack damage and capture strength, so it pays off when kept alive inside a melee blob rather than sent in alone. It still fights as a solid champion in its own right (200 HP, 5 hack / 5 pierce armor, 18 hack melee with `Unit+!Ship` preference); its 120 metal cost makes it a metal-heavy investment. Its capture attack (strength 5) is restricted to Field Palisade Walls, so it cannot help raze civic buildings.
 
 ## Basic stats
 

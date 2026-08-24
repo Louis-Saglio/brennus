@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-Champion Cavalry is an elite fast unit for the late game: it is a Champion-class Soldier trained at the stable (temple for cart, great_hall for germ), not a citizen-soldier, so it fights but does not gather. Its very high speed (run 25.2 m/s), 80 m vision and 1 population slot make it suited to raiding, flanking and chasing down fleeing units. Every variant also carries a Capture attack (strength 3.5, range 4 m), so it doubles as a fast capture unit against buildings; most variants add a spear attack with a 1.75× bonus vs Cavalry, making it a counter to enemy cavalry. The cost is heavy (150 food, 80 wood, 100 metal), so it is a metal-intensive, premium unit best reserved for when the economy can support it.
+Champion Cavalry is an elite fast unit for the late game: it is a Champion-class Soldier trained at the stable (temple for cart, great_hall for germ), not a citizen-soldier, so it fights but does not gather. Its very high speed (run 25.2 m/s), 80 m vision make it suited to raiding, flanking and chasing down fleeing units. Every variant also carries a Capture attack (strength 3.5, range 4 m), so it doubles as a fast capture unit against buildings; most variants add a spear attack with a 1.75× bonus vs Cavalry, making it a counter to enemy cavalry. The cost is heavy (150 food, 80 wood, 100 metal), so it is a metal-intensive, premium unit best reserved for when the economy can support it.
 
 ## Basic stats
 

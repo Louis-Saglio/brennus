@@ -6,7 +6,7 @@ Stats resolved from `simulation/templates/units/rome/infantry_spearman_conscript
 
 ## Guide
 
-The Levy Auxiliary Spearman is Rome's cheap, early-game citizen-soldier: at 50 food / 50 wood, 10 s build time and 1 population, it is trained at the civil centre from the start of a match. Its main combat role is countering cavalry, thanks to the 2.5× attack bonus vs Cavalry on its melee spear, while its crush armor of 15 gives it some resilience against ranged and siege damage. As a CitizenSoldier and Worker it doubles as a basic gatherer (all four resources) and builder, so it can grow the economy between fights. Its attack strength (4.5 hack + 4 pierce) is weak for the front line, so it is a defensive/economic stopgap rather than the backbone of an assault force.
+The Levy Auxiliary Spearman is Rome's cheap, early-game citizen-soldier: at 50 food / 50 wood and 10 s build time, it is trained at the civil centre from the start of a match. Its main combat role is countering cavalry, thanks to the 2.5× attack bonus vs Cavalry on its melee spear, while its crush armor of 15 gives it some resilience against ranged and siege damage. As a CitizenSoldier and Worker it doubles as a basic gatherer (all four resources) and builder, so it can grow the economy between fights. Its attack strength (4.5 hack + 4 pierce) is weak for the front line, so it is a defensive/economic stopgap rather than the backbone of an assault force.
 
 ## Basic stats
 

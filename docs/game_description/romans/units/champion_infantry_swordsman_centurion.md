@@ -6,7 +6,7 @@ Stats resolved from `simulation/templates/units/rome/champion_infantry_swordsman
 
 ## Guide
 
-The Centurion is the romans' champion support fighter: trained at the fortress (after the Marian Reforms technology) and limited by a training restriction category, it pairs a solid 16-hack melee sword attack and 200 HP with auras that boost nearby soldiers' attack damage and speed. Its real value is not raw fighting but the buff it brings to an army, so a bot should mix one into infantry groups rather than mass it, and should treat its capture attack as a secondary tool against structures. At 120 food / 60 wood / 100 metal and 1 population, its 100 metal cost makes it a premium, hard-to-mass investment, justified mainly when escorting a large infantry force.
+The Centurion is the romans' champion support fighter: trained at the fortress (after the Marian Reforms technology) and limited by a training restriction category, it pairs a solid 16-hack melee sword attack and 200 HP with auras that boost nearby soldiers' attack damage and speed. Its real value is not raw fighting but the buff it brings to an army, so a bot should mix one into infantry groups rather than mass it, and should treat its capture attack as a secondary tool against structures. At 120 food / 60 wood / 100 metal, its 100 metal cost makes it a premium, hard-to-mass investment, justified mainly when escorting a large infantry force.
 
 ## Basic stats
 

@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-The Healer is a non-combat support unit that restores health to nearby Human units (5 HP every 2 s at 12 m range), letting an army recover after fights without retreating wounded units home. It has no attack and only 85 HP with 1/1/1 armor, so it must be kept behind the fighting line. Train a few from the temple once Town phase is reached (it requires `phase_town`) for 100 food / 30 metal and 1 population each; the metal cost is a premium resource, so healers are an investment rather than a unit to mass. They promote with XP to gain heal strength and range.
+The Healer is a non-combat support unit that restores health to nearby Human units (5 HP every 2 s at 12 m range), letting an army recover after fights without retreating wounded units home. It has no attack and only 85 HP with 1/1/1 armor, so it must be kept behind the fighting line. Train a few from the temple once Town phase is reached (it requires `phase_town`) for 100 food / 30 metal each; the metal cost is a premium resource, so healers are an investment rather than a unit to mass. They promote with XP to gain heal strength and range.
 
 ## Basic stats
 

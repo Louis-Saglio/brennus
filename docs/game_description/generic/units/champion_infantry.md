@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-An elite anti-cavalry spearman: its melee attack carries a 2.5× bonus vs Cavalry, and at 200 HP with 6/6/20 armor it is far tougher than citizen-soldier spearmen. Train it when you face cavalry or need a durable front line, but mind the cost — 80 metal per unit is a premium resource investment, making it expensive to mass, though it occupies only 1 population. It also has a Capture attack (strength 5) restricted to Field/Palisade/Wall targets. Where it is trained depends on the civilisation: gymnasium (athen), temple (cart), or barracks (pers), with the pers variant being a cheaper but weaker version (120 HP, 50/30/50 cost).
+An elite anti-cavalry spearman: its melee attack carries a 2.5× bonus vs Cavalry, and at 200 HP with 6/6/20 armor it is far tougher than citizen-soldier spearmen. Train it when you face cavalry or need a durable front line, but mind the cost — 80 metal per unit is a premium resource investment, making it expensive to mass. It also has a Capture attack (strength 5) restricted to Field/Palisade/Wall targets. Where it is trained depends on the civilisation: gymnasium (athen), temple (cart), or barracks (pers), with the pers variant being a cheaper but weaker version (120 HP, 50/30/50 cost).
 
 ## Basic stats
 

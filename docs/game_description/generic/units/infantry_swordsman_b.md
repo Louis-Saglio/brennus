@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-The Swordsman is a basic citizen-soldier melee unit: an affordable front-line fighter (50 food, 40 wood, 10 metal — the metal, a scarce resource, makes it a small premium investment, though the food/wood base keeps it easy to mass — 1 population, 10 s to train) that can also gather resources and build thanks to its CitizenSoldier/Builder/Worker classes. Its 8 hack melee attack and Capture strength 2.5 make it suitable both for fighting enemy units and for capturing enemy buildings, and it is trained at the barracks (also at the civil centre for iber and rome). No attack bonuses against specific classes — it is a general-purpose infantry unit rather than a specialist counter.
+The Swordsman is a basic citizen-soldier melee unit: an affordable front-line fighter (50 food, 40 wood, 10 metal — the metal, a scarce resource, makes it a small premium investment, though the food/wood base keeps it easy to mass — 10 s to train) that can also gather resources and build thanks to its CitizenSoldier/Builder/Worker classes. Its 8 hack melee attack and Capture strength 2.5 make it suitable both for fighting enemy units and for capturing enemy buildings, and it is trained at the barracks (also at the civil centre for iber and rome). No attack bonuses against specific classes — it is a general-purpose infantry unit rather than a specialist counter.
 
 ## Basic stats
 

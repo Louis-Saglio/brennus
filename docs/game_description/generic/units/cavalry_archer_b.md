@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-A fast mounted archer for hit-and-run combat: its 60 m ranged bow attack (7.5 pierce, preferred vs Human) combined with a 21.42 m/s run speed lets it harass and kite enemy infantry while staying out of melee reach. It is cheap on population (1) and costs 100 food, 50 wood, but is fragile against ranged fire with only 1 pierce armor, so it should avoid standing fights against archers or fortifications. Train it from the stable (also from the civil centre for `pers` and `ptol`) as a mobile damage dealer and skirmisher rather than a frontline unit.
+A fast mounted archer for hit-and-run combat: its 60 m ranged bow attack (7.5 pierce, preferred vs Human) combined with a 21.42 m/s run speed lets it harass and kite enemy infantry while staying out of melee reach. It costs 100 food, 50 wood, but is fragile against ranged fire with only 1 pierce armor, so it should avoid standing fights against archers or fortifications. Train it from the stable (also from the civil centre for `pers` and `ptol`) as a mobile damage dealer and skirmisher rather than a frontline unit.
 
 ## Basic stats
 

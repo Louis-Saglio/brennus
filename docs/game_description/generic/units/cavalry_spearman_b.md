@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-The Cavalry Spearman is a fast CitizenSoldier whose main purpose is hunting and fighting enemy cavalry: it moves at 25.2 m/s run speed and carries a 1.75× melee attack bonus against the Cavalry class. At 100 food / 50 wood, 15 s build time and 1 population, it is a cheap, quick-to-field unit trainable at the stable (and at the civil centre for mace, pers and rome). Its ability to gather meat at 5/s also makes it useful for food income from hunted animals, and it contributes a capture attack against non-palisade structures, so it doubles as a mobile raider.
+The Cavalry Spearman is a fast CitizenSoldier whose main purpose is hunting and fighting enemy cavalry: it moves at 25.2 m/s run speed and carries a 1.75× melee attack bonus against the Cavalry class. At 100 food / 50 wood and 15 s build time, it is a cheap, quick-to-field unit trainable at the stable (and at the civil centre for mace, pers and rome). Its ability to gather meat at 5/s also makes it useful for food income from hunted animals, and it contributes a capture attack against non-palisade structures, so it doubles as a mobile raider.
 
 ## Basic stats
 
