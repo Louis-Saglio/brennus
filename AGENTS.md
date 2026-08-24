@@ -86,6 +86,122 @@ one core. When several matches must be run (e.g. multi-seed verification),
 run them **in parallel, one per core**, each with its own isolated HOME —
 this speeds up verification batches a lot compared to running them serially.
 
+## Running test games with kiln
+
+Kiln is a distributed 0 A.D. test runner: a server holds a queue of job
+specs, runners (machines with a pinned 0 A.D. install) pull jobs and run
+them headless, and results come back with per-player statistics. It is
+driven through MCP tools. Everything below was verified by actually
+submitting and running jobs.
+
+### Workflow
+
+1. `list_runners` — see which runners are `active`, their free capacity
+   (`slots`), benchmark speed (`benchmark_turns_per_sec`) and canary status.
+   Only `active` runners with `canary_ok: true` pick up jobs.
+2. `submit_batch` — pack a mod directory and submit one job spec. Returns a
+   batch id and one job id.
+3. `get_batch_status` — poll until every job is `done` or `failed`. Job
+   states: `queued` → `running` → `done`/`failed`. A finished job embeds
+   its full result inline.
+4. `get_result` — fetch one job's result: `exit_code`, `wall_seconds`,
+   `turn_count`, `turns_per_sec`, per-player `stats` (each with
+   `playerState` = `won`/`defeated` and the full end-of-game statistics the
+   engine prints), plus `result_dir` and `artifacts_tarball` paths.
+
+One `submit_batch` call creates one batch containing one job. For a
+multi-seed verification, submit one batch per seed (they run in parallel on
+free runner slots).
+
+### Job spec
+
+```json
+{
+  "map": "random/mainland",
+  "seed": 1,
+  "aiseed": 1,
+  "biome": "generic/temperate",
+  "placement": "circle",
+  "size": 192,
+  "players": [
+    {"ai": "<bot_ai_name>", "diff": 3, "behavior": "balanced", "civ": "gaul", "team": 1},
+    {"ai": "petra",         "diff": 3, "behavior": "balanced", "civ": "rome", "team": 2}
+  ],
+  "victory": ["conquest_civic_centers"],
+  "player": -1,
+  "in_game_limit_min": 15,
+  "wall_budget_s": 600,
+  "collect_replay": false
+}
+```
+
+All fields except `in_game_limit_min` and `collect_replay` are required —
+`diff` and `behavior` must be given for **every** player, including your own
+bot. Validation is strict (unknown values are rejected instead of silently
+ignored by the engine):
+
+- `map`: `random/<name>` (also skirmish/scenario maps) from the pinned
+  0.28.0 allowlist.
+- `players[].ai`: the AI directory name, i.e. a `simulation/ai/<name>/`
+  with a `data.json` — `petra` or one of the bot's AI ids (see
+  `bot/simulation/ai/`). **A wrong AI name does not fail the job**: the game
+  runs with an idle player and `exit_code` stays 0. Detect it by checking
+  the artifacts' `stdout.log` for `Failed to create AI player` and by
+  confirming your bot's `[HARNESS]` line printed and its stats are non-zero.
+- `players[].diff`: 0..=5. `players[].behavior`: `random`, `balanced`,
+  `defensive` or `aggressive`.
+- `players[].team`: `-1` (no team) or 1-based `1..=N` — **not** 0-based.
+- `size`: 64..=1024. Max 8 players.
+- `player`: local player slot, `-1` = observer (use that for bot matches).
+- `seed`/`aiseed`: map and AI seeds. Pin both, plus `biome` and
+  `placement`, to keep runs deterministic (verified: resubmitting the same
+  spec yields identical turn counts and identical statistics; only
+  wall-clock timings differ).
+- `in_game_limit_min`: the kiln harness (a mod that mounts last and
+  overrides `maps/scripts/NonVisualTrigger.js`) ends the game after this
+  many in-game minutes by marking player 1 `won` and the rest `defeated`,
+  so a capped run still exits cleanly and prints statistics. Always set
+  it; 15 in-game minutes = 4499 turns. This means `playerState` in the
+  stats only reflects real victory when the game ended before the limit.
+- `wall_budget_s`: hard wall-clock kill enforced by the runner (server cap:
+  7200). Size it generously above the expected run time — a killed job is
+  `failed` and loses the clean end-of-game output.
+- `collect_replay`: also uploads the `commands.txt` replay.
+
+### Mod upload (`mod_dir`)
+
+- `mod_dir` is a path **on the kiln server host**, read by the server
+  process itself — it is not uploaded from your machine. If your working
+  copy is not readable by the server, copy it to a directory it can read
+  first. (A submit that fails with "not a directory" on a real directory
+  means exactly this: wrong host, or the server process cannot traverse
+  the path.)
+- The directory's basename becomes the mod folder the runner installs and
+  mounts (`-mod=<basename>`). Any name works — the runner mounts it
+  consistently — but naming it after the mod avoids confusion.
+- Omit `mod_dir` entirely for petra-only games.
+- Bundles are content-addressed (sha256) and cached server-side, so
+  resubmitting an unchanged mod costs nothing.
+
+### Artifacts
+
+`get_result` returns the server's local paths to `result_dir` and
+`artifacts_tarball` (a .tar.gz). The tarball contains:
+
+- `stdout.log` / `stderr.log` — full engine output; this is where
+  `print()` lines (e.g. `[HARNESS]`) and JS errors land. **Always grep it
+  for `ERROR`** before trusting a result.
+- `stats.json` — the same per-player statistics as in the MCP result.
+- `result.json` — exit code, wall seconds, turn count, turns/s.
+- `metadata.json`, `mainlog.html`, `interestinglog.html` — engine logs.
+- `replay/` — only when `collect_replay: true`.
+
+These paths are on the kiln server host; you need shell access there (or a
+copy step) to read them.
+
+See also `tools/README.md` ("Kiln — remote headless runs") for the
+environment-specific staging recipe used on this VPS.
+
 ## Sharing progress
 
 - **Commit and push** to `main` on GitHub (Louis-Saglio/brennus) every time
