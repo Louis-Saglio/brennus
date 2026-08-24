@@ -1,0 +1,7 @@
+{
+	"name": "Brennus — Gaul generic land map",
+	"description": "Gaul bot for generic land maps that defeats an aggressive opponent (Petra, medium difficulty, aggressive behaviour): boom first, then convert the economy into a winning army within 45 in-game minutes.",
+	"constructor": "BrennusBot",
+	"filename": "brennus_gaul_generic_land_map.js",
+	"useShared": true
+}
