@@ -149,3 +149,38 @@ builder parties of 4 for CCs, army escort of pending CC foundations,
 stale-spot rotation, and the raid: army ≥ 70 + no home threat → raze the
 least-defended enemy CC with 3 rams (300w/150m each, trained once the
 army hits 60) while the infantry screens; retreat at 45.
+
+## 2026-08-24 — v2 probes and the 45-minute picture (kiln, seeds rotated)
+
+- **def8** (rams, 30-min cap, seeds 1/2/4): all won, s1 hit 62% map with a
+  wonder; s2 regressed to 23% with zero CCs — Petra's army camps at
+  100-270 m from our CC and sends 1-5-unit probes, so `threat` (any enemy
+  within 120 m) was active almost permanently and the raid never fired.
+  Simultaneously Petra raided our woodlines and razed ~10 storehouses.
+- **def9** (threat split: only 8+ units or siege near a CC is "serious" and
+  blocks/cancels a raid; sortie against siege camps ≥ 15 within 220 m when
+  army ≥ 60% of camp; raid at army ≥ 60 with ≥ 2 rams; 4 rams from army
+  40; army target 100; 4 barracks): all 3 seeds WON militarily — sorties
+  under tower cover break Petra's waves, raids follow. But map only
+  30-44%: the sequential CC plan placed 2 orders in 30 min. Food stock
+  collapses to ~0-11k (army churn: 500-1000 units lost per game).
+- **def10** (45-min cap, seeds 1/2/4; 2 concurrent CC projects, parties of
+  6, spots no longer staled by lone stragglers once `enemyArmy ≤ 40`,
+  never raze the LAST enemy CC — under conquest_civic_centers eliminating
+  Petra ends the match immediately, before the 45-minute bars are due):
+  s1 won 45%/49k wood, s2 won 44%, **s4 defeated at 43.6m** — Petra,
+  kept alive by the last-CC rule, rebuilds a fully-teched 250+ late army
+  (cav + champions + rams) that our basic-infantry army cannot stop;
+  once the army broke (army=0 at 38m) the base was rolled. Food at 45m:
+  2-4k on the wins. Two structural gaps: (1) army quality/churn — basics
+  trade terribly late, every retrain is food; (2) map% needs far more
+  than 2-3 CCs.
+- **def11** (survivability package: 3 temples, 6 healers trailing the army
+  — healers auto-heal at 12 m and cost only food+metal, towers 4 home /
+  3 per expansion CC since stone is abundant, healers persisted in
+  Serialize): running.
+
+Harness semantics learned (kiln `NonVisualTrigger.js`): at
+`in_game_limit_min` the trigger marks player 1 won and stats print; but if
+Petra loses ALL civic centres earlier, conquest fires and the game ends
+early — hence the last-CC rule.
