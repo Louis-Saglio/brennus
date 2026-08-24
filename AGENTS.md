@@ -17,8 +17,6 @@ implementation), shipped as a 0 A.D. mod and developed against **0.28.0 only**.
   grounded in the pinned game copy. Consult before writing bot logic.
 - `docs/ai_engine_api.md` — reference of the AI scripting API the bot uses.
 - `docs/pyrogenesis_cli.md` — the engine command line, headless usage.
-- `tmp/` — scratch (isolated match HOMEs, smoke-run logs). Never commit-grade
-  output.
 
 ## Hard constraints
 
@@ -65,25 +63,9 @@ simulation measurably (see the turn-rate figures in
 end-of-game summaries), and when in doubt measure the turn rate with and
 without the logging enabled.
 
-## Keep game runs short
-
-Running the game is the only way to test, and it is time-consuming: a match
-runs flat-out (~113 turns/s on this machine, so ~20 in-game minutes ≈ 1 wall
-minute), and an undecided game **never exits on its own** — the engine only
-quits when a victory condition fires. Take measures so no run lasts longer
-than strictly necessary:
-
-- Always wrap runs in `timeout`, sized from the in-game budget the test
-  actually needs (turns = in-game ms / 200; wall ≈ turns / 113).
-- For anything short of a full goal attempt, cap game time **in the mod**
-  (a time-limit trigger that marks players won so the engine exits cleanly
-  and prints statistics) rather than relying on wall-clock `timeout` —
-  SIGTERM skips `metadata.json` and end-of-game statistics.
-- Prefer the smallest/fastest setup that exercises the change: a small map,
-  a sandbox or no opponent, and only as many seeds/matches as the test
-  requires.
-- Never leave a run going "just in case": if the check you need has already
-  printed what you need, stop the process.
+## Running a game
+Use kiln through its MCP to run games in headless mode efficiently.  
+You can use this project custom game running harness only as a fallback if kiln is not available.
 
 ## Iterating on goals
 
