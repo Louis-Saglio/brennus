@@ -178,7 +178,27 @@ army hits 60) while the infantry screens; retreat at 45.
 - **def11** (survivability package: 3 temples, 6 healers trailing the army
   — healers auto-heal at 12 m and cost only food+metal, towers 4 home /
   3 per expansion CC since stone is abundant, healers persisted in
-  Serialize): running.
+  Serialize): s4 survived to 59% at 30 min before churn eroded it.
+- **def12** (hard 800f/800w training floor while defense buildings are
+  missing, to force temple/forge/arsenal funding): the muster froze —
+  the post-boom economy never holds 800/800 — s1/s3/s5 lost.
+- **def13** (same idea, one batch per trainer per call): still too slow,
+  same 3 seeds lost.
+- **def14** (45-min cap, seeds 1/3/5 — the three def10/def12/def13 losers):
+  worker cap 195 post-boom (kills the dismiss/retrain yo-yo: 400-900
+  dismissals/game ≈ 20-45k food leaking through retraining), training
+  floor 300f/600w while defense buildings are missing (wood reserve so
+  temples/forge/arsenal actually get funded, food stays at 300 so the
+  muster does not freeze), building wood gate 350, towers 5 home / 4 per
+  expansion CC, healer roster of 6 moving with every army command,
+  serious-threat gate (≥8 units or siege within 160 m of a CC blocks
+  raids), sortie at siege camps ≥ 15 within 220 m when army ≥ 50 and
+  ≥ 0.75×camp, raid at army ≥ 60 with ≥ 2 rams, 4 rams from army 40,
+  army target 100: **all 3 seeds WON at 45 min** — survival fixed. s1
+  45% map / 33.6k f / 33.9k w; s3 32% / 27.6k / 32.7k; s5 30% / 42.8k /
+  7.7k (s5 razed 2 enemy CCs, sparing the last). Food trajectory hugely
+  improved by the worker cap but still 27-43k vs 50k; wood volatile;
+  map stuck at 30-45% — the binding constraint.
 
 Harness semantics learned (kiln `NonVisualTrigger.js`): at
 `in_game_limit_min` the trigger marks player 1 won and stats print; but if

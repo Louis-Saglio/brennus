@@ -1096,6 +1096,21 @@ BrennusBot.prototype.trainWorkers = function()
 		gameState.getPopulation() >= gameState.getPopulationLimit() - 5)
 		return;
 
+	// Post-boom pop discipline: hold workers at the economic optimum and leave
+	// the rest of the cap free for soldier retraining. Refilling army losses
+	// with women only to dismiss them on the next soldier batch is a pure food
+	// leak — def10-12 logged 400-900 dismissals per game (≈ 20-45k food).
+	if (this.expansionOn())
+	{
+		let workers = 0;
+		for (const u of gameState.getOwnUnits().values())
+			if (u.isGatherer() && !u.hasClass("Soldier") && !u.hasClass("Trader") &&
+				u.id() !== this.herderId)
+				workers++;
+		if (workers >= 195)
+			return;
+	}
+
 	const reserveFood = this.banking ? 500 : (this.phaseReserve?.food || 0);
 
 	const fertFloor = this.fertPending ? 300 : 0;
@@ -2073,7 +2088,8 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 BrennusBot.prototype.placeOrder = function(templateType, pos, rush)
 {
 	const builder = this.gameState.getOwnUnits().filter(ent =>
-		(!this.army || !this.army[ent.id()]) && (!this.rams || !this.rams[ent.id()])).filterNearest(pos, 1).toEntityArray()[0];
+		(!this.army || !this.army[ent.id()]) && (!this.rams || !this.rams[ent.id()]) &&
+		(!this.healers || !this.healers[ent.id()])).filterNearest(pos, 1).toEntityArray()[0];
 	if (!builder)
 		return false;
 	builder.construct(templateType, pos[0], pos[1], this.getPlacementAngle(), undefined);
@@ -2726,9 +2742,9 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 		[gameState.applyCiv("structures/{civ}/forge"), 1],
 		[gameState.applyCiv("structures/{civ}/arsenal"), 1]
 	];
-	// While any of these is missing, training holds a reserve (see
+	// While any of these is missing, training holds a wood reserve (see
 	// manageDefenseTraining) so the buildings actually get funded — otherwise
-	// unit batches burn the stock below the 500-wood gate for minutes on end
+	// unit batches burn the stock below the wood gate for minutes on end
 	// and the temples/forge/arsenal land 10 minutes late (def11, seed 5).
 	let missingAny = false;
 	const haveByType = {};
@@ -2751,7 +2767,7 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 	{
 		if (haveByType[type] >= want || this.pendingBuilds.some(pb => pb.template === type))
 			continue;
-		if (gameState.getResources().wood < 500)
+		if (gameState.getResources().wood < 350)
 			return;
 		if (this.tryConstruct(type, "military"))
 		{
@@ -2762,7 +2778,7 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 		return;
 	}
 
-	// Towers: 3 around the home CC, 2 per expansion CC.
+	// Towers: 5 around the home CC, 4 per expansion CC.
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const home = this.getCivicCentre();
 	if (!home)
@@ -2775,7 +2791,7 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 		const isHome = cc.id() === home.id();
 		if (!isHome && this.armyCount() < 30)
 			continue;	// no point fortifying a frontier the army cannot reach yet
-		if (this.placeTower(cc.position(), isHome ? 4 : 3))
+		if (this.placeTower(cc.position(), isHome ? 5 : 4))
 			return;
 	}
 };
@@ -2883,10 +2899,13 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	let healerCount = 0;
 	for (const id in this.healers)
 		healerCount++;
-	// Buildings before bodies: while temples/forge/arsenal are outstanding,
-	// keep a reserve so construction can afford them.
-	const floor = this.defenseBuildingsMissing ? 800 : 300;
-	if (missing > 0 && res.food >= floor && res.wood >= floor)
+	// Buildings before bodies, but not at the price of a frozen muster: while
+	// temples/forge/arsenal are outstanding, hold a wood reserve (wood income
+	// far outpaces food spending, so the reserve fills fast) so construction
+	// can afford them — def11 starved the temples for 10 min below the 500
+	// gate, def12's hard 800/800 floor froze the army instead.
+	const floorW = this.defenseBuildingsMissing ? 600 : 300;
+	if (missing > 0 && res.food >= 300 && res.wood >= floorW)
 		for (const ent of trainers)
 		{
 			if (ent.templateName() === barracksType)
