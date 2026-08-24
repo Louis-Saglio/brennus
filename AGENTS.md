@@ -92,8 +92,7 @@ this speeds up verification batches a lot compared to running them serially.
 Kiln is a distributed 0 A.D. test runner: a server holds a queue of job
 specs, runners (machines with a pinned 0 A.D. install) pull jobs and run
 them headless, and results come back with per-player statistics. It is
-driven through MCP tools. Everything below was verified by actually
-submitting and running jobs.
+driven through MCP tools.
 
 ### Workflow
 
@@ -199,9 +198,6 @@ ignored by the engine):
 
 These paths are on the kiln server host; you need shell access there (or a
 copy step) to read them.
-
-See also `tools/README.md` ("Kiln — remote headless runs") for the
-environment-specific staging recipe used on this VPS.
 
 ## Sharing progress
 

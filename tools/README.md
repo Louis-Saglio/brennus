@@ -85,20 +85,6 @@ tools/hunt-analyze.py <stdout.log>
 Parses `[HUNT]` lines: per huntable animal, template, mode, wound/kill/carcass
 dropDist, inTerr, and whether the carcass is within civilian pickup range.
 
-### Reading results
-
-- `mcp__kiln__get_batch_status {batch_id}` — per-job state
-  (queued/running/done/failed).
-- `mcp__kiln__get_result {job_id}` — exit code, `turn_count`
-  (× 200 ms = in-game time), `turns_per_sec`, per-player `stats` (same
-  fields as the end-of-game statistics JSON: boom bars, map %, resources).
-- Artifacts per job at
-  `/var/lib/kiln/results/<client>/<batch>/<job>/` — `artifacts.tar.gz` plus
-  the extracted copy: `stdout.log` (full engine output incl.
-  `[HARNESS]`/`[DEF]` telemetry), `stderr.log` (empty = no JS errors),
-  `stats.json`, `result.json`, `metadata.json`, `mainlog.html`,
-  `interestinglog.html`.
-
 ## Code helpers
 
 - `strip_comments.py <in.js> <out.js>` — strip JS comments, preserving code
