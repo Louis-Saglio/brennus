@@ -234,7 +234,17 @@ army hits 60) while the infantry screens; retreat at 45.
   every own CC are gated on enemyArmy ≤ 100 AND army ≥ 50, gated spots
   rotate to the back of the queue; first-ring spots always allowed so the
   wonder keeps flowing; training wood floor while defense buildings are
-  missing 600 → 400): running.
+  missing 600 → 400): all 3 seeds won at 45 min, zero JS errors,
+  city+pop300 at 13.9-14.9 min. **s1 81% / 45.6k f / 48.2k w** (5 CCs,
+  1 razed, zero CCs lost, infantry churn down to 375), **s3 63% / 47.0k /
+  46.7k** (gate held: 0 CCs lost vs 4 captured in def16, pop 300; Petra
+  never broke — 0 CCs razed, her peak 59%), **s5 91% / 62.7k / 48.9k**
+  (7 CCs, 2 razed). Everything is just under the bar now: food short by
+  3-5k on s1/s3, wood by 1-3k everywhere, s3 map short by 7 points.
+  Next levers: get raids to fire on s3-type seeds (her army hovers
+  100-230 but a sortie under towers plus a raid when she splits could
+  still break a CC), trim the last churn (workers lost 422-761), and a
+  small wood-income push late (barter sells stone/metal already).
 
 Harness semantics learned (kiln `NonVisualTrigger.js`): at
 `in_game_limit_min` the trigger marks player 1 won and stats print; but if
