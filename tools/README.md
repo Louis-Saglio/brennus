@@ -85,53 +85,6 @@ tools/hunt-analyze.py <stdout.log>
 Parses `[HUNT]` lines: per huntable animal, template, mode, wound/kill/carcass
 dropDist, inTerr, and whether the carcass is within civilian pickup range.
 
-## Kiln — remote headless runs
-
-kiln runs 0 A.D. headless on a pool of runners (one on this VPS, one on
-Louis's PC) instead of locally. Use it via the `mcp__kiln__*` tools; full
-docs in `~/kiln/docs/USER_GUIDE.md`.
-
-### Launching
-
-`mcp__kiln__submit_batch {batch_name?, mod_dir?, spec}` → batch id + job id.
-Runner choice is automatic.
-
-- `mod_dir`: the mod to pack. The server runs as the `kiln` user, which
-  cannot traverse `/home/ubuntu` (mode 750) — the submit fails with "not a
-  directory" on a real dir. Stage first:
-  `sudo cp -r bot /var/lib/kiln/staging/bot && sudo chown -R kiln:kiln /var/lib/kiln/staging/bot`,
-  then pass the staged path.
-- `spec`: map / `seed` / `aiseed` / biome / placement / size, `players` in
-  slot order (`ai` = script name, `diff` 0–5, `behavior`
-  balanced|defensive|aggressive, `civ`, `team: -1` = no team), `victory`
-  array, `player: -1` (observer), `in_game_limit_min` (clean game end →
-  statistics get printed; without it a wall-kill records no stats),
-  `wall_budget_s`, `collect_replay`.
-
-Goal-9 reference spec:
-
-```json
-{"map":"random/mainland","seed":1,"aiseed":0,"biome":"generic/temperate",
- "placement":"circle","size":192,
- "players":[
-   {"ai":"brennus_gaul_defend_boom_and_expand_generic_land_map","diff":3,"behavior":"balanced","civ":"gaul","team":-1},
-   {"ai":"petra","diff":3,"behavior":"defensive","civ":"rome","team":-1}],
- "victory":["conquest_civic_centers"],"player":-1,
- "in_game_limit_min":45,"wall_budget_s":1800,"collect_replay":false}
-```
-
-Notes:
-
-- The kiln harness mod mounts last and replaces the bot's
-  `NonVisualTrigger.js`; with `in_game_limit_min` set it marks player 1 won
-  at the limit — same semantics as the mod's own trigger, so goal limits
-  work unchanged.
-- The `pc` runner is ~6× faster than the VPS on medium-Petra matches (~190
-  vs ~32 turns/s): a full 45-min game is ~1 wall minute there, ~7 on the VPS.
-- No push notification: poll `mcp__kiln__get_batch_status`, or run a
-  watcher loop that exits on a terminal state (see `tmp/watch-goal9-s1.py`
-  for a working one).
-
 ### Reading results
 
 - `mcp__kiln__get_batch_status {batch_id}` — per-job state
