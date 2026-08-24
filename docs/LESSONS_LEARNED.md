@@ -169,3 +169,46 @@
 - **Citizen cavalry promotes at 150 XP in 0.28** (`template_unit_cavalry`
   `Promotion/RequiredXp = 150`; infantry 100, mercenary cavalry 300 via
   `mixins/merc_cav`).
+
+## 2026-08-24
+
+- **Ptolemaic data quirks** (verified against templates while writing the
+  ptol docs): the ptol **mercenary camp has no builder** — nothing lists
+  `structures/ptol/mercenary_camp` in a `Builder/Entities` list, so it is
+  unreachable through the build UI (and redundant anyway: the military
+  colony trains the same four mercenaries). The ptol **lighthouse,
+  library and Temple of Isis are built only by women and mercenary
+  infantry** (their builder lists carry the three templates; the generic
+  `mixins/builder.xml` does not). The `champion_juggernaut` super-ship is
+  vestigial (no trainer), while its surrounding machinery is live: the
+  `juggernauts` tech (dock, Warships +25% HP −10% speed), the `Juggernaut`
+  limit of 1, and a `LimitChangers` entry giving the hero Ptolemy IV +4
+  to that limit.
+- **ptol's `CivilCentre` limit removal requires a hero**: the player
+  template overrides `EntityLimits/LimitRemovers/CivilCentre` with
+  `RequiredTechs phase_town` **plus** `RequiredClasses Hero`. The
+  `LimitRemovers` semantics (EntityLimits.js `UpdateLimitRemoval`): the
+  limit is lifted only when all required techs are researched AND
+  `classCount[cls] > 0` for every required class (the player owns ≥1
+  entity of that class); it is re-imposed when the condition stops
+  holding. So ptol's second CC needs the City phase (heroes) — and dying
+  heroes re-lock CC expansion.
+- **`pair_*` techs are UI groupings, not researchables**: a tech with
+  `"top"`/`"bottom"` (e.g. `pair_unlock_cult_ptol`) is returned by the
+  Researcher as `{pair: true, top, bottom}`; the UI presents the two
+  referenced techs as one paired slot. No engine-level exclusivity
+  between top and bottom.
+- **Errors found in the pre-existing generic docs (not fixed — docs are
+  off-limits without instruction)**: `generic/units/infantry_swordsman_merc_b.md`
+  says the mercenary swordsman costs "60 metal plus 50 food, 40 wood" and
+  "can gather" — wrong on both counts: `mixins/merc_inf` zeroes the
+  food/wood/stone costs and the `mercenary` mixin `disable`s
+  `ResourceGatherer` (resolved cost: 60 metal, 7 s, no gather rates). The
+  merc infantry DO keep the `Builder` class, which is how they build the
+  ptol special buildings. Also: the library building (`mace`/`ptol`/`sele`)
+  and its "Center of Scholarship" aura have no files in `generic/` — they
+  are documented in `ptol/civ.md` instead.
+- **`hellenistic_metropolis` is researched at the civil centre** and the
+  military colony's researcher explicitly removes it (`-hellenistic_metropolis`
+  in `template_structure_civic_civil_centre_military_colony.xml`), along
+  with the phase techs.
