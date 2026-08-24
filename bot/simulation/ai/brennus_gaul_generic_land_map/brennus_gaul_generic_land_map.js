@@ -65,6 +65,31 @@ BrennusBot.prototype.currentShares = function(total)
 		}
 		return shares;
 	}
+	// War-stage phase 3 (city researched, expansion not yet on): keep real
+	// mining shares. Phase-3 base shares are 1% stone/metal — agg8 s2 banked
+	// 40 metal for 11 minutes after city and the first ram trained at 31.4m,
+	// 11 min after the arsenals were ordered. Rams, forge techs and towers
+	// all eat metal/stone continuously; mine until a war chest is banked.
+	if (phase === 3 && this.warOn())
+	{
+		const res = this.gameState.getResources();
+		const shares = { ...base };
+		let mining = 0;
+		if (res.stone < 400)
+		{
+			shares.stone = 0.06;
+			mining += 0.06;
+		}
+		if (res.metal < 800)
+		{
+			shares.metal = 0.12;
+			mining += 0.12;
+		}
+		const scale = Math.max(0, 1 - mining) / (base.food + base.wood);
+		shares.food = base.food * scale;
+		shares.wood = base.wood * scale;
+		return shares;
+	}
 	return { ...base };
 };
 
@@ -205,6 +230,12 @@ BrennusBot.prototype.OnUpdate = function()
 		this.assignGatherers();
 		this.manageHerding();
 		this.sampleGatherRates();
+		// Defense runs BEFORE the economy spenders (research, women stream,
+		// construction): the early muster must draw from the resource flow, not
+		// from stockpiles the boom never leaves behind (agg1: floors of 250/250
+		// never fired pre-boom — the boom spent everything first — and the army
+		// stayed at 4 while Petra's 90-unit wave arrived).
+		this.manageDefense();
 		this.managePhaseUp();
 		this.manageResearch();
 		this.trainWorkers();
@@ -212,7 +243,6 @@ BrennusBot.prototype.OnUpdate = function()
 		this.manageBarter();
 		this.manageExpansion();
 		this.manageTrade();
-		this.manageDefense();
 	}
 	const phase = this.gameState.currentPhase();
 	if (phase !== this.lastPhase)
@@ -1030,6 +1060,15 @@ BrennusBot.prototype.managePhaseUp = function()
 	this.phaseReserve = null;
 	this.phaseReady = false;
 	this.banking = false;
+	// Goal-10 war fund: while the early-muster buildings (barracks, temple)
+	// are still missing, hold 150 wood out of the boom's reach — the house
+	// stream spends wood at cost level every block, so the 300-wood barracks
+	// gate almost never fires on its own before ~14 min (agg4: barracks at
+	// 9.1/9.5m, then starved). 300 strangled the house stream (agg5 s1: pop
+	// cap stalled at 120); 150 is one barracks at a time. Must be set before
+	// the early returns below so the money accumulates through every hold.
+	if (!this.warOn() && this.defenseBuildingsMissing)
+		this.phaseReserve = { "wood": 150 };
 	if (!tech || gameState.isResearching(tech) || gameState.isResearched(tech))
 		return;
 	if (!gameState.canResearch(tech))
@@ -1057,14 +1096,14 @@ BrennusBot.prototype.managePhaseUp = function()
 	if (tech === "phase_town_generic")
 		this.banking = true;
 	else
-		this.phaseReserve = cost;
+		this.phaseReserve = { ...cost,
+			"wood": (cost.wood || 0) + (this.phaseReserve?.wood || 0) };
 
-	// City: hold the research start until the grain-rate and house-cap techs are out (fallback 13:20).
-	if (tech === "phase_city_generic" && gameState.getTimeElapsed() < 800000 &&
-		["gather_farming_plows", "gather_farming_training", "gather_farming_harvester",
-			"pop_house_01"].some(t2 =>
-			gameState.canResearch(t2) && !gameState.isResearched(t2) && !gameState.isResearching(t2)))
-		return;
+	// City: the goal-8/9 boom held the research start until the grain-rate and
+	// house-cap techs were out (fallback 13:20). Goal 10 cannot wait: city
+	// unlocks fanatics/arsenal/rams and the 100-army war stage, and the war
+	// fund starves those very techs (agg5 s1: plows at 16.4m, city never —
+	// the bot died in town phase with 1000 stone and 1800 metal banked).
 	if (!gameState.getResources().canAfford(cost))
 		return;
 
@@ -1098,24 +1137,47 @@ BrennusBot.prototype.trainWorkers = function()
 	const resources = gameState.getResources();
 
 	// Leave pop room for the mustering army and its refills: stop the civilian
-	// stream at the cap. Gating this on army < target yo-yoed (army full →
-	// train to the cap → dismiss for the next batch → retrain…).
-	if (this.expansionOn() &&
+	// stream at the cap once the war stage is on. Gating this on army <
+	// target yo-yoed (army full → train to the cap → dismiss for the next
+	// batch → retrain…).
+	if (this.warOn() &&
 		gameState.getPopulation() >= gameState.getPopulationLimit() - 5)
 		return;
 
-	// Post-boom pop discipline: hold workers at the economic optimum and leave
-	// the rest of the cap free for soldier retraining. Refilling army losses
-	// with women only to dismiss them on the next soldier batch is a pure food
-	// leak — def10-12 logged 400-900 dismissals per game (≈ 20-45k food).
-	if (this.expansionOn())
+	// War-stage pop discipline: hold workers at 150 and leave the rest of the
+	// 300 cap free for the army (120) + healers (10) + rams (6 × 3 pop) =
+	// 298 total. 175 workers pop-blocked the army at ~60 until dismissal
+	// kicked in 15 min after city (agg11 s3), and the war economy runs a
+	// 10k+ food surplus anyway.
+	// Refilling army losses with women only to dismiss them on the next
+	// soldier batch is a pure food leak — def10-12 logged 400-900 dismissals
+	// per game (≈ 20-45k food).
+	if (this.warOn())
 	{
 		let workers = 0;
 		for (const u of gameState.getOwnUnits().values())
 			if (u.isGatherer() && !u.hasClass("Soldier") && !u.hasClass("Trader") &&
 				u.id() !== this.herderId)
 				workers++;
-		if (workers >= 195)
+		if (workers >= 150)
+			return;
+	}
+
+	// Pre-war (town phase): cap the woman stream at 150 — the early muster
+	// needs the food more than the boom needs a 150th worker (agg4 s1: the
+	// house stream drained food at cost level every block and the barracks
+	// starved; 8 infantry trained all game). But not lower: agg5's cap of
+	// 100 starved the boom techs and stalled city phase, and agg6's 130
+	// still meant city at 18.5-20.2m — city gates fanatics/rams/raids, so
+	// every minute here is a minute off the kill clock.
+	if (this.defenseOn() && !this.warOn())
+	{
+		let workers = 0;
+		for (const u of gameState.getOwnUnits().values())
+			if (u.isGatherer() && !u.hasClass("Soldier") && !u.hasClass("Trader") &&
+				u.id() !== this.herderId)
+				workers++;
+		if (workers >= 150)
 			return;
 	}
 
@@ -2325,8 +2387,8 @@ BrennusBot.prototype.nearEnemy = function(pos, structureDist, mobileDist)
 };
 
 // ---------------------------------------------------------------- defense
-/** Post-boom standing army size (pop is shared with workers/traders under the 360 cap). */
-BrennusBot.prototype.defenseArmyTarget = 100;
+/** War-stage standing army size. Pop math under the 300 cap: 150 workers + 10 healers + 6 rams (3 pop each) + 120 = 298. 100 was not enough to raid through a camped Petra (agg11 s3: three raids at 60-63 bounced off 19-37 defenders + CC arrows; the one raid that razed a CC had to wait for a quiet window). */
+BrennusBot.prototype.defenseArmyTarget = 120;
 
 BrennusBot.prototype.armyCount = function()
 {
@@ -2337,16 +2399,20 @@ BrennusBot.prototype.armyCount = function()
 };
 
 /**
- * Goal-9 defense: a standing army mustered after the boom (barracks
- * spearmen/javelineers + temple fanatics, women dismissed for pop room),
- * workers sheltering in garrisonable structures when enemies are close, and
- * the army blob sent to whichever CC has enemies near it.
+ * Goal-10 defense: the muster starts at the town phase — aggressive Petra's
+ * first waves arrive around 15-17 min, long before the boom completes, and
+ * starting defense at city+300pop (goal 9) meant meeting a 90-unit army with
+ * 4 soldiers (baseline: all 5 seeds defeated at 26-33 min). A standing army
+ * mustered from town phase (barracks spearmen/javelineers, temple fanatics
+ * after the boom), workers sheltering in garrisonable structures when
+ * enemies are close, and the army blob sent to whichever CC has enemies
+ * near it.
  */
 BrennusBot.prototype.manageDefense = function()
 {
 	const gameState = this.gameState;
 
-	// Roster: drop the dead; once the expansion stage is on, every Soldier joins the army.
+	// Roster: drop the dead; once the defense stage is on, every Soldier joins the army.
 	for (const id in this.army)
 		if (!gameState.getEntityById(+id))
 			delete this.army[id];
@@ -2356,7 +2422,7 @@ BrennusBot.prototype.manageDefense = function()
 	for (const id in this.healers)
 		if (!gameState.getEntityById(+id))
 			delete this.healers[id];
-	if (this.expansionOn())
+	if (this.defenseOn())
 		for (const ent of gameState.getOwnUnits().values())
 		{
 			const id = ent.id();
@@ -2427,7 +2493,7 @@ BrennusBot.prototype.manageDefense = function()
 			continue;
 		const score = homePos ? SquareDistance(cp, homePos) : -(n + siegeN);
 		if (!threat || score < threat.score)
-			threat = { "x": sx / Math.max(n, 1), "z": sz / Math.max(n, 1), "n": n, "siegeN": siegeN, "score": score };
+			threat = { "x": sx / Math.max(n, 1), "z": sz / Math.max(n, 1), "n": n, "siegeN": siegeN, "score": score, "ccx": cp[0], "ccz": cp[1], "ccId": ent.id() };
 	}
 
 	const armyEnts = [];
@@ -2467,10 +2533,83 @@ BrennusBot.prototype.manageDefense = function()
 		if (this.turn >= this.armyCmdTurn)
 		{
 			this.armyCmdTurn = this.turn + 10;
-			for (const ent of armyEnts)
-				ent.attackMove(threat.x, threat.z, "Unit", false);
-			for (const ent of healerEnts)
-				ent.move(threat.x, threat.z);
+			// threat.n counts only enemies already within 120 m of the CC;
+			// the rest of the wave is still marching in (agg9 s3: threat.n=8
+			// hid a 105-unit wave — the 59-strong army attack-moved into the
+			// open and melted in 1.5 min). Compare against everyone within
+			// 150 m of the threat centroid instead.
+			let nearThreat = 0;
+			for (const p of mil)
+				if (SquareDistance(p, [threat.x, threat.z]) < 150 * 150)
+					nearThreat++;
+			nearThreat = Math.max(nearThreat, threat.n);
+			// Garrisoned soldiers (not the ungarrisoned remainder) decide
+			// superiority — 20 in the CC is +20 arrows, and they eject into
+			// the fight once the balance flips.
+			// Shelters: the threatened CC, then built defense towers within
+			// 120 m of it. A stone tower holds 5 infantry at +1 arrow each
+			// (default 4, GarrisonArrowMultiplier 1, GarrisonArrowClasses
+			// Infantry) — five full towers shelter 25 soldiers behind ~45
+			// extra arrows; the CC alone could not hold the army (agg10 s3:
+			// the 39-man overflow stood outside and was slaughtered).
+			const shelters = [];
+			{
+				const ccEnt0 = gameState.getEntityById(threat.ccId);
+				if (ccEnt0)
+					shelters.push(ccEnt0);
+				const towerType = gameState.applyCiv("structures/{civ}/defense_tower");
+				for (const ent of gameState.getOwnStructures().values())
+					if (ent.templateName() === towerType && ent.position() &&
+						ent.foundationProgress() === undefined &&
+						SquareDistance(ent.position(), [threat.ccx, threat.ccz]) < 120 * 120)
+						shelters.push(ent);
+			}
+			if (this.armyCount() >= nearThreat)
+			{
+				// Local superiority: eject the garrisons and take the fight to them.
+				for (const s of shelters)
+					for (const gid of s.garrisoned() || [])
+					{
+						const g = gameState.getEntityById(gid);
+						if (g?.hasClass("Soldier") || g?.hasClass("Healer"))
+							s.unload(gid);
+					}
+				for (const ent of armyEnts)
+					ent.attackMove(threat.x, threat.z, "Unit", false);
+				for (const ent of healerEnts)
+					ent.move(threat.x, threat.z);
+			}
+			else
+			{
+				// Outnumbered: garrison the shelters, CC first. Each
+				// garrisoned soldier is +1 arrow (civil_centre and tower
+				// GarrisonArrowMultiplier), the CC garrison heals at 1 hp/s
+				// and the CC cannot be captured while manned — standing
+				// outside and trading against a bigger blob is a donation
+				// (agg3 s3: 34 basics melted into a 106-unit wave at 16m
+				// while the CC idled).
+				const frees = shelters.map(s => Math.max(0, (+s.garrisonMax() || 0) - s.garrisonedSlots()));
+				const garrisonIn = ent =>
+				{
+					for (let i = 0; i < shelters.length; i++)
+						if (frees[i] > 0)
+						{
+							ent.garrison(shelters[i]);
+							frees[i]--;
+							return true;
+						}
+					return false;
+				};
+				for (const ent of armyEnts)
+				{
+					ent.setStance("defensive");
+					if (!garrisonIn(ent) && SquareDistance(ent.position(), [threat.ccx, threat.ccz]) > 40 * 40)
+						ent.move(threat.ccx, threat.ccz);
+				}
+				for (const ent of healerEnts)
+					if (!garrisonIn(ent))
+						ent.move(threat.ccx, threat.ccz);
+			}
 		}
 	}
 	else if (this.manageOffense(gameState, armyEnts, healerEnts, mil, homePos))
@@ -2495,6 +2634,15 @@ BrennusBot.prototype.manageDefense = function()
 		// army just outside our territory, which both blocks the raid windows and
 		// farms our outlying storehouses), sortie against it once we are strong
 		// enough — the fight happens under our towers and CC arrows.
+		// War-stage only: before city the sortie is a donation — agg5 s1 sent
+		// the whole 60-strong muster into Petra's 75-106 blob at 16m and the
+		// base fell 9 minutes later.
+		if (!this.warOn())
+		{
+			// stand down: fall through to the rally below
+		}
+		else
+		{
 		let campN = 0, cx = 0, cz = 0;
 		for (const p of mil)
 			if (SquareDistance(p, homePos) < 220 * 220)
@@ -2503,7 +2651,11 @@ BrennusBot.prototype.manageDefense = function()
 				cx += p[0];
 				cz += p[1];
 			}
-		if (campN >= 15 && this.armyCount() >= 50 && this.armyCount() >= campN * 0.75 && this.turn >= this.armyCmdTurn)
+		// Sortie only with clear superiority: the camp GROWS while the army
+		// marches (Petra converges), and agg8 s2's 20.7m sortie at 60-vs-32
+		// turned into 60-vs-83 mid-field and donated ~30 soldiers. 1.5x or
+		// stay home and let the towers and CC arrows bleed the camp instead.
+		if (campN >= 15 && this.armyCount() >= 100 && this.armyCount() >= campN * 1.5 && this.turn >= this.armyCmdTurn)
 		{
 			this.armyCmdTurn = this.turn + 10;
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m sortie against siege camp ${(cx / campN).toFixed(0)},${(cz / campN).toFixed(0)} (camp=${campN}, army=${armyEnts.length})\n`);
@@ -2548,6 +2700,7 @@ BrennusBot.prototype.manageDefense = function()
 						ent.move(rally[0], rally[1]);
 				}
 			}
+		}
 		}
 	}
 	this.hadThreat = !!serious;
@@ -2617,16 +2770,17 @@ BrennusBot.prototype.manageDefense = function()
 /**
  * Offense: with no serious threat at home and a strong army, raze the
  * least defended enemy CC — enemy CCs claim the spots our expansion plan
- * needs (200 m rule) and their territory caps our map control. Raid at 60+
+ * needs (200 m rule) and their territory caps our map control. Raid at 75+
  * soldiers with at least 2 rams ready (basic infantry cannot raze a
- * garrisoned CC before reinforcements arrive); retreat and regroup below 50.
+ * garrisoned CC before reinforcements arrive; 60-strong raids bounced off
+ * 19-37 defenders + CC arrows in agg11 s3); retreat and regroup below 50.
  * Goal 10: the last enemy CC is razed too — under conquest_civic_centers
  * eliminating Petra is the win condition. Returns true while a raid is
  * commanded.
  */
 BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, mil, homePos)
 {
-	if (!this.expansionOn() || !armyEnts.length)
+	if (!this.warOn() || !armyEnts.length)
 		return false;
 
 	const ramEnts = [];
@@ -2668,13 +2822,33 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			sendRamsHome();
 			sendHealersHome();
 		}
+		else if (ramEnts.length < 1 || this.turn - (this.offense.turn || 0) > 1800)
+		{
+			// Abort a stalled raid: no rams left means nobody razes the CC —
+			// the infantry just dies under its arrows while Petra reinforces
+			// (agg7 s1: one raid ground on for 12+ min at full army). The age
+			// cap is 6 min, not 2: the walk alone to a far CC takes ~2 min, and
+			// agg8 s1 abort/relaunched twice at the 2-min mark — the army walked
+			// home and back each time and the second CC never even got attacked.
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid aborted at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} (rams=${ramEnts.length}, age=${((this.turn - (this.offense.turn || 0)) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
+			this.offense = undefined;
+			this.armyCmdTurn = 0;
+			for (const ent of armyEnts)
+				ent.setStance("defensive");
+			sendRamsHome();
+			sendHealersHome();
+			return false;
+		}
 	}
 	if (!this.offense)
 	{
-		if (this.armyCount() < 60)
+		if (this.armyCount() < 75)
 			return false;
-		// No rams, no raze: wait for at least 2 once the arsenal is up.
-		if (this.arsenalBuilt && ramEnts.length < 2)
+		// No rams, no raze: basic infantry cannot burn a garrisoned CC before
+		// reinforcements arrive — agg6 s2 raided with 0 rams at 20-21m and
+		// spent the army twice for nothing (the "arsenal not built yet"
+		// exception let those raids fire).
+		if (ramEnts.length < 2)
 			return false;
 		if (enemyCCs.length < 1)
 			return false;
@@ -2696,7 +2870,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		if (!best)
 			return false;
 		const bp = best.position();
-		this.offense = { "id": best.id(), "x": bp[0], "z": bp[1] };
+		this.offense = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn };
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${Math.floor(bestScore / 10000)}, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 		for (const ent of armyEnts)
 			ent.setStance("aggressive");
@@ -2734,17 +2908,21 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 	return true;
 };
 
-/** Post-boom military buildings: barracks + temples + forge + arsenal around the home CC, and towers (4 home, 3 per expansion CC). Stone is plentiful on mainland; towers are our cheapest defense. */
+/** Military buildings: 3 barracks + 5 home towers from the town phase on (the early-muster package — 5 towers because a garrisoned stone tower is 9 arrows, and the wave arrives before the war stage does); after the boom the full set — 4 barracks, temples, forge, arsenal + 4 towers per expansion CC. Stone is plentiful on mainland; towers are our cheapest defense. */
 BrennusBot.prototype.manageDefenseBuildings = function()
 {
-	if (!this.expansionOn() || this.constructionHold)
+	if (!this.defenseOn() || this.constructionHold)
 		return;
 	const gameState = this.gameState;
+	const boom = this.warOn();
 	const wants = [
-		[gameState.applyCiv("structures/{civ}/barracks"), 4],
-		[gameState.applyCiv("structures/{civ}/temple"), 3],
-		[gameState.applyCiv("structures/{civ}/forge"), 1],
-		[gameState.applyCiv("structures/{civ}/arsenal"), 1]
+		[gameState.applyCiv("structures/{civ}/barracks"), boom ? 4 : 3],
+		// Arsenal before temples post-city: the raid gate is rams, and agg6
+		// s2's arsenal landed ~10 min after city, pushing the first real raid
+		// to 33.7m.
+		[gameState.applyCiv("structures/{civ}/arsenal"), boom ? 2 : 0],
+		[gameState.applyCiv("structures/{civ}/temple"), boom ? 3 : 1],
+		[gameState.applyCiv("structures/{civ}/forge"), boom ? 1 : 0]
 	];
 	// While any of these is missing, training holds a wood reserve (see
 	// manageDefenseTraining) so the buildings actually get funded — otherwise
@@ -2771,7 +2949,7 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 	{
 		if (haveByType[type] >= want || this.pendingBuilds.some(pb => pb.template === type))
 			continue;
-		if (gameState.getResources().wood < 350)
+		if (gameState.getResources().wood < (boom ? 350 : 320))
 			return;
 		if (this.tryConstruct(type, "military"))
 		{
@@ -2782,7 +2960,9 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 		return;
 	}
 
-	// Towers: 5 around the home CC, 4 per expansion CC.
+	// Towers: 5 around the home CC from the town phase on (they double as
+	// garrisoned arrow platforms when the big wave lands), 4 per expansion
+	// CC once the army can reach them.
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const home = this.getCivicCentre();
 	if (!home)
@@ -2793,7 +2973,7 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 			cc.foundationProgress() !== undefined)
 			continue;
 		const isHome = cc.id() === home.id();
-		if (!isHome && this.armyCount() < 30)
+		if (!isHome && (this.armyCount() < 30 || !this.warOn()))
 			continue;	// no point fortifying a frontier the army cannot reach yet
 		if (this.placeTower(cc.position(), isHome ? 5 : 4))
 			return;
@@ -2853,7 +3033,7 @@ BrennusBot.prototype.militaryTechs = [
 
 BrennusBot.prototype.manageMilitaryTechs = function()
 {
-	if (!this.expansionOn() || this.constructionHold)
+	if (!this.warOn() || this.constructionHold)
 		return;
 	const gameState = this.gameState;
 	const res = gameState.getResources();
@@ -2876,10 +3056,10 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 	}
 };
 
-/** Army production: barracks spearmen/javelineers (alternating), temple fanatics; dismiss women for pop room. */
+/** Army production: barracks spearmen/javelineers (alternating) from the town phase on, temple fanatics after the boom; dismiss women for pop room only once the boom is done. */
 BrennusBot.prototype.manageDefenseTraining = function()
 {
-	if (!this.expansionOn())
+	if (!this.defenseOn())
 		return;
 	const gameState = this.gameState;
 	const res = gameState.getResources();
@@ -2898,19 +3078,28 @@ BrennusBot.prototype.manageDefenseTraining = function()
 		if ((ent.trainingQueue()?.length || 0) <= 1)
 			trainers.push(ent);
 	}
-	const missing = this.defenseArmyTarget - this.armyCount() - queued;
+	// Early muster: 60 soldiers until the war stage (city) — Petra aggressive
+	// arrives at ~16 min with ~100 units, so 40 was still half a wave (agg3) —
+	// 100 after.
+	const target = this.warOn() ? this.defenseArmyTarget : 60;
+	const missing = target - this.armyCount() - queued;
 	// Healers first: 10 of them halve the effective churn of the standing army.
 	let healerCount = 0;
 	for (const id in this.healers)
 		healerCount++;
-	// Buildings before bodies, but not at the price of a frozen muster: while
-	// temples/forge/arsenal are outstanding, hold a wood reserve so
-	// construction can afford them — def11 starved the temples for 10 min
-	// below the 500 gate, def12's hard 800/800 floor froze the army, and on
-	// wood-poor maps 600 still froze it (def16 s3: army stuck at 36-53 while
-	// Petra reached 232).
-	const floorW = this.defenseBuildingsMissing ? 400 : 300;
-	if (missing > 0 && res.food >= 300 && res.wood >= floorW)
+	// No stockpile floors before the war stage: the boom spends the flow to
+	// near zero every block, so any floor above cost level can never fire
+	// (agg1/agg2: zero infantry trained). The early muster draws from the
+	// flow instead: batches of 1 at cost-level floors, which splits the
+	// income fairly with the woman stream (same 50/50 unit cost, same
+	// per-block cadence). After city, batches of 5 with a wood reserve while
+	// temples/forge/arsenal are outstanding (def11-13: starving the
+	// construction budget froze the muster).
+	const boom = this.warOn();
+	const milBatch = boom ? 5 : 1;
+	const floorF = boom ? 300 : 50;
+	const floorW = boom ? (this.defenseBuildingsMissing ? 400 : 300) : 50;
+	if (missing > 0 && res.food >= floorF && res.wood >= floorW)
 		for (const ent of trainers)
 		{
 			if (ent.templateName() === barracksType)
@@ -2918,22 +3107,24 @@ BrennusBot.prototype.manageDefenseTraining = function()
 				const type = gameState.applyCiv(this.spearNext ?
 					"units/{civ}/infantry_spearman_b" : "units/{civ}/infantry_javelineer_b");
 				this.spearNext = !this.spearNext;
-				ent.train(gameState.getPlayerCiv(), type, 5, {});
-				res.subtract({ "food": 250, "wood": 250 });
+				ent.train(gameState.getPlayerCiv(), type, milBatch, {});
+				res.subtract({ "food": 50 * milBatch, "wood": 50 * milBatch });
 				continue;
 			}
-			if (healerCount < 10)
+			if (healerCount < (boom ? 10 : 4))
 			{
-				ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/support_healer_b"), 2, {});
-				res.subtract({ "food": 200, "metal": 60 });
-				healerCount += 2;
+				ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/support_healer_b"), boom ? 2 : 1, {});
+				res.subtract(boom ? { "food": 200, "metal": 60 } : { "food": 100, "metal": 30 });
+				healerCount += boom ? 2 : 1;
 				continue;
 			}
 			ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_fanatic"), 5, {});
 			res.subtract({ "food": 600, "wood": 500 });
 		}
-	// Rams for the raid: keep 4, started early — they are slow and must be
-	// mustered before the army hits raid size or every raid goes in without them.
+	// Rams for the raid: keep 6, started early — they are slow and must be
+	// mustered before the army hits raid size or every raid goes in without
+	// them. Rams are the only thing that razes CCs fast enough; 4 made for
+	// 3-7-minute kills in agg6 (first razed CC at 40.2m on s2 — too slow).
 	const arsenalType = gameState.applyCiv("structures/{civ}/arsenal");
 	let rams = 0;
 	const arsenals = [];
@@ -2949,16 +3140,22 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	}
 	for (const id in this.rams)
 		rams++;
-	if (this.armyCount() >= 40 && rams < 4 && arsenals.length &&
-		res.wood >= 450 && res.metal >= 300)
-	{
-		arsenals[0].train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/siege_ram"), 1, {});
-		res.subtract({ "wood": 300, "metal": 150 });
-		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams + 1}/4)\n`);
-	}
+	if (this.armyCount() >= 40 && rams < 6 && arsenals.length &&
+		res.wood >= 350 && res.metal >= 200)
+		for (const arsenal of arsenals)
+		{
+			if (rams >= 6 || res.wood < 350 || res.metal < 200)
+				break;
+			arsenal.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/siege_ram"), 1, {});
+			res.subtract({ "wood": 300, "metal": 150 });
+			rams++;
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/6)\n`);
+		}
 	// Pop room for a batch of 5: dismiss workers (idle first) until 5 slots are
 	// free, throttled and never below a floor that keeps the economy alive.
-	if (missing > 0 &&
+	// Post-boom only: before city+300 the women are still racing to pop 300 and
+	// dismissing them would deadlock the boom (army pop counts toward 300).
+	if (boom && missing > 0 &&
 		gameState.getPopulation() > gameState.getPopulationLimit() - 6 &&
 		this.turn >= (this.nextDismissTurn || 0))
 	{
@@ -2977,7 +3174,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 			fallback = fallback || ent;
 		}
 		victim = victim || fallback;
-		if (victim && workers > 190)
+		if (victim && workers > 145)
 		{
 			this.nextDismissTurn = this.turn + 3;
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m dismissing a civilian for army pop room (workers=${workers})\n`);
@@ -3172,6 +3369,44 @@ BrennusBot.prototype.expansionOn = function()
 		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m expansion stage on (city researched, pop 300)\n`);
 	}
 	return this.expOn;
+};
+
+/**
+ * Goal 10: the defense stage starts at the town phase (~5 min), not at the
+ * end of the boom — aggressive Petra must be met by a standing army and
+ * towers from her first raids on (~10-15 min), not by a muster that starts
+ * when her army is already camping the base.
+ */
+BrennusBot.prototype.defenseOn = function()
+{
+	if (this.defOn)
+		return true;
+	if (this.gameState.isResearched("phase_town_generic"))
+	{
+		this.defOn = true;
+		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m defense stage on (town researched)\n`);
+	}
+	return this.defOn;
+};
+
+/**
+ * Goal 10: the war stage starts at the city phase, WITHOUT the pop-300
+ * requirement of expansionOn — against aggressive Petra the waves arrive
+ * before 300 pop ever lands (agg2/agg3: city at ~14.5m, pop stuck at
+ * 240-290 under raid, so the whole post-boom war machine stayed off while
+ * the base burned). City unlocks fanatics/arsenal/rams; that is all the
+ * war machine needs.
+ */
+BrennusBot.prototype.warOn = function()
+{
+	if (this.war)
+		return true;
+	if (this.gameState.isResearched("phase_city_generic"))
+	{
+		this.war = true;
+		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m war stage on (city researched)\n`);
+	}
+	return this.war;
 };
 
 /** Distance (m) from a CC/storehouse at which a mine counts as served. */

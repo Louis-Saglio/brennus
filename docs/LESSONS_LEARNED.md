@@ -217,3 +217,32 @@
   military colony's researcher explicitly removes it (`-hellenistic_metropolis`
   in `template_structure_civic_civil_centre_military_colony.xml`), along
   with the phase techs.
+
+## 2026-08-24 (goal 10: beating medium aggressive Petra)
+
+- **BuildingAI arrow math (0.28 templates)**: civil centre = 6 default
+  arrows + 1 per garrisoned Soldier (multiplier 1); stone defense tower
+  = 4 default + 1 per garrisoned **Infantry** (`GarrisonArrowClasses`),
+  holds 5. A 5-tower + full-CC shelter fields ~70 arrows and protects 45
+  soldiers — this is what makes a 2:1 attacker disadvantage survivable.
+- **Against aggressive Petra the first decisive wave lands ~16-17 min
+  with 85-120 units.** An army caught in the open at 1:2 odds melts in
+  ~90 s. Local threat scans (enemies within X m of a CC) massively
+  undercount an incoming wave — count enemies around the threat
+  *centroid* before deciding to engage.
+- **Petra's camp grows while your army marches** (it converges): a
+  sortie launched at 60-vs-32 became 60-vs-83 mid-field and donated the
+  army. Sortie only at ≥ 1.5x superiority, else let towers/CC bleed the
+  camp.
+- **Raid age caps must exceed cross-map walk time** (~2 min on mainland
+  192): a 2-min raid-age abort produced an abort/relaunch loop where the
+  army never even reached the target CC.
+- **Phase-3 gatherer shares with ~1% stone/metal silently starve the war
+  economy**: rams/forge techs/towers eat metal continuously, and the
+  first ram trained 11 min after the arsenal was ordered. Keep explicit
+  war-stage mining shares until a working buffer (400s/800m) is banked.
+- **Only siege razes garrisoned CCs fast enough.** Ramless raids and
+  2-ram raids all failed; 6 rams + 75-escort razes a CC in ~1 min.
+- **Pop discipline under the 300 cap**: 150 workers + 10 healers + 6
+  rams (3 pop each) + 120 soldiers = 298. A 175-worker cap pop-blocked
+  the army at ~60 while 14k food sat banked.
