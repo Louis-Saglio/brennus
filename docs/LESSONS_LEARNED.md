@@ -276,3 +276,38 @@
   apply only while the carrier is garrisoned, modifying the *building's*
   stats (BuildingAI/GarrisonArrowMultiplier, MaxArrowCount) — the only
   garrison-type hero aura among the civs documented so far.
+## 2026-08-24
+
+- **Mauryan data quirks** (verified against templates while writing the
+  maur docs): the maur **worker elephant is not a gatherer** — no
+  `ResourceGatherer` at all; it is a mobile `ResourceDropsite`
+  (food/wood/stone/metal, non-sharable) + builder. The maur **palace has
+  no build limit** (it keeps the generic `Structure` category — the
+  `Palace` limit in `template_player.xml` applies to the *category*
+  `Palace`, which only the pers/ptol tachara uses). The **pillar is
+  gated on the hero Ashoka**: `Limits` has `Pillar 0` and
+  `LimitChangers` has `Pillar: Ashoka 5` — pillars are buildable only
+  while an `Ashoka`-class entity is owned. The maur **fortress trains
+  nothing** (like pers and ptol; iber's fortress does train its heroes).
+  The
+  **tower_double has no builder** (vestigial), and its tooltip ("up to
+  16 archers", "only archers can garrison") is stale — the template
+  inherits 5 garrison slots with no class restriction (the 16 turret
+  points are cosmetic beyond the 5-slot cap).
+- **`spec_champ` mixin** (`mixins/spec_champ.xml`): only `BuildTime ×0.75`
+  — the Maiden Guards' speed and stats come from their
+  champion-infantry parents, and they are gated on `phase_city` alone
+  (no `unlock_champion_infantry`), making the palace the only unlock.
+- **`Health/RegenRate` applies always, including in combat**
+  (`Health.js:132-174`); the idle-only rate is the separate
+  `IdleRegenRate`. Chanakya's "Regeneration" aura (+0.8 `RegenRate`)
+  therefore heals Mauryan Humans mid-fight, not just out of combat.
+- **The maur teambonus and Ashoka's "Buddhism" aura are identical
+  modifiers on different carriers** (MutualAlly vs own-only): for the
+  Mauryan player they overlap (no stacking — same ×0.5), so the
+  hero-aura's value to the Mauryas is mostly the `Ashoka`-class pillar
+  gate, not the temple discount.
+- **`civs/maur.json` declares `"CivBonuses": []`** — the civ's real
+  bonuses (starting elephant, pillar, maidens, food pair) are
+  template/tech/map-level, with nothing listed in the civ file. Another
+  case of the civ file under-describing the civ.
