@@ -212,7 +212,9 @@ global limit of **1 hero alive at a time**.
   default arrow, Circle r 8 m footprint, 12 m minimum range (Massive
   Towers).
 - Champion cavalry: a **javelin** champion — 25 pierce @ 30 m, walk 16.2
-  m/s, armor 3/3/20 (the generic champion cavalry is a spearman).
+  m/s, armor 3/3/20 (the generic champion cavalry is a spearman), and
+  its javelins are **flaming**: each hit applies a stacking Burning
+  status (+2 fire damage every 3 s for 9 s).
 - Stone walls: iber-specific segment sizes, tower a circle (see
   Buildings).
 - All other iber variants of shared units (swordsmen, spearmen,

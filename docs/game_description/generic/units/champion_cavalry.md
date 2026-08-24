@@ -60,6 +60,7 @@ These civilisations override the generic stats above (only differing values are 
   - armor 3 hack / 3 pierce / 20 crush
   - Capture — strength 3.5 — range 4 m — repeat 1 s — restricted Field Palisade Wall
   - Ranged "Javelin" — damage 25 pierce — range 30 m — prepare 0.4 s — repeat 1.5 s — preferred Human
+  - the javelin applies a Burning status: +2 fire damage every 3 s for 9 s, stacking
   - walk 16.2 m/s
   - run 22.68 m/s
 - **kush** — `units/kush/champion_cavalry`
