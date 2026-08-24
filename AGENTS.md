@@ -26,8 +26,7 @@ implementation), shipped as a 0 A.D. mod and developed against **0.28.0 only**.
 - Engine, game data and source are version-pinned in
   `~/0ad-reference/` (0.28.0); trust it over general 0 A.D.
   knowledge. Trust the source over docs when they disagree.
-- **Everything is verified by running the game headless** with
-  `pyrogenesis -autostart-nonvisual` (see `docs/pyrogenesis_cli.md`). A change
+- **Everything is verified by running the game headless** with kiln. A change
   to the bot is not done until a headless match ran without JS errors.
 - AI performance matters: the bot must not slow the simulation — no full-map
   scans per tick, prefer cached entity collections and shared resource maps.
