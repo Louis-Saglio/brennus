@@ -123,3 +123,49 @@
   (cart+pers) and `ship_capture_resistance` (all but rome) have no files
   in `generic/technologies/`, though the civ.md files reference them as
   generic techs.
+
+## 2026-08-24
+
+- **Persia data quirks** (verified against templates while writing the
+  pers docs): the pers hall ("Gate of All Nations") has **no Trainer and
+  no Researcher** in 0.28 and no builder lists it — vestigial, as are the
+  Kardakes (`kardakes_hoplite`/`kardakes_skirmisher` — nothing trains
+  them), `arstibara` (Apple Bearer), `hero_xerxes_i_chariot`, and the
+  house variants `house_a`/`house_b`/`warehouse`/`apartment_block`/`inn`.
+  Pers heroes are trained at the **tachara** (Winter Palace), and the pers
+  fortress trains nothing (the generic fortress trainer is entity-less).
+  Pers's entire siege park is the battering ram (no oxybeles/ballista/
+  lithobolos/tower templates → `siege_bolt_accuracy` and
+  `siege_pack_unpack` are `notciv: pers`); the navy has no fire or siege
+  ship.
+- **`BuildRestrictions/Category` limits come from `template_player.xml`
+  `EntityLimits`, not from the category itself.** The generic
+  `Category Structure` (inherited by every building) has no `Limits`
+  entry and is unlimited; only categories with a matching entry are
+  constrained (`Yakhchal 5`, `Palace 1`, `Wonder 1`, `CivilCentre 1`
+  until phase_town, …). Don't read "one per player" off a category name.
+- **`Trainer/Entities` token lists merge through the parent chain and are
+  then filtered by template existence** (the engine's
+  `filter_trainer`-style `{civ}` substitution): the generic trainer lists
+  deliberately include civ-specific names (e.g. `units/{civ}/cavalry_axeman_b`,
+  `units/{civ}/champion_cavalry_archer`) that resolve only for pers, so a
+  civ's real training roster is the merged list minus the templates it
+  lacks.
+- **`equine_transports` is a tech with zero `modifications`** — its whole
+  effect is gating the `Identity/Requirements` of the pers
+  `cavalry_*_trireme` templates, which the pers arrow/ram warships list
+  unconditionally in their `Trainer`. Techs-as-gates, not techs-as-mods.
+- **Auras can modify costs of trained units**: the pers team bonus
+  ("Training Regimes") multiplies `Cost/Resources/wood|stone` on
+  Barracks/Stable — a property of the *building*, applied to whatever is
+  trained there (the buildings themselves cost no wood/stone, so the
+  bonus does not discount the buildings).
+- **`tmp/extract_cart.py` `dump_ranks` has a bug**: the elite-name
+  fallback `promo.split("/")[-1].replace("_a", "_e")` rewrites every
+  `_a` in the stem ("cavalry_axeman_a" → "cavalry_exeman_e"). Also its
+  `dump_unit` prints the `# title` heading, which must be stripped when
+  splicing output into doc files. Both patched in `tmp/extract_pers.py`
+  (and its `emit`/`assemble` modes generate the per-entity doc skeletons).
+- **Citizen cavalry promotes at 150 XP in 0.28** (`template_unit_cavalry`
+  `Promotion/RequiredXp = 150`; infantry 100, mercenary cavalry 300 via
+  `mixins/merc_cav`).
