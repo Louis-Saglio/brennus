@@ -193,6 +193,12 @@ BrennusBot.prototype.OnUpdate = function()
 	{
 		this.updateEnemyPositions();
 
+		// Failed build spots expire after 1500 turns (5 min): most failures are
+		// war damage (a raided storehouse, a razed CC foundation), and the spot
+		// is fine once the frontier moves — permanent poisoning starved the
+		// expansion plan (def14: 7-20 dead spots).
+		this.failedSpots = this.failedSpots.filter(f => this.turn - (f[2] || 0) < 1500);
+
 		// Research + construct in the same block overdraw the pre-command resource snapshot: hold construction one block after any research order.
 		this.constructionHold = false;
 		this.updateWoodline();
@@ -1091,8 +1097,10 @@ BrennusBot.prototype.trainWorkers = function()
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
 
-	// Leave pop room for the mustering army: stop the civilian stream at the cap.
-	if (this.expansionOn() && this.armyCount() < this.defenseArmyTarget &&
+	// Leave pop room for the mustering army and its refills: stop the civilian
+	// stream at the cap. Gating this on army < target yo-yoed (army full →
+	// train to the cap → dismiss for the next batch → retrain…).
+	if (this.expansionOn() &&
 		gameState.getPopulation() >= gameState.getPopulationLimit() - 5)
 		return;
 
@@ -1313,10 +1321,16 @@ BrennusBot.prototype.manageConstruction = function()
 		if (foundations.some(nearSpot) ||
 			gameState.getOwnStructures().toEntityArray().some(nearSpot))
 			return false;
-		if (this.turn - pb.turn > (pb.template.indexOf("civil_centre") !== -1 ? 150 : 50))
+		// CC timeout must cover builder travel: at ~1.8 m per turn a distant
+		// frontier spot needs minutes, and a premature timeout poisoned the
+		// spot while the party was still walking (def15 s5: the same far spot
+		// failed and re-poisoned itself every recompute cycle).
+		const home = this.getCivicCentre()?.position() || [384, 384];
+		const ccTimeout = 150 + Math.ceil(Math.hypot(pb.x - home[0], pb.z - home[1]) / 1.5);
+		if (this.turn - pb.turn > (pb.template.indexOf("civil_centre") !== -1 ? ccTimeout : 50))
 		{
 			print(`[HARNESS] construct FAILED: ${pb.template} at ${pb.x.toFixed(0)},${pb.z.toFixed(0)}\n`);
-			this.failedSpots.push([pb.x, pb.z]);
+			this.failedSpots.push([pb.x, pb.z, this.turn]);
 			return false;
 		}
 		return true;
@@ -2605,7 +2619,7 @@ BrennusBot.prototype.manageDefense = function()
  * least defended enemy CC — enemy CCs claim the spots our expansion plan
  * needs (200 m rule) and their territory caps our map control. Raid at 60+
  * soldiers with at least 2 rams ready (basic infantry cannot raze a
- * garrisoned CC before reinforcements arrive); retreat and regroup below 40.
+ * garrisoned CC before reinforcements arrive); retreat and regroup below 50.
  * The last enemy CC is never razed: eliminating Petra ends the match before
  * the 45-minute bars are measured. Returns true while a raid is commanded.
  */
@@ -2697,7 +2711,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		for (const ent of armyEnts)
 			ent.setStance("aggressive");
 	}
-	if (this.armyCount() < 40)
+	if (this.armyCount() < 50)
 	{
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid spent, regrouping (army=${armyEnts.length})\n`);
 		this.offense = undefined;
@@ -2895,16 +2909,17 @@ BrennusBot.prototype.manageDefenseTraining = function()
 			trainers.push(ent);
 	}
 	const missing = this.defenseArmyTarget - this.armyCount() - queued;
-	// Healers first: 6 of them halve the effective churn of the standing army.
+	// Healers first: 10 of them halve the effective churn of the standing army.
 	let healerCount = 0;
 	for (const id in this.healers)
 		healerCount++;
 	// Buildings before bodies, but not at the price of a frozen muster: while
-	// temples/forge/arsenal are outstanding, hold a wood reserve (wood income
-	// far outpaces food spending, so the reserve fills fast) so construction
-	// can afford them — def11 starved the temples for 10 min below the 500
-	// gate, def12's hard 800/800 floor froze the army instead.
-	const floorW = this.defenseBuildingsMissing ? 600 : 300;
+	// temples/forge/arsenal are outstanding, hold a wood reserve so
+	// construction can afford them — def11 starved the temples for 10 min
+	// below the 500 gate, def12's hard 800/800 floor froze the army, and on
+	// wood-poor maps 600 still froze it (def16 s3: army stuck at 36-53 while
+	// Petra reached 232).
+	const floorW = this.defenseBuildingsMissing ? 400 : 300;
 	if (missing > 0 && res.food >= 300 && res.wood >= floorW)
 		for (const ent of trainers)
 		{
@@ -2917,7 +2932,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 				res.subtract({ "food": 250, "wood": 250 });
 				continue;
 			}
-			if (healerCount < 6)
+			if (healerCount < 10)
 			{
 				ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/support_healer_b"), 2, {});
 				res.subtract({ "food": 200, "metal": 60 });
@@ -3483,8 +3498,14 @@ BrennusBot.prototype.manageExpansion = function()
 {
 	if (!this.expansionOn())
 		return;
-	if (!this.expPlan)
-		this.expPlan = this.computeExpansionPlan();
+	if (!this.expPlan || this.turn - (this.expPlan.turn || 0) >= 750)
+		// Recompute every 750 turns (2.5 min): raids raze Petra CCs and their
+		// territory reverts to neutral, opening spots the original plan —
+		// computed while Petra held half the map — could never claim (def14:
+		// plans of 7 spots, 2 orders in 25 min). The freed land must be claimed
+		// before Petra rebuilds. wonder/corral/market flags are re-derived from
+		// live state, so nothing is lost on rebuild.
+		this.expPlan = Object.assign(this.computeExpansionPlan(), { "turn": this.turn });
 	const gameState = this.gameState;
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const plan = this.expPlan;
@@ -3585,9 +3606,11 @@ BrennusBot.prototype.manageExpansion = function()
 	}
 	if (plan.next < plan.spots.length)
 	{
-		// Two CC projects may run concurrently: under Petra pressure a single
-		// sequential cursor starves the expansion (def9: 2 orders in 30 min).
-		// All entity collections are scanned once per call, not per spot.
+		// Two CC projects run concurrently (three once their army is broken):
+		// under Petra pressure a single sequential cursor starves the expansion
+		// (def9: 2 orders in 30 min). All entity collections are scanned once
+		// per call, not per spot.
+		const ccConcurrency = (this.enemyArmy || 0) < 60 ? 3 : 2;
 		const ownCCPos = [];
 		for (const ent of gameState.getOwnStructures().values())
 			if (ent.templateName() === ccType && ent.position())
@@ -3601,7 +3624,7 @@ BrennusBot.prototype.manageExpansion = function()
 		for (const ent of gameState.getStructures().values())
 			if (ent.hasClass("CivCentre") && ent.position())
 				ccSpots.push(ent.position());
-		let slots = 2 - ccFoundationPos.length - ccPending.length;
+		let slots = ccConcurrency - ccFoundationPos.length - ccPending.length;
 		let scanned = 0;
 		while (slots > 0 && plan.next < plan.spots.length && scanned++ < plan.spots.length)
 		{
@@ -3673,6 +3696,19 @@ BrennusBot.prototype.manageExpansion = function()
 
 			if (this.constructionHold)
 				return;
+			// Frontier projects need escort conditions: while Petra masses an
+			// army we cannot cover, far CCs get captured rather than razed —
+			// gifting her the territory and killing the builder party (def16
+			// s3: 4 CCs captured, 856 civilians lost). Spots adjacent to an
+			// existing CC are safe enough to keep the first ring (and the
+			// wonder) flowing; gated spots rotate to the back of the queue.
+			if (!ownCCPos.some(c => SquareDistance(c, spot) < 260 * 260) &&
+				((this.enemyArmy || 0) > 100 || this.armyCount() < 50))
+			{
+				plan.spots.splice(plan.next, 1);
+				plan.spots.push(spot);
+				continue;
+			}
 			// Floors above the raw cost: the engine checks the real stock at processing.
 			if (!res.canAfford({ "wood": 400, "stone": 400, "metal": 300 }))
 				return;
@@ -3687,7 +3723,7 @@ BrennusBot.prototype.manageExpansion = function()
 				ent.construct(ccType, spot[0], spot[1], this.getPlacementAngle(), undefined);
 			res.subtract({ "wood": 300, "stone": 300, "metal": 250 });
 			slots--;
-			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC order at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} (${plan.next + 1}/${plan.spots.length}, slot ${2 - slots}/2)\n`);
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC order at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} (${plan.next + 1}/${plan.spots.length}, slot ${ccConcurrency - slots}/${ccConcurrency})\n`);
 			// Ordered: rotate so the next call scans the remaining spots.
 			plan.spots.splice(plan.next, 1);
 			plan.spots.push(spot);
@@ -3713,17 +3749,20 @@ BrennusBot.prototype.manageTrade = function()
 	if (traders < this.targetTraders)
 	{
 		const res = gameState.getResources();
-
-		if (gameState.getPopulation() >= gameState.getPopulationLimit())
-			for (const ent of gameState.getOwnUnits().values())
-				if (ent.isGatherer() && !ent.hasClass("Cavalry") && ent.isIdle() && !this.army[ent.id()] &&
-					!(ent.id() === this.herderId && !this.herdingDone))
-				{
-					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m dismissing idle civilian for a trader\n`);
-					ent.destroy();
-					break;
-				}
 		if (res.food >= 40000 + 100 && res.metal >= 1200)
+		{
+			// Pop room for the trader — only when one is actually trained now;
+			// dismissing without training (food below the bar) was a pure leak
+			// (def15 s3: 51 pointless dismissals).
+			if (gameState.getPopulation() >= gameState.getPopulationLimit())
+				for (const ent of gameState.getOwnUnits().values())
+					if (ent.isGatherer() && !ent.hasClass("Cavalry") && ent.isIdle() && !this.army[ent.id()] &&
+						!(ent.id() === this.herderId && !this.herdingDone))
+					{
+						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m dismissing idle civilian for a trader\n`);
+						ent.destroy();
+						break;
+					}
 			for (const market of markets)
 				if ((market.trainingQueue()?.length || 0) <= 1)
 				{
@@ -3731,6 +3770,7 @@ BrennusBot.prototype.manageTrade = function()
 					res.subtract({ "food": 100, "metal": 80 });
 					break;
 				}
+		}
 	}
 	let far = markets[0], near = markets[1], best = -1;
 	for (const a of markets)

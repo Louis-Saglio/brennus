@@ -56,3 +56,26 @@
   unit regardless of role; once a standing army exists it must exclude
   army members (`filter(ent => !this.army[ent.id()])`), else CC/corral
   orders randomly "construct FAILED" when the nearest unit is a soldier.
+- **Kiln `NonVisualTrigger.js` harness semantics**: at `in_game_limit_min`
+  the trigger marks player 1 won and the stats print; but if Petra loses
+  ALL civic centres earlier, conquest fires and the match ends before the
+  stockpile bars are due. A goal-9 bot must never raze the last enemy CC.
+- **Dismiss/retrain is a silent food hemorrhage.** Every pop-capped
+  dismissal (army pop room, trader room) followed by a civilian retrain
+  leaks ~50 food; hundreds per game ≈ 10-45k food. Fix the source:
+  training stops at the pop cap unconditionally, dismissals only happen
+  when the replacement unit is trained immediately, and hysteresis
+  between the worker cap and the dismissal floor must exceed the batch
+  size.
+- **Timeout a pending build by builder travel distance.** A flat 150-turn
+  timeout is shorter than the walk to a frontier CC spot (~1.8 m/turn),
+  so far orders "failed" and poisoned their spot while the party was
+  still walking. `150 + dist/1.5` turns works.
+- **Petra captures expansion CCs rather than razing them.** A CC planted
+  in contested territory flips to Petra with its territory; frontier
+  expansion must be gated on military dominance (enemyArmy ≤ 100 and own
+  army ≥ 50), not just on the spot being momentarily enemy-free.
+- **percentMapControlled swings with the end-of-game border position**:
+  the same bot scored 45% and 59% on seed 1 across consecutive versions
+  because one fewer enemy CC had been razed by t=45m. Evaluate map%
+  across several seeds, never one.

@@ -199,6 +199,42 @@ army hits 60) while the infantry screens; retreat at 45.
   7.7k (s5 razed 2 enemy CCs, sparing the last). Food trajectory hugely
   improved by the worker cap but still 27-43k vs 50k; wood volatile;
   map stuck at 30-45% — the binding constraint.
+- **def15** (expansion plan recomputed every 1500 turns instead of once —
+  raids free land the original plan could never claim, failedSpots expire
+  after 1500 turns instead of poisoning forever, 3 concurrent CCs once
+  enemyArmy < 60, healers 6→10, raid retreat 40→50): map jumped to
+  **78/60/45%** (from 45/32/30) but stocks fell: food 27.0/29.8/47.1k,
+  wood 36.6/28.6/40.5k. Two leaks found in the logs: (1) the army pop-room
+  dismissal (`workers > 190` vs the 195 cap — hysteresis 5) yo-yoed 181
+  times on s3 ≈ 9k food; trainWorkers kept training at the pop cap
+  whenever the army was at target; (2) the trader dismissal fired whenever
+  pop was capped even with food below the 40k training bar — a destroyed
+  worker, no trader. And the CC pendingBuilds timeout of 150 turns (30 s)
+  is shorter than the walk to a frontier spot (~350 m ≈ 39 s): far CC
+  orders failed and re-poisoned their spot every recompute (s5: same spot
+  failed at 24/30/35/40/45 min).
+- **def16** (trainWorkers stops at pop cap unconditionally — the
+  army-at-target case kept training and fed the dismissal yo-yo; trader
+  dismissal only when a trader is actually trained; CC pendingBuilds
+  timeout distance-scaled `150 + dist/1.5`; replan every 750 turns):
+  - s5: **91% map, 54.2k food, 48.7k wood** — one wood short of a full
+    pass; 6 CCs, churn way down (civilians lost 74 vs 151).
+  - s1: 59% (was 78 — one fewer Petra CC razed, borders fluctuate),
+    stocks much better: 43.0k food / 54.9k wood.
+  - s3: **collapse** — 16% map, 18.9k/21.7k, pop 50 at the end. Petra
+    was never broken on this seed (army 148→232, 0 CCs razed): the
+    longer CC timeout + fast replan pushed far CC orders into contested
+    land, Petra **captured** 4 of our CCs (capture, not raze — gifting
+    her the territory) and massacred 856 civilians, mostly builder
+    parties. Root weakness: the muster froze at army 36-53 — wood floor
+    600 while temples keep getting razed, on a wood-poor map (woodline
+    depleted at 30 min, wood rate 28%). And without the wonder (needs
+    1100w) the 300 pop cap cannot hold 195 workers + 100 army.
+- **def17** (far CC orders need escort conditions: spots ≥ 260 m from
+  every own CC are gated on enemyArmy ≤ 100 AND army ≥ 50, gated spots
+  rotate to the back of the queue; first-ring spots always allowed so the
+  wonder keeps flowing; training wood floor while defense buildings are
+  missing 600 → 400): running.
 
 Harness semantics learned (kiln `NonVisualTrigger.js`): at
 `in_game_limit_min` the trigger marks player 1 won and stats print; but if
