@@ -626,3 +626,26 @@
   sentry tower (100 wood, 40 s build) upgrades to it at town for
   50w/100s/100s-time. Stone tower stats: 100w/100s, 150 s build, 1000 HP,
   garrison 5, 4 default arrows + 1 per garrisoned Infantry.
+- **Walls cannot be built from the AI scripting API (0.28.0)**: there is
+  no constructWall/startWall binding; a plain `ent.construct(
+  "structures/palisades_long", x, z, ...)` order is accepted silently but
+  no foundation ever appears (verified headless: order logged, nothing
+  standing 200 turns later, no engine error). Wall placement needs the
+  engine's WallSet chaining, which the AI layer does not expose. Petra
+  itself never builds walls.
+- **Any unit costing ≥ 100 food never trains in a flow economy**: with
+  cost-level floors the stock never crosses 100-120 while barracks/women
+  stream at 50 (healers, fanatics, cavalry all stayed at 0 trained
+  pre-city across many probes). Training them requires a spending hold
+  that pauses the 50-cost streams, or a genuinely richer economy.
+- **Very hard (diff 5) aggressive Petra fields a wave AND a home guard
+  simultaneously**: her base never has fewer than ~12-35 defenders after
+  t=10m (measured via visible-enemy telemetry), so "her army is away,
+  raid her workers" premises fail — and her workers garrison the CC on
+  contact, so even won fights kill 0-11 civs. Structure raids fare no
+  better (0-3 buildings razed per raid: her guard answers in ~1 min).
+- **The production differential at diff 5 is the whole game**: her army
+  grows ~5-7/min sustained (47 at 10m, 66 at 15m, 101 at 23m, 130+ with
+  siege at 28m, 198+ at 40m). A bot whose army masses ~1-2/min net
+  (food-flow-bound) can turtle for 40-45 min with favorable kill ratios
+  but can never assemble the 75-army + 2-ram raid package by ~30m.

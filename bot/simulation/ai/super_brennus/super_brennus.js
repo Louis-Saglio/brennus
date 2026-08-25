@@ -1,6 +1,12 @@
+/**
+ * super_brennus (goal 12): based on the goal-10 winner
+ * (brennus_gaul_generic_land_map), hardened for very hard aggressive
+ * Petra (difficulty 5, rome) — her first wave lands ~10-12 min (vs ~16 at
+ * medium) and her standing army is 2-4× ours from t=10m, so the
+ * defense/economy timings of the goal-10 recipe are all compressed.
+ * Win = all enemy civic centers in under 45 in-game minutes.
+ */
 import { BaseAI } from "simulation/ai/common-api/baseAI.js";
-// super_brennus (goal 12): gaul boom bot — defeats very hard aggressive Petra
-// (rome) under conquest_civic_centers in under 45 in-game minutes.
 
 export function BrennusBot(settings)
 {
@@ -18,6 +24,9 @@ BrennusBot.prototype.gathererShares = {
 BrennusBot.prototype.currentShares = function(total)
 {
 	const phase = this.gameState.currentPhase();
+
+	if (this.expansionOn() && phase === 3)
+		return this.expansionShares(total);
 	let base = this.gathererShares[phase] || this.gathererShares[1];
 	if (phase === 2)
 	{
@@ -33,7 +42,7 @@ BrennusBot.prototype.currentShares = function(total)
 
 			const bankingDone = this.gameState.isResearching("phase_city_generic");
 
-			// Stone mining starts at t=5:00, not t=8:00: five towers (500
+			// Stone mining starts at t=5:00, not t=8:00: eight towers (800
 			// stone) must stand before the diff-5 wave lands at ~10-12 min.
 			const early = this.gameState.getTimeElapsed() < 300000;
 			const timeLeft = Math.max(60, (810000 - this.gameState.getTimeElapsed()) / 1000);
@@ -58,11 +67,11 @@ BrennusBot.prototype.currentShares = function(total)
 		}
 		return shares;
 	}
-	// War-stage phase 3 (city researched): keep real mining shares. Phase-3
-	// base shares are 1% stone/metal — goal 10 (agg8 s2) banked 40 metal for
-	// 11 minutes after city and the first ram trained 11 min after the
-	// arsenals were ordered. Rams, forge techs and towers all eat metal/stone
-	// continuously; mine until a war chest is banked.
+	// War-stage phase 3 (city researched, expansion not yet on): keep real
+	// mining shares. Phase-3 base shares are 1% stone/metal — agg8 s2 banked
+	// 40 metal for 11 minutes after city and the first ram trained at 31.4m,
+	// 11 min after the arsenals were ordered. Rams, forge techs and towers
+	// all eat metal/stone continuously; mine until a war chest is banked.
 	if (phase === 3 && this.warOn())
 	{
 		const res = this.gameState.getResources();
@@ -88,14 +97,13 @@ BrennusBot.prototype.currentShares = function(total)
 
 BrennusBot.prototype.houseTrainingTech = "unlock_civilians_house_generic";
 
+/** Boom techs in priority order; wood/stone/metal costs only (food goes to the woman stream). */
 BrennusBot.prototype.boomTechs = [
 
 	"gather_wicker_baskets",
 
 	"gather_farming_plows",
 
-	// town — grain-rate techs first: they cost the metal the city bank wants,
-	// so they must land before the 750 reserve activates
 	"gather_farming_training",
 
 	"gather_farming_harvester",
@@ -122,20 +130,24 @@ BrennusBot.prototype.houseMargin = 16;
 
 BrennusBot.prototype.maxHouseFoundations = 4;
 
+/** Furthest animal the herder targets from the CC (m). */
 BrennusBot.prototype.herdMax = 200;
 
+/** Skittish animals beyond this distance (m) are killed in place instead of herded. */
 BrennusBot.prototype.herdCutoff = 200;
 
 BrennusBot.prototype.herdPrefer = false;
 
+/** Distance (m) from the pinned food dropsite at which a steered animal is killed. */
 BrennusBot.prototype.herdKillDist = 25;
 
-// A new wood storehouse may only go up once no existing dropsite's ring still
-// serves >= this much wood; 250 ≈ one temperate tree or 2.5 steppe bushes.
+/** Wood a dropsite's ring must still serve before a new wood storehouse is allowed (rule 1). */
 BrennusBot.prototype.ringGateWood = 250;
 
+/** Distance (m) a dropsite serves wood within. */
 BrennusBot.prototype.ringServeDist = 40;
 
+/** Pinned stone and metal mines closer than this (m) share ONE storehouse. */
 BrennusBot.prototype.minePairDist = 55;
 
 BrennusBot.prototype.CustomInit = function(gameState)
@@ -144,15 +156,13 @@ BrennusBot.prototype.CustomInit = function(gameState)
 
 	this.ccAngle = undefined;
 
-	this.assignments = this.savedState?.assignments || {};
+	this.assignments = this.savedState?.assignments || {}; // entityID -> resource
 
 	this.builderAssignments = this.savedState?.builderAssignments || {};
 
-	this.pendingBuilds = this.savedState?.pendingBuilds || [];
+	this.pendingBuilds = this.savedState?.pendingBuilds || []; // [{template, x, z, turn}]
 
-	// Storehouse spots whose commit is blocked by chopper traffic on the
-	// foundation: the choppers become the builders.
-	this.rushBuilds = this.savedState?.rushBuilds || [];
+	this.rushBuilds = this.savedState?.rushBuilds || []; // [{x, z, turn}] woodline storehouses whose builders come from the choppers
 
 	this.failedSpots = this.savedState?.failedSpots || [];
 
@@ -179,21 +189,26 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.herdKill = this.savedState?.herdKill || false;
 	this.herdLastPos = this.savedState?.herdLastPos;
 
+	// Pinned food dropsite the steer pushes toward (an unpinned target zigzags between dropsites).
 	this.herdDrop = this.savedState?.herdDrop;
 	this.herdWoundDist = this.savedState?.herdWoundDist || Infinity;
 
 	this.fruitStock = 0;
 
-	this.mineId = this.savedState?.mineId || {};
+	this.mineId = this.savedState?.mineId || {}; // resource -> pinned mine (miners concentrate until full)
 
-	// Defense: standing army roster (entityID -> 1), command throttle, shelter memory.
+	this.expPlan = this.savedState?.expPlan || null; // {spots, next, done, simPct}
+
+	this.expOn = this.savedState?.expOn || false;
+
+	// Defense (goal 9): standing army roster (entityID -> 1), command throttle, shelter memory.
 	this.army = this.savedState?.army || {};
 	this.rams = this.savedState?.rams || {};
 	this.healers = this.savedState?.healers || {};
-	this.cavForce = this.savedState?.cavForce || {};
 	this.armyCmdTurn = 0;
 	this.shelterDanger = {};
 	this.spearNext = true;
+
 };
 
 BrennusBot.prototype.OnUpdate = function()
@@ -206,12 +221,12 @@ BrennusBot.prototype.OnUpdate = function()
 		this.updateEnemyPositions();
 
 		// Failed build spots expire after 1500 turns (5 min): most failures are
-		// war damage (a raided storehouse, a razed foundation) and the spot is
-		// fine once the frontier moves.
+		// war damage (a raided storehouse, a razed CC foundation), and the spot
+		// is fine once the frontier moves — permanent poisoning starved the
+		// expansion plan (def14: 7-20 dead spots).
 		this.failedSpots = this.failedSpots.filter(f => this.turn - (f[2] || 0) < 1500);
 
-		// A research + construct order in the same block overdraws the resource
-		// snapshot (the construct is rejected and blacklisted): hold construction.
+		// Research + construct in the same block overdraw the pre-command resource snapshot: hold construction one block after any research order.
 		this.constructionHold = false;
 		this.updateWoodline();
 		this.assignGatherers();
@@ -219,15 +234,17 @@ BrennusBot.prototype.OnUpdate = function()
 		this.sampleGatherRates();
 		// Defense runs BEFORE the economy spenders (research, women stream,
 		// construction): the early muster must draw from the resource flow, not
-		// from stockpiles the boom never leaves behind (goal 10, agg1: floors
-		// above cost level never fired pre-boom and the army stayed empty while
-		// Petra's wave arrived).
+		// from stockpiles the boom never leaves behind (agg1: floors of 250/250
+		// never fired pre-boom — the boom spent everything first — and the army
+		// stayed at 4 while Petra's 90-unit wave arrived).
 		this.manageDefense();
 		this.managePhaseUp();
 		this.manageResearch();
 		this.trainWorkers();
 		this.manageConstruction();
 		this.manageBarter();
+		this.manageExpansion();
+		this.manageTrade();
 	}
 	const phase = this.gameState.currentPhase();
 	if (phase !== this.lastPhase)
@@ -246,11 +263,13 @@ BrennusBot.prototype.OnUpdate = function()
 	this.turn++;
 };
 
+// ---------------------------------------------------------------- gathering
 BrennusBot.prototype.assignGatherers = function()
 {
 	const counts = { "food": 0, "wood": 0, "stone": 0, "metal": 0 };
 	const idle = [];
 
+	// The city bank is spent once the research starts: release all miners once so the shares reassign them.
 	if (!this.minersFreed && (this.gameState.isResearching("phase_city_generic") ||
 		this.gameState.isResearched("phase_city_generic")))
 	{
@@ -262,16 +281,13 @@ BrennusBot.prototype.assignGatherers = function()
 	}
 
 	{
-		// The engine's gather autocontinue drifts pickers to ever-farther unserved
-		// supplies: stop food gatherers > 45 m from every dropsite; returners exempt.
+		// The engine's gather autocontinue drifts pickers to far unserved supplies: stop empty-handed fruit/meat gatherers working > 45 m from every food dropsite.
 		const sites = this.foodDropsitePositions();
 		for (const ent of this.gameState.getOwnUnits().values())
 		{
 			if (this.assignments[ent.id()] !== "food" || !ent.isGatherer() ||
 				ent.isIdle() || !ent.position())
 				continue;
-			// The herder carries a stale turn-0 "food" assignment and works carcasses
-			// beyond 45 m of every dropsite: exempt it.
 
 			if (ent.id() === this.herderId && !this.herdingDone)
 				continue;
@@ -291,7 +307,7 @@ BrennusBot.prototype.assignGatherers = function()
 
 	for (const ent of this.gameState.getOwnUnits().values())
 	{
-		if (!ent.isGatherer() || !ent.position())
+		if (!ent.isGatherer() || !ent.position() || this.army[ent.id()])
 			continue;
 
 		if (ent.id() === this.herderId && !this.herdingDone)
@@ -327,12 +343,11 @@ BrennusBot.prototype.assignGatherers = function()
 			if (resource === "food" && supply.isHuntable() && supply.get("Health"))
 			{
 
-				// An attacked animal flees the attacker: approach from the far side
-				// so it runs toward the base.
 				const sp = supply.position();
 				const drop = this.nearestFoodDropsite(sp);
 				const dx = sp[0] - drop[0], dz = sp[1] - drop[1];
 				const n = Math.hypot(dx, dz) || 1;
+				// Approach a huntable from the far side so it flees toward the base.
 				ent.move(sp[0] + dx / n * 10, sp[1] + dz / n * 10);
 				ent.gather(supply, true);
 			}
@@ -353,6 +368,7 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 	const pos = unit.position();
 	const region = this.accessibility.getAccessValue(pos);
 
+	// Wood: the zone tree minimizing the full walk cycle (unit -> tree + tree -> nearest dropsite).
 	if (resource === "wood" && this.woodline)
 	{
 		const drops = this.woodDropsitePositions();
@@ -367,8 +383,6 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 				continue;
 			if (!this.canGatherSupply(unit, supply))
 				continue;
-			// Minimize the full walk cycle: walk to the tree plus the tree's
-			// distance to its nearest dropsite.
 			let dd = Infinity;
 			for (const dp of drops)
 			{
@@ -387,10 +401,9 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 			return best;
 	}
 
+	// Food: served fruit and dead in-territory animals are one pool; fields fall through to the generic path below.
 	if (resource === "food")
 	{
-		// Served fruit and dead in-territory animals are ONE food pool (same
-		// gather rate, carcasses never rot): nearest served supply wins.
 		const dropsites = this.foodDropsitePositions();
 		let best, bestD = Infinity;
 		for (const s of this.gameState.getResourceSupplies("food").values())
@@ -399,8 +412,6 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 			if (!supplyPos || this.accessibility.getAccessValue(supplyPos) !== region)
 				continue;
 			const specific = s.resourceSupplyType()?.specific;
-			// The carcass the herder is collecting stays its own — a civilian
-			// would only duplicate the collection.
 			if (specific !== "fruit" &&
 				!(specific === "meat" && !s.get("Health") &&
 					this.inOwnTerritory(supplyPos[0], supplyPos[1]) &&
@@ -454,14 +465,17 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 		if (!this.canGatherSupply(unit, supply))
 			continue;
 
-		// Never trek for unserved food: served-only for fruit AND meat, or the
-		// drift stop loops the unit (stop → reassign → drift).
 		if (foodSites &&
 			(supply.resourceSupplyType()?.specific === "fruit" ||
 				supply.resourceSupplyType()?.specific === "meat") &&
 			!foodSites.some(d => SquareDistance(supplyPos, d) < 45 * 45))
 			continue;
 
+		if ((resource === "stone" || resource === "metal") && this.expansionOn() &&
+			this.servedMineIds && !this.servedMineIds.has(supply.id()))
+			continue;
+
+		// Civilians never leave the territory for meat.
 		if (resource === "food" && supply.isHuntable() && !unit.hasClass("Cavalry") &&
 			!this.inOwnTerritory(supplyPos[0], supplyPos[1]))
 			continue;
@@ -516,13 +530,12 @@ BrennusBot.prototype.nearestFoodDropsite = function(pos)
 	return best;
 };
 
-// One herder, exempt from the gatherer shares, hunts in two modes:
-// - herd: a skittish animal within herdCutoff m is wounded ONCE from the far
-//   side, then shadowed without attacking — a wounded animal keeps fleeing
-//   away from its attacker while it stays within the flee distance (fixed at
-//   wound time), so the flight carries it to the pinned dropsite where the
-//   kill lands. In-territory kills go to the civilians.
-// - collect: killed in place and collected by the cavalry before the next animal.
+/**
+ * Herding: skittish animals are wound-then-steered — a wounded animal flees
+ * away from its attacker until it reaches the flee distance fixed at wound
+ * time; the cavalry shoots once from the far side, follows without attacking,
+ * and kills near the pinned food dropsite. Other animals are killed in place.
+ */
 BrennusBot.prototype.manageHerding = function()
 {
 	const gameState = this.gameState;
@@ -557,9 +570,9 @@ BrennusBot.prototype.manageHerding = function()
 	let target = this.herdTarget !== undefined ? gameState.getEntityById(this.herdTarget) : undefined;
 	if (target && (!target.position() || !target.isHuntable() || !target.resourceSupplyAmount()))
 		target = undefined;
+	// A dead animal becomes a NEW corpse entity: adopt the carcass by position (within 25 m).
 	if (!target && this.herdTarget !== undefined && this.herdLastPos)
 	{
-		// The kill replaced the live animal with a NEW corpse entity: adopt it by position.
 
 		let best, bestD = Infinity;
 		for (const s of gameState.getHuntableSupplies().values())
@@ -760,6 +773,12 @@ BrennusBot.prototype.canGatherSupply = function(unit, supply)
 	return !!(+rates[type.generic + "." + type.specific] || +rates[type.generic]);
 };
 
+/**
+ * The one woodline every chopper works: wood supplies binned into 30 m
+ * cells, the richest 90 m neighbourhood is the hotspot, the zone is the
+ * trees within 45 m of its centre. Re-picked below 800 wood (ring zones:
+ * the ringGateWood floor).
+ */
 BrennusBot.prototype.updateWoodline = function()
 {
 	if (this.turn < (this.woodlineRefresh || 0))
@@ -824,15 +843,14 @@ BrennusBot.prototype.updateWoodline = function()
 		for (const id of this.woodline.ids)
 			remaining += this.gameState.getEntityById(id)?.resourceSupplyAmount() || 0;
 
-		const keep = this.woodline.kind === "store" ? this.ringGateWood : 800;
+		const keep = this.woodline.kind === "store" ?
+			(this.expansionOn() ? 800 : this.ringGateWood) : 800;
 		if (remaining > keep)
 		{
 			this.woodline.total = remaining;
 			return;
 		}
 	}
-	// Wood supplies binned into 30 m cells; hotspot = most wood in its 90 m
-	// neighbourhood; zone = trees within 45 m, kept until under 800 wood.
 	const scan = inTerritory => {
 		const supplies = this.gameState.getResourceSupplies("wood").toEntityArray()
 			.filter(s => s.position() && s.resourceSupplyAmount() >= 20 &&
@@ -889,8 +907,7 @@ BrennusBot.prototype.updateWoodline = function()
 		return { "ids": new Set(ids), "total": total, "center": [sx / ids.length, sz / ids.length] };
 	};
 
-	// Rule 1: cut the wood an existing dropsite already serves first — pick the
-	// dropsite whose ring still holds the most wood; fall back to the hotspot.
+	// Rule 1: keep cutting the ring an existing dropsite already serves while it holds >= ringGateWood; else fall back to the biggest hotspot.
 	const dropSites = [];
 	const ccEntity = this.getCivicCentre();
 	if (ccEntity?.position())
@@ -925,8 +942,6 @@ BrennusBot.prototype.updateWoodline = function()
 	}
 	this.woodline = bestRing || scan(true) || scan(false);
 
-	// Wood-poor biome (no supply holds 200): gates fields and wood storehouses
-	// behind the town trio's wood.
 	if (this.woodPoor === undefined)
 	{
 		let poor = true;
@@ -950,9 +965,12 @@ BrennusBot.prototype.inOwnTerritory = function(x, z)
 	return (terr.data[i + j * terr.width] & 0x1F) === this.player;
 };
 
-// Effective vs theoretical gather rate: a delivery is a carried load dropping
-// to 0, and amount / time since the previous delivery is the worker's rate
-// over a full cycle. Theoretical = template rate × diminishing returns.
+// ------------------------------------------------- gather-rate telemetry
+/**
+ * Telemetry: a delivery (carried load resets) yields effective rate =
+ * amount / cycle time; theoretical = template rate x the diminishing-
+ * returns multiplier. Aggregated per class; read in logStatus.
+ */
 BrennusBot.prototype.sampleGatherRates = function()
 {
 	const gameState = this.gameState;
@@ -1029,11 +1047,14 @@ BrennusBot.prototype.sampleGatherRates = function()
 				delete map[id];
 };
 
+// ---------------------------------------------------------------- phases
 BrennusBot.prototype.nextPhaseTech = function()
 {
 	return { 1: "phase_town_generic", 2: "phase_city_generic" }[this.gameState.currentPhase()];
 };
 
+/** Town: a short hard bank (pause spending, fill, research). City: a
+ * reserve that training/construction only spend above. */
 BrennusBot.prototype.managePhaseUp = function()
 {
 	const gameState = this.gameState;
@@ -1041,6 +1062,15 @@ BrennusBot.prototype.managePhaseUp = function()
 	this.phaseReserve = null;
 	this.phaseReady = false;
 	this.banking = false;
+	// Goal-10 war fund: while the early-muster buildings (barracks, temple)
+	// are still missing, hold 150 wood out of the boom's reach — the house
+	// stream spends wood at cost level every block, so the 300-wood barracks
+	// gate almost never fires on its own before ~14 min (agg4: barracks at
+	// 9.1/9.5m, then starved). 300 strangled the house stream (agg5 s1: pop
+	// cap stalled at 120); 150 is one barracks at a time. Must be set before
+	// the early returns below so the money accumulates through every hold.
+	if (!this.warOn() && this.defenseBuildingsMissing)
+		this.phaseReserve = { "wood": 150 };
 	if (!tech || gameState.isResearching(tech) || gameState.isResearched(tech))
 		return;
 	if (!gameState.canResearch(tech))
@@ -1048,15 +1078,15 @@ BrennusBot.prototype.managePhaseUp = function()
 
 	if (tech === "phase_town_generic")
 	{
-		// Delay the town bank until fertility is researching (its house trainers
-		// ARE the boom) and the 2 bootstrap fields stand; fallbacks at t=4 / t=5.
 		const fert = this.houseTrainingTech;
+		// Delay the town bank until the house-training tech is at least researching.
 		const t = gameState.getTimeElapsed();
 		if (!gameState.isResearched(fert) && !gameState.isResearching(fert) &&
 			gameState.canResearch(fert) && t >= 240000 && t < 540000)
 			return;
 
 		const fieldType = gameState.applyCiv("structures/{civ}/field");
+		// Hold the town bank until 2 bootstrap fields stand while the served fruit is low.
 		let bootstrapFields = 0;
 		for (const ent of gameState.getOwnStructures().values())
 			if (ent.templateName() === fieldType)
@@ -1068,13 +1098,14 @@ BrennusBot.prototype.managePhaseUp = function()
 	if (tech === "phase_town_generic")
 		this.banking = true;
 	else
-		this.phaseReserve = cost;
+		this.phaseReserve = { ...cost,
+			"wood": (cost.wood || 0) + (this.phaseReserve?.wood || 0) };
 
-	// City is the whole game at diff 5 (fanatics, rams, forge techs): do NOT
-	// hold the research for the grain-rate techs — at war their metal cost
-	// is refilled by mining and barter, but every minute of delay is a
-	// minute off the kill clock (mil6: city at 26.5-30.1m, never time to
-	// raid).
+	// City: the goal-8/9 boom held the research start until the grain-rate and
+	// house-cap techs were out (fallback 13:20). Goal 10 cannot wait: city
+	// unlocks fanatics/arsenal/rams and the 100-army war stage, and the war
+	// fund starves those very techs (agg5 s1: plows at 16.4m, city never —
+	// the bot died in town phase with 1000 stone and 1800 metal banked).
 	if (!gameState.getResources().canAfford(cost))
 		return;
 
@@ -1085,10 +1116,9 @@ BrennusBot.prototype.managePhaseUp = function()
 		cc.research(tech);
 		this.constructionHold = true;
 	}
-		// Pinned at the pop cap the queue never drains: cancel it (refunded) so
-		// the research can start.
 	else if (cc && gameState.getPopulation() >= gameState.getPopulationLimit())
 
+		// Pinned at the pop cap: cancel the full CC queue so it can drain and the research can start.
 		for (const item of cc.trainingQueue() || [])
 			cc.stopProduction(item.id);
 };
@@ -1102,6 +1132,7 @@ BrennusBot.prototype.getCivicCentre = function()
 	return undefined;
 };
 
+// ---------------------------------------------------------------- training
 BrennusBot.prototype.trainWorkers = function()
 {
 	const gameState = this.gameState;
@@ -1115,12 +1146,11 @@ BrennusBot.prototype.trainWorkers = function()
 		gameState.getPopulation() >= gameState.getPopulationLimit() - 5)
 		return;
 
-	// War-stage pop discipline: hold workers at 150 and leave the rest of the
-	// 300 cap free for the army (120) + healers (10) + rams (6 × 3 pop) =
-	// 298 total. 175 workers pop-blocked the army at ~60 until dismissal
-	// kicked in 15 min after city (goal 10, agg11 s3), and the war economy
-	// runs a 10k+ food surplus anyway. Refilling army losses with women only
-	// to dismiss them on the next soldier batch is a pure food leak.
+	// War-stage pop discipline: hold workers at 170 — at diff 5 the army
+	// never reaches its 120 target anyway, and the binding constraint is the
+	// food flow, not pop room (goal-12 mil1-28: pop peaks at ~170 while
+	// Petra's army triples ours). Refilling army losses with women only to
+	// dismiss them on the next soldier batch is a pure food leak.
 	if (this.warOn())
 	{
 		let workers = 0;
@@ -1128,16 +1158,19 @@ BrennusBot.prototype.trainWorkers = function()
 			if (u.isGatherer() && !u.hasClass("Soldier") && !u.hasClass("Trader") &&
 				u.id() !== this.herderId)
 				workers++;
-		if (workers >= 150)
+		if (workers >= 170)
 			return;
 	}
 
 	// Pre-war (town phase): cap the woman stream at 150 — the early muster
-	// needs the food more than the boom needs a 150th worker (goal 10, agg4
-	// s1: the house stream drained food at cost level every block and the
-	// barracks starved). But not lower: a cap of 100 starved the boom techs
-	// and stalled city phase, and 130 still meant city at 18.5-20.2m — city
-	// gates fanatics/rams/raids, so every minute here is off the kill clock.
+	// needs the food more than the boom needs a 150th worker (agg4 s1: the
+	// house stream drained food at cost level every block and the barracks
+	// starved; 8 infantry trained all game). But not lower: agg5's cap of
+	// 100 starved the boom techs and stalled city phase, and agg6's 130
+	// still meant city at 18.5-20.2m — city gates fanatics/rams/raids, so
+	// every minute here is a minute off the kill clock. (rb3's 60-cap
+	// army-first opening was tried and reverted: the production rate, not
+	// the allocation, is the wall — 30 soldiers at 10m instead of 60.)
 	if (this.defenseOn() && !this.warOn())
 	{
 		let workers = 0;
@@ -1183,15 +1216,15 @@ BrennusBot.prototype.trainWorkers = function()
 	}
 };
 
+// ---------------------------------------------------------------- research
+/** Boom techs, one per block, from genuine surplus only (reserve and
+ * pending wood kept intact); Fertility Festival first. */
 BrennusBot.prototype.manageResearch = function()
 {
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
 	const reserve = this.phaseReserve || {};
 	if (this.banking)
-		return;
-	// The ram fund outranks boom techs (see manageDefenseTraining).
-	if (this.ramHold)
 		return;
 
 	const fert = this.houseTrainingTech;
@@ -1213,6 +1246,9 @@ BrennusBot.prototype.manageResearch = function()
 		return;
 	}
 
+	if (this.manageExpansionTechs())
+		return;
+
 	const techOrder = this.woodPoor ?
 		["gather_wicker_baskets", "gather_lumbering_ironaxes",
 			...this.boomTechs.filter(t => t !== "gather_wicker_baskets" && t !== "gather_lumbering_ironaxes")] :
@@ -1226,10 +1262,9 @@ BrennusBot.prototype.manageResearch = function()
 			continue;
 		const cost = gameState.getTemplate(tech).cost();
 
-		// Stone/metal keep a floor even before the city reserve; the bank
-		// techs may spend into it.
 		const bankFloor = gameState.currentPhase() === 2 ? 300 : 0;
 
+		// Food-rate and house-cap techs may spend into the city bank: the miners pre-fill for them and the city research waits for them.
 		const bankTech = ["gather_farming_plows", "gather_farming_training",
 			"gather_farming_harvester", "pop_house_01"].includes(tech);
 		if (!resources.canAfford({
@@ -1250,6 +1285,8 @@ BrennusBot.prototype.manageResearch = function()
 		}
 		return;
 	}
+
+	this.manageExpansionTechs();
 };
 
 BrennusBot.prototype.nextTrioWood = function()
@@ -1268,20 +1305,20 @@ BrennusBot.prototype.trioTypes = function()
 	{
 		const third = this.gameState.getTemplate(this.gameState.applyCiv("structures/{civ}/tavern")) ?
 			"tavern" : "temple";
-		// Market first: barter converts the food/wood surplus into the
-		// stone/metal the city bank wants.
-		this._trioTypes = ["market", "forge", third]
+		this._trioTypes = ["forge", "market", third]
 			.map(t => this.gameState.applyCiv(`structures/{civ}/${t}`));
 	}
 	return this._trioTypes;
 };
 
+// ---------------------------------------------------------------- construction
 BrennusBot.prototype.manageConstruction = function()
 {
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
 	const foundations = gameState.getOwnFoundations().toEntityArray();
 
+	// Sticky, non-overlapping builders per foundation (dropsites 4, houses 2-3, fields 2, CC 10, wonder 16); the herder is excluded.
 	const assigned = this.builderAssignments;
 	for (const fId in assigned)
 	{
@@ -1301,11 +1338,14 @@ BrennusBot.prototype.manageConstruction = function()
 		const built = gameState.getBuiltTemplate(foundation.templateName());
 		const isField = built.hasClass("Field");
 		const isHouse = built.hasClass("House");
+		const isCC = built.hasClass("CivCentre");
+		const isWonder = built.hasClass("Wonder");
 		const fpos = foundation.position();
 
-		// Units on a foundation block its commit: the choppers become its builders.
 		const rush = this.rushBuilds.some(r => Math.abs(r.x - fpos[0]) < 6 && Math.abs(r.z - fpos[1]) < 6);
-		const target = (isField ? 2 : isHouse ? (this.gameState.currentPhase() === 1 ? 2 : 3) : rush ? 8 : 4);
+
+		const target = (isField ? 2 : isHouse ? (this.gameState.currentPhase() === 1 ? 2 : 3) :
+			isCC ? 10 : isWonder ? 16 : rush ? 8 : 4);
 		let cur = assigned[foundation.id()];
 		if (!cur)
 			cur = assigned[foundation.id()] = [];
@@ -1315,6 +1355,7 @@ BrennusBot.prototype.manageConstruction = function()
 		const builders = gameState.getOwnUnits()
 			.filter(ent => ent.isGatherer() && ent.isBuilder() && ent.position() &&
 				!(ent.id() === this.herderId && !this.herdingDone) &&
+				!this.army[ent.id()] &&
 				!taken.has(ent.id()) &&
 				(!rush || this.assignments[ent.id()] === "wood"))
 			.filterNearest(fpos, needed);
@@ -1343,7 +1384,16 @@ BrennusBot.prototype.manageConstruction = function()
 		if (foundations.some(nearSpot) ||
 			gameState.getOwnStructures().toEntityArray().some(nearSpot))
 			return false;
-		if (this.turn - pb.turn > (pb.timeout || 50))
+		// Timeout must cover builder travel: at ~1.8 m per turn a distant
+		// spot needs minutes, and a premature timeout poisoned the spot
+		// while the party was still walking (def15 s5 for CCs; and the
+		// flat 50 declared 70-90 m tower orders failed mid-walk, looping
+		// the placer forever).
+		const home = this.getCivicCentre()?.position() || [384, 384];
+		const dist = Math.hypot(pb.x - home[0], pb.z - home[1]);
+		const timeout = pb.template.indexOf("civil_centre") !== -1 ?
+			150 + Math.ceil(dist / 1.5) : 60 + Math.ceil(dist);
+		if (this.turn - pb.turn > timeout)
 		{
 			print(`[HARNESS] construct FAILED: ${pb.template} at ${pb.x.toFixed(0)},${pb.z.toFixed(0)}\n`);
 			this.failedSpots.push([pb.x, pb.z, this.turn]);
@@ -1358,9 +1408,10 @@ BrennusBot.prototype.manageConstruction = function()
 	if (this.banking)
 		return;
 
-	// A missing pre-war military building freezes the economy's wood
-	// spending until its 320 gate is banked (see manageDefenseBuildings);
-	// ramHold does the same for the ram fund (see manageDefenseTraining).
+	// A missing pre-war military building (or the post-city arsenal, or the
+	// ram fund) freezes the economy's wood spending until its gate banks —
+	// the boom spends the flow to near zero every block, so bare floors
+	// never fire (goal-10 agg1/agg2 lesson).
 	if (this.milBuildingHold || this.ramHold)
 		return;
 
@@ -1455,9 +1506,8 @@ BrennusBot.prototype.manageConstruction = function()
 	for (const res of Object.values(this.assignments))
 		if (res === "food")
 			foodGatherers++;
-	// Fields must stand before the served fruit runs out: open at t=1:30 or when
-	// served stock drops under ~4 min of runway; village cap 4.
-	const fieldCap = gameState.currentPhase() === 1 ? 4 : 30;
+	const fieldCap = this.expansionOn() ? 60 : (gameState.currentPhase() === 1 ? 4 : 30);
+	// Fields open at t=1:30 or when served fruit runs low: they must stand before the fruit runs out.
 	const desiredFields = this.fruitStock < 4000 || gameState.getTimeElapsed() > 90000 ?
 		Math.min(fieldCap, Math.max(2, Math.ceil(foodGatherers / 3) + 1)) : 0;
 	let fields = 0;
@@ -1467,6 +1517,7 @@ BrennusBot.prototype.manageConstruction = function()
 	const fieldFoundations = foundations.filter(f =>
 		gameState.getBuiltTemplate(f.templateName()).templateName() === fieldType).length;
 
+	// Bootstrap only: the first 2 fields outrank the house stream while served fruit is nearly out.
 	this.fieldDemand = (fields + fieldFoundations) < Math.min(2, desiredFields) &&
 		this.fruitStock < 800;
 
@@ -1476,6 +1527,7 @@ BrennusBot.prototype.manageConstruction = function()
 		this.fieldStallTurns > 100)
 		this.fieldDemand = true;
 
+	// On wood-poor biomes fields leave the town trio's wood untouched.
 	const fieldTrioWood = gameState.currentPhase() === 2 && this.woodPoor ?
 		this.nextTrioWood() : 0;
 	if (fields < desiredFields && fieldFoundations < 2 &&
@@ -1557,6 +1609,7 @@ BrennusBot.prototype.placeFirstFarmstead = function(type)
 	return false;
 };
 
+/** Continuous dropsite coverage: one order per block at the centroid of an underserved gatherer clump. */
 BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 {
 	const gameState = this.gameState;
@@ -1565,8 +1618,6 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 	if (!cc)
 		return false;
 
-	// Gated on raw wood + phase reserve only, never the trio reserve: dropsites
-	// ARE the income.
 	const woodFloor = 100 + (reserve.wood || 0);
 
 	this.dropsiteDemand = false;
@@ -1610,8 +1661,6 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 
 	const storePending = center => this.pendingBuilds.some(pb =>
 		pb.template === storeType && Math.hypot(pb.x - center[0], pb.z - center[1]) < 30);
-	// Destroy storehouses farther than 60 m from their nearest supply; the
-	// rebuild logic replaces them at the right spot instead of oscillating.
 
 	for (const ent of gameState.getOwnStructures().values())
 	{
@@ -1634,8 +1683,6 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		}
 	}
 
-	// Rule 1: a new wood storehouse only once no existing ring still serves
-	// >= ringGateWood.
 	let servedWood = 0;
 	const ringSites = [cc.position(), ...storePositions];
 	const r2 = this.ringServeDist * this.ringServeDist;
@@ -1653,7 +1700,8 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		if (ring > servedWood)
 			servedWood = ring;
 	}
-	if (storeCount < 18 && servedWood < this.ringGateWood && this.woodline?.kind !== "store")
+	if (storeCount < (this.expansionOn() ? 40 : 18) &&
+		(this.expansionOn() || (servedWood < this.ringGateWood && this.woodline?.kind !== "store")))
 	{
 		let worst, worstDist = 18;
 		const underserved = [];
@@ -1674,23 +1722,28 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 				worst = anchor;
 			}
 		}
-		if (underserved.length >= 4)
+		if (underserved.length >= 4 && !(this.expansionOn() &&
+			(this.turn - (this.lastWoodStoreTurn || -1000) < 150 ||
+
+				(this.woodline?.kind === "store" && (this.woodline.total || 0) < 2000))))
 		{
 			this.dropsiteDemand = true;
 			const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
 
-			// The spot minimizes walking: the amount-weighted median of the zone,
-			// not the cutting front's centroid.
 			const center = this.woodlineDropSpot() || centroid(clump);
 
 			const trioWood = this.gameState.currentPhase() === 2 && this.woodPoor ?
 				this.nextTrioWood() : 0;
-			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 30) ||
+			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 60) ||
 				storePending(center);
+
 			const pos = resources.wood >= woodFloor + trioWood && !planned &&
-				this.tryConstruct(storeType, "dropsite", center, true);
+				(this.expansionOn() ?
+					this.findExpansionWoodStorehouse(storeType, center) :
+					this.tryConstruct(storeType, "dropsite", center, !this.expansionOn()));
 			if (pos)
 			{
+				this.lastWoodStoreTurn = this.turn;
 				resources.subtract({ "wood": 100 });
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for woodline ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved)\n`);
 				return true;
@@ -1698,7 +1751,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		}
 	}
 
-	if (storeCount < 18)
+	if (storeCount < (this.expansionOn() ? 40 : 18))
 	{
 		let worst, worstDist = 18;
 		const underserved = [];
@@ -1719,7 +1772,8 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 				worst = anchor;
 			}
 		}
-		if (underserved.length >= 2)
+		if (underserved.length >= (this.expansionOn() ? 5 : 2) &&
+			!(this.expansionOn() && this.turn - (this.lastMineStoreTurn || -1000) < 40))
 		{
 			this.dropsiteDemand = true;
 			const sMine = this.mineId.stone !== undefined ?
@@ -1727,10 +1781,9 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			const mMine = this.mineId.metal !== undefined ?
 				gameState.getEntityById(this.mineId.metal) : undefined;
 			const sPos = sMine?.position(), mPos = mMine?.position();
+			// Pinned stone and metal mines close together share ONE storehouse between them.
 			const pairNear = sPos && mPos &&
 				Math.hypot(sPos[0] - mPos[0], sPos[1] - mPos[1]) < this.minePairDist;
-			// Rule 2: close stone and metal share ONE storehouse (minimax over
-			// both mines).
 			if (pairNear)
 			{
 				const mid = [(sPos[0] + mPos[0]) / 2, (sPos[1] + mPos[1]) / 2];
@@ -1742,6 +1795,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 						this.accessibility.getAccessValue(cc.position()));
 					if (spot && this.placeOrder(storeType, spot))
 					{
+						this.lastMineStoreTurn = this.turn;
 						resources.subtract({ "wood": 100 });
 						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} between stone ${sPos[0].toFixed(0)},${sPos[1].toFixed(0)} and metal ${mPos[0].toFixed(0)},${mPos[1].toFixed(0)} (${underserved.length} underserved)\n`);
 						return true;
@@ -1750,15 +1804,55 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			}
 			const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
 			const center = centroid(clump);
-			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 30) ||
+			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 45) ||
 				storePending(center);
 			const pos = resources.wood >= woodFloor && !planned &&
 				this.tryConstruct(storeType, "dropsite", center);
 			if (pos)
 			{
+				this.lastMineStoreTurn = this.turn;
 				resources.subtract({ "wood": 100 });
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for mine ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved)\n`);
 				return true;
+			}
+		}
+	}
+
+	if (this.expansionOn() && resources.wood >= woodFloor &&
+		storeCount < 40 && this.turn - (this.lastMineStoreTurn || -1000) > 40)
+	{
+		const region = this.accessibility.getAccessValue(cc.position());
+		const r2 = this.mineServeDist * this.mineServeDist;
+		let best, bestAmt = 1500;
+		for (const res of ["stone", "metal"])
+			for (const s of gameState.getResourceSupplies(res).values())
+			{
+				const pos = s.position();
+				if (!pos || s.resourceSupplyAmount() <= bestAmt || this.nearEnemy(pos, 100, 60))
+					continue;
+				if (this.accessibility.getAccessValue(pos) !== region ||
+					!this.inOwnTerritory(pos[0], pos[1]))
+					continue;
+				if (woodSites.some(d => SquareDistance(pos, d.pos) < r2))
+					continue;
+				bestAmt = s.resourceSupplyAmount();
+				best = pos;
+			}
+		if (best)
+		{
+			this.dropsiteDemand = true;
+			const planned = storeFoundations.some(p => Math.hypot(p[0] - best[0], p[1] - best[1]) < 45) ||
+				storePending(best);
+			if (!planned)
+			{
+				const spot = this.findMinimaxSpot(storeType, [best], region);
+				if (spot && this.placeOrder(storeType, spot))
+				{
+					this.lastMineStoreTurn = this.turn;
+					resources.subtract({ "wood": 100 });
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} for mine ${best[0].toFixed(0)},${best[1].toFixed(0)} (${bestAmt} left)\n`);
+					return true;
+				}
 			}
 		}
 	}
@@ -1846,7 +1940,6 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		}
 	}
 
-	// Build a farmstead by the next berry patch BEFORE the pickers trek over.
 	if (this.fruitStock < 600 && farmCount < 12 && resources.wood >= woodFloor)
 	{
 		const region = this.accessibility.getAccessValue(cc.position());
@@ -1885,6 +1978,8 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 	return false;
 };
 
+/** Barter: while banking, surplus food/wood buys the missing stone/metal;
+ * mining surplus far past the bank is sold back for wood/food. */
 BrennusBot.prototype.manageBarter = function()
 {
 	const gameState = this.gameState;
@@ -1896,15 +1991,15 @@ BrennusBot.prototype.manageBarter = function()
 		return;
 	const res = gameState.getResources();
 
-	// 500-unit deals drift prices ~8% each: alternate what is sold.
+	// One deal per block; 500-unit deals drift prices ~8%, so alternate the sold resource.
 	if (!gameState.isResearched("phase_city_generic"))
 	{
 
 		if ((res.stone < 750 || res.metal < 750))
 		{
 			// Metal over-banks while stone is the binding constraint for the
-			// city bank (mil5 s2: 1400 metal vs 320 stone at t=20m, city
-			// never researched): sell the surplus metal for stone directly.
+			// city bank (1400 metal vs 320 stone observed) — sell the
+			// surplus metal for stone directly.
 			if (res.metal >= 900 && res.stone < 700)
 			{
 				market.barter("stone", "metal", 500);
@@ -1936,18 +2031,24 @@ BrennusBot.prototype.manageBarter = function()
 			return;
 		}
 	}
-	else if (res.stone >= 600 || res.metal >= 600)
+	else if (this.expansionOn())
 	{
-		const excess = res.stone >= res.metal ? "stone" : "metal";
-		if (res[excess] >= 600 && (res.wood < 250 || res.food < 200))
+
+		if (!this.manageExpansionBarter(market) && (res.stone >= 600 || res.metal >= 600))
 		{
-			const want = res.wood < 250 ? "wood" : "food";
-			market.barter(want, excess, 500);
-			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${excess} -> ${want}\n`);
+
+			const excess = res.stone >= res.metal ? "stone" : "metal";
+			if (res[excess] >= 1000 && (res.wood < 250 || res.food < 200))
+			{
+				const want = res.wood < 250 ? "wood" : "food";
+				market.barter(want, excess, 500);
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${excess} -> ${want}\n`);
+			}
 		}
 	}
 };
 
+// ---------------------------------------------------------------- placement
 BrennusBot.prototype.placeWoodStorehouse = function(type)
 {
 	const spot = this.woodlineDropSpot();
@@ -1974,8 +2075,6 @@ BrennusBot.prototype.woodlineDropSpot = function()
 	return this.weightedMedian(trees);
 };
 
-// Amount-weighted geometric median via 30 Weiszfeld iterations; a point under
-// the median is skipped for that iteration (the 1/d singularity).
 BrennusBot.prototype.weightedMedian = function(points)
 {
 	let sx = 0, sz = 0, sw = 0;
@@ -2062,6 +2161,7 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 	const ccPos = cc.position();
 
 	const region = this.accessibility.getAccessValue(ccPos);
+	// Only place in the CC's land region: a spot across a cliff or river sits unbuilt forever.
 	let pos;
 	if (kind === "house")
 		pos = this.findGridSpot(templateType, this.housePlots(ccPos), region);
@@ -2069,8 +2169,6 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 		pos = this.findGridSpot(templateType, this.fieldPlots(ccPos), region);
 	else if (kind === "dropsite")
 
-		// A dropsite's value is its location: search tightly, never fall back
-		// to the base.
 		pos = this.findBuildingPosition(templateType, center || ccPos, 10, 28, true, region);
 	else
 
@@ -2085,23 +2183,19 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 
 BrennusBot.prototype.placeOrder = function(templateType, pos, rush)
 {
-	const builder = this.gameState.getOwnUnits().filterNearest(pos, 1).toEntityArray()[0];
+	const builder = this.gameState.getOwnUnits().filter(ent =>
+		(!this.army || !this.army[ent.id()]) && (!this.rams || !this.rams[ent.id()]) &&
+		(!this.healers || !this.healers[ent.id()])).filterNearest(pos, 1).toEntityArray()[0];
 	if (!builder)
 		return false;
 	builder.construct(templateType, pos[0], pos[1], this.getPlacementAngle(), undefined);
-	// The commit timeout must cover the walk: a flat 50 turns (10 s) declares
-	// the order failed while the builder is still on its way, and the same
-	// spot is re-picked forever (mil3 s2: five towers at 70-90 m looped the
-	// whole game and never stood). Budget 1 m/turn for the walk plus 60.
-	const bp = builder.position();
-	const walk = bp ? Math.hypot(bp[0] - pos[0], bp[1] - pos[1]) : 0;
-	this.pendingBuilds.push({ "template": templateType, "x": pos[0], "z": pos[1], "turn": this.turn,
-		"timeout": 60 + Math.ceil(walk) });
+	this.pendingBuilds.push({ "template": templateType, "x": pos[0], "z": pos[1], "turn": this.turn });
 	if (rush)
 		this.rushBuilds.push({ "x": pos[0], "z": pos[1], "turn": this.turn });
 	return true;
 };
 
+/** All buildings share the CC's orientation angle (keeps the grids consistent). */
 BrennusBot.prototype.getPlacementAngle = function()
 {
 	if (this.ccAngle === undefined)
@@ -2151,10 +2245,7 @@ BrennusBot.prototype.fieldPlots = function(ccPos)
 		{
 			const dx = gx * 24, dz = gz * 24;
 			const dist2 = dx * dx + dz * dz;
-			// The mid-game food base must live under CC and tower arrows: the
-			// 58-96 m ring was razed wave after wave (mil7/8). Spillover goes
-			// outward through the generic fallback anyway.
-			if (dist2 < 42 * 42 || dist2 > 66 * 66)
+			if (dist2 < 58 * 58 || dist2 > 96 * 96)
 				continue;
 			plots.push([
 				ccPos[0] + dx * cosa - dz * sina,
@@ -2221,8 +2312,7 @@ BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRa
 	return undefined;
 };
 
-// Placement prefilter on the TRUE rotated footprint, inflated by half a
-// navcell diagonal (0.75 m); territory keeps the conservative axis box.
+/** Placement prefilter: true rotated footprint (inflated 0.75 m) passable, territory box own. */
 BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mask, terr)
 {
 	const hw = halfW + 0.75, hd = halfD + 0.75;
@@ -2260,23 +2350,47 @@ BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mas
 	return true;
 };
 
+// ---------------------------------------------------------------- threats
+/** Threat lists refreshed each block; owner 0 is gaia — only animals with Attack count (every tree is "enemy"). */
 BrennusBot.prototype.updateEnemyPositions = function()
 {
 	this.enemyStructuresPos = [];
 	this.enemyMobilesPos = [];
+	let army = 0, siege = 0, nearest = Infinity;
+	const ccPos = this.getCivicCentre()?.position();
 	for (const ent of this.gameState.getEnemyEntities().values())
 	{
-		// Gaia is diplomatically "enemy": keep only animals that can attack.
 		if (ent.owner() === 0 && !(ent.hasClass("Animal") && ent.get("Attack")))
 			continue;
 		const pos = ent.position();
 		if (!pos)
 			continue;
 		if (ent.hasClass("Structure"))
+		{
 			this.enemyStructuresPos.push(pos);
-		else
-			this.enemyMobilesPos.push(pos);
+			continue;
+		}
+		this.enemyMobilesPos.push(pos);
+		if (ent.owner() === 0)
+			continue;
+		if (ent.hasClass("Siege"))
+			siege++;
+		else if (ent.hasClass("Soldier"))
+			army++;
+		if (ccPos)
+			nearest = Math.min(nearest, SquareDistance(pos, ccPos));
 	}
+	this.enemyArmy = army;
+	this.enemySiege = siege;
+	this.enemyNearestHome = Math.sqrt(nearest);
+
+	// First-contact telemetry: log once per threshold crossing (tightening).
+	for (const th of [400, 250, 150, 80])
+		if (this.enemyNearestHome < th && (this.threatLogged === undefined || this.threatLogged > th))
+		{
+			this.threatLogged = th;
+			print(`[THREAT] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m enemy army=${army} siege=${siege} nearest=${Math.sqrt(nearest).toFixed(0)}m from home CC\n`);
+		}
 };
 
 BrennusBot.prototype.nearEnemy = function(pos, structureDist, mobileDist)
@@ -2294,10 +2408,10 @@ BrennusBot.prototype.nearEnemy = function(pos, structureDist, mobileDist)
 
 /**
  * Building-placement variant: enemy mobiles loitering near home must not
- * freeze construction — a spot inside the home guard ring (60 m of the CC)
- * is covered by its arrows even while Petra camps the base (mil3 s2: the
- * town trio was unplaceable for 25 min and city landed at 39.8m). Enemy
- * STRUCTURES within 100 m still reject (don't build next to their base).
+ * freeze construction — a spot inside the home guard ring (60 m of the CC,
+ * covered by its arrows) is safe even while Petra camps the base (at diff
+ * 5 she camps for tens of minutes and a bare nearEnemy check blocks every
+ * civic building for 25+ min). Enemy STRUCTURES within 100 m still reject.
  */
 BrennusBot.prototype.nearEnemyForBuild = function(pos)
 {
@@ -2313,44 +2427,8 @@ BrennusBot.prototype.nearEnemyForBuild = function(pos)
 	return false;
 };
 
-/**
- * The defense stage starts at the town phase (~5 min), not at the end of
- * the boom — very hard aggressive Petra must be met by a standing army and
- * towers from her first raids on (~10-12 min at difficulty 5, ~4 min
- * earlier than medium), not by a muster that starts when her army is
- * already camping the base.
- */
-BrennusBot.prototype.defenseOn = function()
-{
-	if (this.defOn)
-		return true;
-	if (this.gameState.isResearched("phase_town_generic"))
-	{
-		this.defOn = true;
-		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m defense stage on (town researched)\n`);
-	}
-	return this.defOn;
-};
-
-/**
- * The war stage starts at the city phase, WITHOUT a pop requirement —
- * against aggressive Petra the waves arrive before 300 pop ever lands
- * (goal 10, agg2/agg3: city at ~14.5m, pop stuck at 240-290 under raid, so
- * the whole post-boom war machine stayed off while the base burned). City
- * unlocks fanatics/arsenal/rams; that is all the war machine needs.
- */
-BrennusBot.prototype.warOn = function()
-{
-	if (this.war)
-		return true;
-	if (this.gameState.isResearched("phase_city_generic"))
-	{
-		this.war = true;
-		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m war stage on (city researched)\n`);
-	}
-	return this.war;
-};
-
+// ---------------------------------------------------------------- defense
+/** War-stage standing army size. Pop math under the 300 cap: 150 workers + 10 healers + 6 rams (3 pop each) + 120 = 298. 100 was not enough to raid through a camped Petra (agg11 s3: three raids at 60-63 bounced off 19-37 defenders + CC arrows; the one raid that razed a CC had to wait for a quiet window). */
 BrennusBot.prototype.defenseArmyTarget = 120;
 
 BrennusBot.prototype.armyCount = function()
@@ -2362,12 +2440,14 @@ BrennusBot.prototype.armyCount = function()
 };
 
 /**
- * Defense (ported from the goal-10 winner): the muster starts at the town
- * phase — aggressive Petra's first waves arrive long before the boom
- * completes. A standing army mustered from town phase (barracks
- * spearmen/javelineers, temple fanatics after the boom), workers sheltering
- * in garrisonable structures when enemies are close, and the army blob sent
- * to whichever CC has enemies near it.
+ * Goal-10 defense: the muster starts at the town phase — aggressive Petra's
+ * first waves arrive around 15-17 min, long before the boom completes, and
+ * starting defense at city+300pop (goal 9) meant meeting a 90-unit army with
+ * 4 soldiers (baseline: all 5 seeds defeated at 26-33 min). A standing army
+ * mustered from town phase (barracks spearmen/javelineers, temple fanatics
+ * after the boom), workers sheltering in garrisonable structures when
+ * enemies are close, and the army blob sent to whichever CC has enemies
+ * near it.
  */
 BrennusBot.prototype.manageDefense = function()
 {
@@ -2383,10 +2463,7 @@ BrennusBot.prototype.manageDefense = function()
 	for (const id in this.healers)
 		if (!gameState.getEntityById(+id))
 			delete this.healers[id];
-	for (const id in this.cavForce)
-		if (!gameState.getEntityById(+id))
-			delete this.cavForce[id];
-	if (this.defenseOn())
+	if (this.defenseOn() || gameState.getTimeElapsed() >= 240000)
 		for (const ent of gameState.getOwnUnits().values())
 		{
 			const id = ent.id();
@@ -2398,14 +2475,6 @@ BrennusBot.prototype.manageDefense = function()
 			if (ent.hasClass("Healer"))
 			{
 				this.healers[id] = 1;
-				delete this.assignments[id];
-				continue;
-			}
-			// Cavalry is the raid force, not the blob (see manageCavRaids).
-			if (id !== this.herderId && ent.hasClass("Cavalry") && !this.cavForce[id])
-			{
-				delete this.army[id];
-				this.cavForce[id] = 1;
 				delete this.assignments[id];
 				continue;
 			}
@@ -2435,8 +2504,6 @@ BrennusBot.prototype.manageDefense = function()
 		if (ent.hasClass("Siege"))
 			milSiege.push(pos);
 	}
-
-	this.manageCavRaids(gameState, mil);
 
 	// Threat: enemies within 120 m of an own CC; the CC nearest home wins.
 	// Serious means a real assault (8+ units, or siege within 160 m) — only a
@@ -2488,11 +2555,16 @@ BrennusBot.prototype.manageDefense = function()
 	const serious = threat && (threat.n >= 8 || threat.siegeN > 0);
 	// A strong raid does NOT come home for a serious threat: at diff 5 a
 	// wave lands every ~6 min and cancelling every raid means never raiding
-	// (mil9: zero raids in 22 post-city minutes). With 75+ soldiers and
-	// rams at their CC the base race beats the recall loop — home holds on
-	// towers, garrisoned workers and arrows.
+	// (goal-12 mil9: zero raids in 22 post-city minutes). With 75+ soldiers
+	// and rams at their CC the base race beats the recall loop — home holds
+	// on towers, garrisoned workers and arrows.
 	const raidHolds = serious && this.offense && this.armyCount() >= 75;
-	if (serious && !raidHolds)
+	if (this.manageOffense(gameState, armyEnts, healerEnts, mil, homePos, serious))
+	{
+		// raid in progress, commands issued there — evaluated FIRST so a
+		// raid launch is never blocked by a home threat (base race).
+	}
+	else if (serious && !raidHolds)
 	{
 		// Defense takes precedence over any raid.
 		if (this.offense)
@@ -2514,10 +2586,10 @@ BrennusBot.prototype.manageDefense = function()
 		{
 			this.armyCmdTurn = this.turn + 10;
 			// threat.n counts only enemies already within 120 m of the CC;
-			// the rest of the wave is still marching in (goal 10, agg9 s3:
-			// threat.n=8 hid a 105-unit wave — the 59-strong army
-			// attack-moved into the open and melted in 1.5 min). Compare
-			// against everyone within 150 m of the threat centroid instead.
+			// the rest of the wave is still marching in (agg9 s3: threat.n=8
+			// hid a 105-unit wave — the 59-strong army attack-moved into the
+			// open and melted in 1.5 min). Compare against everyone within
+			// 150 m of the threat centroid instead.
 			let nearThreat = 0;
 			for (const p of mil)
 				if (SquareDistance(p, [threat.x, threat.z]) < 150 * 150)
@@ -2530,9 +2602,8 @@ BrennusBot.prototype.manageDefense = function()
 			// 120 m of it. A stone tower holds 5 infantry at +1 arrow each
 			// (default 4, GarrisonArrowMultiplier 1, GarrisonArrowClasses
 			// Infantry) — five full towers shelter 25 soldiers behind ~45
-			// extra arrows; the CC alone could not hold the army (goal 10,
-			// agg10 s3: the 39-man overflow stood outside and was
-			// slaughtered).
+			// extra arrows; the CC alone could not hold the army (agg10 s3:
+			// the 39-man overflow stood outside and was slaughtered).
 			const shelters = [];
 			{
 				const ccEnt0 = gameState.getEntityById(threat.ccId);
@@ -2547,14 +2618,36 @@ BrennusBot.prototype.manageDefense = function()
 			}
 			// Pre-city, never trade in the open against a serious threat: at
 			// diff 5 Petra replaces losses instantly while the workers die
-			// with the soldiers and the refill stream dies with them (mil2:
-			// 42 → 15 in one clash). Under tower/CC arrows (threat centroid
+			// with the soldiers. Under tower/CC arrows (threat centroid
 			// within 100 m of the CC) 1.3× suffices — the arrows tip the
 			// balance; in the open stay at 2× and garrison. Post-city the
-			// standing 1× rule applies — the army can fight.
+			// standing 1× rule applies.
 			const underArrows = SquareDistance([threat.x, threat.z], [threat.ccx, threat.ccz]) < 100 * 100;
 			const engageAt = this.warOn() ? 1 : underArrows ? 1.3 : 2;
-			if (this.armyCount() >= engageAt * nearThreat)
+			// Enemy siege is the priority target: rams left alone raze the
+			// towers and the CC from range — when siege is up and the fight
+			// is anywhere near even (≥ 0.8×), attack IT, not the blob.
+			if (threat.siegeN > 0 && this.armyCount() >= nearThreat * 0.8)
+			{
+				let sx = 0, sz = 0;
+				for (const p of milSiege)
+				{
+					sx += p[0];
+					sz += p[1];
+				}
+				for (const s of shelters)
+					for (const gid of s.garrisoned() || [])
+					{
+						const g = gameState.getEntityById(gid);
+						if (g?.hasClass("Soldier") || g?.hasClass("Healer"))
+							s.unload(gid);
+					}
+				for (const ent of armyEnts)
+					ent.attackMove(sx / milSiege.length, sz / milSiege.length, "Unit", false);
+				for (const ent of healerEnts)
+					ent.move(sx / milSiege.length, sz / milSiege.length);
+			}
+			else if (this.armyCount() >= engageAt * nearThreat)
 			{
 				// Local superiority: eject the garrisons and take the fight to them.
 				for (const s of shelters)
@@ -2576,8 +2669,8 @@ BrennusBot.prototype.manageDefense = function()
 				// GarrisonArrowMultiplier), the CC garrison heals at 1 hp/s
 				// and the CC cannot be captured while manned — standing
 				// outside and trading against a bigger blob is a donation
-				// (goal 10, agg3 s3: 34 basics melted into a 106-unit wave
-				// at 16m while the CC idled).
+				// (agg3 s3: 34 basics melted into a 106-unit wave at 16m
+				// while the CC idled).
 				const frees = shelters.map(s => Math.max(0, (+s.garrisonMax() || 0) - s.garrisonedSlots()));
 				const garrisonIn = ent =>
 				{
@@ -2588,7 +2681,7 @@ BrennusBot.prototype.manageDefense = function()
 							frees[i]--;
 							return true;
 						}
-						return false;
+					return false;
 				};
 				for (const ent of armyEnts)
 				{
@@ -2601,10 +2694,6 @@ BrennusBot.prototype.manageDefense = function()
 						ent.move(threat.ccx, threat.ccz);
 			}
 		}
-	}
-	else if (this.manageOffense(gameState, armyEnts, healerEnts, mil, homePos))
-	{
-		// raid in progress, commands issued there
 	}
 	else if (threat)
 	{
@@ -2624,9 +2713,9 @@ BrennusBot.prototype.manageDefense = function()
 		// army just outside our territory, which both blocks the raid windows and
 		// farms our outlying storehouses), sortie against it once we are strong
 		// enough — the fight happens under our towers and CC arrows.
-		// War-stage only: before city the sortie is a donation — goal 10,
-		// agg5 s1 sent the whole 60-strong muster into Petra's 75-106 blob
-		// at 16m and the base fell 9 minutes later.
+		// War-stage only: before city the sortie is a donation — agg5 s1 sent
+		// the whole 60-strong muster into Petra's 75-106 blob at 16m and the
+		// base fell 9 minutes later.
 		if (!this.warOn())
 		{
 			// stand down: fall through to the rally below
@@ -2642,13 +2731,12 @@ BrennusBot.prototype.manageDefense = function()
 				cz += p[1];
 			}
 		// Sortie only with clear superiority: the camp GROWS while the army
-		// marches (Petra converges), and goal-10 agg8 s2's 20.7m sortie at
-		// 60-vs-32 turned into 60-vs-83 mid-field and donated ~30 soldiers.
-		// 1.5x or stay home and let the towers and CC arrows bleed the camp.
+		// marches (Petra converges), and agg8 s2's 20.7m sortie at 60-vs-32
+		// turned into 60-vs-83 mid-field and donated ~30 soldiers. 1.5x or
+		// stay home and let the towers and CC arrows bleed the camp instead.
 		// Post-city the sortie gate drops to army ≥ 40: a standing army that
-		// never sallies lets the camp farm the workers between waves forever
-		// (the mil7-s2 equilibrium). Still 1.5× — the camp grows while the
-		// army marches.
+		// never sallies lets the camp farm the workers between waves forever.
+		// Still 1.5× — the camp grows while the army marches.
 		if (campN >= 10 && this.armyCount() >= 40 && this.armyCount() >= campN * 1.5 && this.turn >= this.armyCmdTurn)
 		{
 			this.armyCmdTurn = this.turn + 10;
@@ -2660,32 +2748,49 @@ BrennusBot.prototype.manageDefense = function()
 		}
 		else if (this.turn >= this.armyCmdTurn)
 		{
-			// Rally home.
-			const rally = homePos;
-			let far = false;
-			for (const ent of armyEnts)
-				if (SquareDistance(ent.position(), rally) > 60 * 60)
+			// Rally: at a pending expansion CC (escort the builders) else home.
+			let rally = homePos;
+			for (const pb of this.pendingBuilds)
+				if (pb.template === ccType)
 				{
-					far = true;
+					rally = [pb.x, pb.z];
 					break;
 				}
-			if (far)
+			if (rally === homePos)
+				for (const f of gameState.getOwnFoundations().values())
+					if (f.position() && gameState.getBuiltTemplate(f.templateName()).templateName() === ccType)
+					{
+						rally = f.position();
+						break;
+					}
+			if (rally)
 			{
-				this.armyCmdTurn = this.turn + 25;
+				let far = false;
 				for (const ent of armyEnts)
 					if (SquareDistance(ent.position(), rally) > 60 * 60)
+					{
+						far = true;
+						break;
+					}
+				if (far)
+				{
+					this.armyCmdTurn = this.turn + 25;
+					for (const ent of armyEnts)
+						if (SquareDistance(ent.position(), rally) > 60 * 60)
+							ent.move(rally[0], rally[1]);
+					for (const ent of healerEnts)
 						ent.move(rally[0], rally[1]);
-				for (const ent of healerEnts)
-					ent.move(rally[0], rally[1]);
+				}
 			}
 		}
 		}
 	}
+	if (this.hadThreat && !serious)
+		this.lastSeriousEndTurn = this.turn;
 	this.hadThreat = !!serious;
 
 	// Shelter: workers garrison the nearest holder with room when enemies are
-	// close (75 m — field hands need the head start at diff 5); holders eject
-	// once no enemy has been within 100 m for 20 turns.
+	// close (75 m); holders eject once no enemy has been within 100 m for 20 turns.
 	const holders = [];
 	for (const ent of gameState.getOwnStructures().values())
 	{
@@ -2718,8 +2823,8 @@ BrennusBot.prototype.manageDefense = function()
 			continue;
 		const wp = ent.position();
 		// Serious threat: only workers in the wave's path come home —
-		// recalling EVERYONE on every 8-unit probe stopped the economy
-		// outright (mil16); the others keep working or shelter in place.
+		// recalling EVERYONE on every 8-unit probe stops the economy
+		// outright; the others keep working or shelter in place.
 		if (serious)
 		{
 			if (SquareDistance(wp, [threat.x, threat.z]) < 110 * 110 &&
@@ -2765,22 +2870,17 @@ BrennusBot.prototype.manageDefense = function()
 };
 
 /**
- * Offense: with no serious threat at home and a strong army, strike Petra.
- * Two raid kinds:
- * - CC raid (army ≥ 75, ≥ 2 rams): raze the least defended enemy CC —
- *   under conquest_civic_centers eliminating Petra is the win condition.
- *   Basic infantry cannot raze a garrisoned CC before reinforcements
- *   arrive, hence the rams; retreat and regroup below 50.
- * - Eco-raid (army ≥ 40, guard thin): attack-move her least guarded CC
- *   area and kill her workers. Turtling against a +56% booming aggressive
- *   opponent is a losing game by equilibrium — the bot must bleed HER
- *   boom in the windows right after her waves die on our arrows
- *   (mil7-mil12: twelve iterations of stable ~30-min turtling defeats).
- *   Eco-raids recall on serious threat (no base race at 40-74 army) and
- *   abort when her guard returns.
- * Returns true while a raid is commanded.
+ * Offense: with no serious threat at home and a strong army, raze the
+ * least defended enemy CC — enemy CCs claim the spots our expansion plan
+ * needs (200 m rule) and their territory caps our map control. Raid at 75+
+ * soldiers with at least 2 rams ready (basic infantry cannot raze a
+ * garrisoned CC before reinforcements arrive; 60-strong raids bounced off
+ * 19-37 defenders + CC arrows in agg11 s3); retreat and regroup below 50.
+ * Goal 10: the last enemy CC is razed too — under conquest_civic_centers
+ * eliminating Petra is the win condition. Returns true while a raid is
+ * commanded.
  */
-BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, mil, homePos)
+BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, mil, homePos, serious)
 {
 	if (!this.warOn() || !armyEnts.length)
 		return false;
@@ -2803,6 +2903,8 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 				ent.move(homePos[0], homePos[1]);
 	};
 
+	// Goal 10: raze every enemy CC, including the last — under
+	// conquest_civic_centers eliminating Petra wins the match.
 	const enemyCCs = [];
 	for (const ent of gameState.getEnemyStructures().values())
 		if (ent.hasClass("CivCentre") && ent.position() &&
@@ -2813,11 +2915,13 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 	{
 		if (this.offense.eco)
 		{
+			// Eco-raid: abort when her guard returns, the army is spent, a
+			// serious threat lands at home, or the 3-min window closes.
 			let guard = 0;
 			for (const p of mil)
 				if (SquareDistance(p, [this.offense.x, this.offense.z]) < 100 * 100)
 					guard++;
-			if (this.armyCount() < 25 || guard >= this.armyCount() ||
+			if (this.armyCount() < 25 || guard >= this.armyCount() || serious ||
 				this.turn - (this.offense.turn || 0) > 900)
 			{
 				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m eco-raid over at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} (guard=${guard}, army=${armyEnts.length})\n`);
@@ -2847,11 +2951,10 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			{
 				// Abort a stalled raid: no rams left means nobody razes the CC —
 				// the infantry just dies under its arrows while Petra reinforces
-				// (goal 10, agg7 s1: one raid ground on for 12+ min at full
-				// army). The age cap is 6 min, not 2: the walk alone to a far CC
-				// takes ~2 min, and a 2-min cap abort/relaunched in a loop —
-				// the army walked home and back each time and the second CC
-				// never even got attacked.
+				// (agg7 s1: one raid ground on for 12+ min at full army). The age
+				// cap is 6 min, not 2: the walk alone to a far CC takes ~2 min, and
+				// agg8 s1 abort/relaunched twice at the 2-min mark — the army walked
+				// home and back each time and the second CC never even got attacked.
 				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid aborted at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} (rams=${ramEnts.length}, age=${((this.turn - (this.offense.turn || 0)) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
 				this.offense = undefined;
 				this.armyCmdTurn = 0;
@@ -2893,10 +2996,14 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			for (const ent of armyEnts)
 				ent.setStance("aggressive");
 		}
-		else if (this.armyCount() >= 40 && defenders <= this.armyCount() * 0.5)
+		else if (this.armyCount() >= 55 && defenders <= this.armyCount() * 0.5 &&
+			this.turn - (this.lastSeriousEndTurn || -10000) < 100)
 		{
-			// Eco-raid: her guard is thin (her army is dead on our arrows or
-			// away) — go bleed her workers. Rams stay home.
+			// Eco-raid: her guard is thin right after a repelled wave — go
+			// bleed her workers (her whole war machine runs on ~30 civs).
+			// Rams stay home. Launches ONLY in the ~20 s post-wave window:
+			// launching into quiet means the next wave is already marching
+			// and the army returns to 60 dead workers.
 			this.offense = { "eco": true, "x": bp[0], "z": bp[1], "turn": this.turn };
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m eco-raiding enemy base ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (guard=${defenders}, army=${armyEnts.length})\n`);
 			for (const ent of armyEnts)
@@ -2947,102 +3054,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 	return true;
 };
 
-/**
- * Cavalry raid force: 6-10 javelineer cavalry raid Petra's worker clusters
- * continuously. Her field army is 2-4× ours from t=10m (mil14 telemetry)
- * but it is committed FORWARD, leaving her economy guarded by a dozen
- * soldiers — fast cavalry bleeds her boom where her army is not, and pulls
- * her waves back when they answer. The infantry blob and rams are the
- * hammer; this is the scalpel that keeps her honest meanwhile.
- */
-BrennusBot.prototype.manageCavRaids = function(gameState, mil)
-{
-	const homePos = this.getCivicCentre()?.position();
-	const cavEnts = [];
-	for (const id in this.cavForce)
-	{
-		const ent = gameState.getEntityById(+id);
-		if (ent?.position())
-			cavEnts.push(ent);
-	}
-	if (!homePos || !cavEnts.length)
-	{
-		this.cavRaid = undefined;
-		return;
-	}
-	if (this.turn < (this.cavCmdTurn || 0))
-		return;
-	this.cavCmdTurn = this.turn + 15;
-
-	// Her mobiles that are not soldiers/siege = workers.
-	const workers = [];
-	for (const ent of gameState.getEnemyUnits().values())
-	{
-		if (ent.owner() === 0 || ent.hasClass("Soldier") || ent.hasClass("Siege"))
-			continue;
-		const pos = ent.position();
-		if (pos)
-			workers.push(pos);
-	}
-
-	if (this.cavRaid)
-	{
-		let guard = 0;
-		for (const p of mil)
-			if (SquareDistance(p, [this.cavRaid.x, this.cavRaid.z]) < 60 * 60)
-				guard++;
-		let work = 0;
-		for (const p of workers)
-			if (SquareDistance(p, [this.cavRaid.x, this.cavRaid.z]) < 60 * 60)
-				work++;
-		if (guard >= 4 || cavEnts.length < 4 || work < 2)
-		{
-			print(`[CAV] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m retreat from ${this.cavRaid.x.toFixed(0)},${this.cavRaid.z.toFixed(0)} (guard=${guard} work=${work} cav=${cavEnts.length})\n`);
-			this.cavRaid = undefined;
-			for (const ent of cavEnts)
-				ent.move(homePos[0], homePos[1]);
-			return;
-		}
-		for (const ent of cavEnts)
-			ent.attackMove(this.cavRaid.x, this.cavRaid.z, "Unit", false);
-		return;
-	}
-
-	if (cavEnts.length < 6 || !workers.length)
-		return;
-	// Best cluster: a worker position with ≥ 3 peers within 50 m and ≤ 3
-	// soldiers within 60 m; nearest home wins ties.
-	let best, bestScore;
-	for (const p of workers)
-	{
-		let peers = 0;
-		for (const q of workers)
-			if (SquareDistance(p, q) < 50 * 50)
-				peers++;
-		if (peers < 3)
-			continue;
-		let guard = 0;
-		for (const m of mil)
-			if (SquareDistance(m, p) < 60 * 60)
-				guard++;
-		if (guard > 3)
-			continue;
-		const score = guard * 100000 + (homePos ? SquareDistance(p, homePos) : 0);
-		if (best === undefined || score < bestScore)
-		{
-			bestScore = score;
-			best = p;
-		}
-	}
-	if (!best)
-		return;
-	this.cavRaid = { "x": best[0], "z": best[1] };
-	print(`[CAV] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding workers at ${best[0].toFixed(0)},${best[1].toFixed(0)} (cav=${cavEnts.length})\n`);
-	for (const ent of cavEnts)
-		ent.attackMove(best[0], best[1], "Unit", false);
-};
-
-/** Military buildings: 2 barracks from the village phase (at difficulty 5 the first serious wave lands ~10-12 min — waiting for town to start the muster meant meeting it with ~20 soldiers, mil1), 3 barracks + 5 home towers from town; after the boom the full set — 4 barracks, temples, forge, arsenal. Stone is plentiful on mainland; towers are our cheapest defense. */
+/** Military buildings: 2 barracks from the village phase (at difficulty 5 the first serious wave lands ~10-12 min — waiting for town to start the muster means meeting it with ~20 soldiers), 3 barracks + 8 home towers from town; after the boom the full set — 4 barracks, temples, forge, arsenal, assembly + 4 towers per expansion CC. Stone is plentiful on mainland; towers are our cheapest defense. */
 BrennusBot.prototype.manageDefenseBuildings = function()
 {
 	if (this.constructionHold)
@@ -3050,33 +3062,24 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 	const gameState = this.gameState;
 	const boom = this.warOn();
 	const defOn = this.defenseOn();
-	const wants = [];
-	if (boom)
-	{
-		// Arsenal FIRST post-city: it is the kill clock (rams). Barracks
-		// before it pushed the arsenal to 27.9m on mil10-s2 — 10.7 min
-		// after city — and zero rams ever trained.
-		wants.push([gameState.applyCiv("structures/{civ}/arsenal"), 2]);
-		wants.push([gameState.applyCiv("structures/{civ}/barracks"), 4]);
-		wants.push([gameState.applyCiv("structures/{civ}/temple"), 3]);
-		wants.push([gameState.applyCiv("structures/{civ}/forge"), 1]);
-		wants.push([gameState.applyCiv("structures/{civ}/stable"), 1]);
-	}
-	else
-	{
-		// One village barracks from t=3:30 (not two — the wood hold that
-		// funds them stalls the boom and pushed town to 9.6m on s1), three
-		// from town, four at city.
-		wants.push([gameState.applyCiv("structures/{civ}/barracks"),
-			defOn ? 3 : (gameState.getTimeElapsed() >= 210000 ? 1 : 0)]);
-		wants.push([gameState.applyCiv("structures/{civ}/temple"), defOn ? 1 : 0]);
-		// No stable pre-city: food has no slack for a raid force (mil16:
-		// the 100f floor never fired and the stable taxed the boom).
-	}
+	const wants = [
+		[gameState.applyCiv("structures/{civ}/barracks"),
+			boom ? 4 : defOn ? 3 : (gameState.getTimeElapsed() >= 210000 ? 2 : 0)],
+		// Arsenal before temples post-city: the raid gate is rams, and agg6
+		// s2's arsenal landed ~10 min after city, pushing the first real raid
+		// to 33.7m.
+		[gameState.applyCiv("structures/{civ}/arsenal"), boom ? 2 : 0],
+		[gameState.applyCiv("structures/{civ}/assembly"), boom ? 1 : 0],
+		// Two temples from town: the fanatic stream is the muster's quality
+		// core — 200 HP champions at 22 m/s vs her 100 HP legion basics
+		// (rb3: 30 basics lose the wave fight even at equal numbers).
+		[gameState.applyCiv("structures/{civ}/temple"), boom ? 3 : defOn ? 2 : 0],
+		[gameState.applyCiv("structures/{civ}/forge"), boom ? 1 : 0]
+	];
 	// While any of these is missing, training holds a wood reserve (see
 	// manageDefenseTraining) so the buildings actually get funded — otherwise
 	// unit batches burn the stock below the wood gate for minutes on end
-	// and the temples/forge/arsenal land 10 minutes late (goal 10, def11).
+	// and the temples/forge/arsenal land 10 minutes late (def11, seed 5).
 	let missingAny = false;
 	const haveByType = {};
 	for (const [type, want] of wants)
@@ -3103,10 +3106,9 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 		{
 			// Pre-war, hold the economy's wood spending while a military
 			// building is unfunded: the boom spends the flow to near zero
-			// every block, so a bare 320 gate never fires (same failure as
-			// goal-10 agg1/agg2's unit floors). The arsenal gets the same
-			// hold post-city: it IS the kill clock, and without the hold
-			// its 350 floor waited 10.7 min (mil10-s2).
+			// every block, so a bare 320 gate never fires (goal-10 agg1/agg2
+			// lesson for unit floors, building edition). The arsenal gets
+			// the same hold post-city: it IS the kill clock.
 			this.milBuildingHold = !boom || type.split("/").pop() === "arsenal";
 			return;
 		}
@@ -3119,17 +3121,28 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 		return;
 	}
 
-	// Towers: 5 around the home CC (they double as garrisoned arrow
-	// platforms when the big wave lands). Stone towers require the town
-	// phase by template — any earlier attempt is engine-rejected and loops
-	// the placer (mil4: 19-47 failed tower orders per seed).
+	// Towers: 8 around the home CC from the town phase on (they double as
+	// garrisoned arrow platforms when the big wave lands — stone towers
+	// require the town phase by template, any earlier attempt is
+	// engine-rejected and loops the placer), 4 per expansion CC once the
+	// army can reach them.
 	if (!defOn)
 		return;
+	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const home = this.getCivicCentre();
 	if (!home)
 		return;
-	if (this.placeTower(home.position(), 5))
-		return;
+	for (const cc of gameState.getOwnStructures().values())
+	{
+		if (cc.templateName() !== ccType || !cc.position() ||
+			cc.foundationProgress() !== undefined)
+			continue;
+		const isHome = cc.id() === home.id();
+		if (!isHome && (this.armyCount() < 30 || !this.warOn()))
+			continue;	// no point fortifying a frontier the army cannot reach yet
+		if (this.placeTower(cc.position(), isHome ? 8 : 4))
+			return;
+	}
 };
 
 /**
@@ -3189,13 +3202,13 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 		return;
 	const gameState = this.gameState;
 	const res = gameState.getResources();
-	// Rams before forge techs: metal flow gates the kill clock (goal 10,
-	// conclusion #2). mil9-s2 spent its whole post-city metal income on
-	// techs and never banked the 6×150 for the ram fund.
+	// Rams before the FIRST techs: the raid gate is 2 rams — holding all 8
+	// forge techs until 4-6 rams meant zero techs researched in most games,
+	// and every mid-game fight was fought unteched.
 	let rams = 0;
 	for (const id in this.rams)
 		rams++;
-	if (rams < 6 && res.metal < 500)
+	if (rams < 2 && res.metal < 300)
 		return;
 	for (const [tech, cost] of this.militaryTechs)
 	{
@@ -3216,26 +3229,24 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 	}
 };
 
-/** Army production: barracks spearmen/javelineers (alternating) from the town phase on, temple fanatics after the boom; dismiss women for pop room only once the boom is done. */
+/** Army production: barracks spearmen/javelineers (alternating) from the first village barracks on, temple fanatics and assembly heroes/trumpeters after the boom; dismiss women for pop room only once the boom is done. */
 BrennusBot.prototype.manageDefenseTraining = function()
 {
 	const gameState = this.gameState;
 	const res = gameState.getResources();
 	const barracksType = gameState.applyCiv("structures/{civ}/barracks");
 	const templeType = gameState.applyCiv("structures/{civ}/temple");
-	const stableType = gameState.applyCiv("structures/{civ}/stable");
-	let queued = 0, barracksUp = 0, queuedCav = 0;
-	const trainers = [], stables = [];
+	const assemblyType = gameState.applyCiv("structures/{civ}/assembly");
+	let queued = 0, barracksUp = 0;
+	const trainers = [], assemblies = [];
 	for (const ent of gameState.getOwnStructures().values())
 	{
 		if (ent.foundationProgress() !== undefined)
 			continue;
-		if (ent.templateName() === stableType)
+		if (ent.templateName() === assemblyType)
 		{
-			for (const item of ent.trainingQueue() || [])
-				queuedCav += item.count;
 			if ((ent.trainingQueue()?.length || 0) <= 1)
-				stables.push(ent);
+				assemblies.push(ent);
 			continue;
 		}
 		if (ent.templateName() !== barracksType && ent.templateName() !== templeType)
@@ -3251,11 +3262,12 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	if (!defOn && !barracksUp)
 		return;
 	// Early muster: 35 from the first village barracks until city (lean —
-	// every soldier is a worker and a city-bank share not gathered; 35 +
-	// garrison arrows held the first waves in mil3), 120 at city. Trained
+	// at diff 5 the wave lands ~10-12 min and every soldier is a worker and
+	// a city-bank share not gathered; 35 + garrison arrows held the first
+	// waves; rb3's 60-target army-first was reverted — the production rate
+	// is the wall, not the allocation). 120 at city. Trained
 	// citizen-soldiers keep gathering until the defense stage forms the
-	// roster — they are workers who fight, not idlers (and the roster count
-	// must include them or training overshoots the target).
+	// roster — count them or training overshoots.
 	const target = this.warOn() ? this.defenseArmyTarget : 35;
 	let soldiers = 0;
 	for (const ent of gameState.getOwnUnits().values())
@@ -3266,35 +3278,55 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	let healerCount = 0;
 	for (const id in this.healers)
 		healerCount++;
-	// Cavalry raid force FIRST: 10 javelineers from the stable at
-	// cost-level floors. Every cavalry body is two spearmen of food, but the
-	// raids slow her army growth from ~9-10 min — worth more than the
-	// marginal spearman (mil15: behind the muster, zero cavalry ever
-	// trained — the 100f floor never fired).
-	let cavTotal = queuedCav;
-	for (const id in this.cavForce)
-		cavTotal++;
-	if (this.warOn() && cavTotal < 10 && res.food >= 100 && res.wood >= 50)
-		for (const ent of stables)
-		{
-			if (cavTotal >= 10 || res.food < 100 || res.wood < 50)
+	// Assembly: the hero first — Viridomarus (+15% gather, global: the
+	// economy IS the war machine), Vercingetorix (+20% attack aura for the
+	// raids) once he falls — then 3 trumpeters for the blob (−10% enemy
+	// attack at 20 m). Heroes cost 0 pop.
+	if (this.warOn() && assemblies.length)
+	{
+		let heroUp = false;
+		for (const ent of gameState.getOwnUnits().values())
+			if (ent.hasClass("Hero"))
+			{
+				heroUp = true;
 				break;
-			ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/cavalry_javelineer_b"), 1, {});
-			res.subtract({ "food": 100, "wood": 50 });
-			cavTotal++;
+			}
+		for (const ent of assemblies)
+			for (const item of ent.trainingQueue() || [])
+				heroUp = true;
+		let trumpeters = 0;
+		for (const ent of gameState.getOwnUnits().values())
+			if (ent.templateName() === gameState.applyCiv("units/{civ}/champion_infantry_trumpeter"))
+				trumpeters++;
+		for (const ent of assemblies)
+		{
+			if (!heroUp && res.food >= 100 && res.metal >= 250)
+			{
+				const hero = this.heroTrained ?
+					"units/{civ}/hero_vercingetorix" : "units/{civ}/hero_viridomarus";
+				ent.train(gameState.getPlayerCiv(), gameState.applyCiv(hero), 1, {});
+				res.subtract({ "food": 100, "metal": 250 });
+				this.heroTrained = true;
+				heroUp = true;
+				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training hero ${hero.split("/").pop()}\n`);
+				continue;
+			}
+			if (trumpeters < 3 && res.food >= 180 && res.metal >= 120)
+			{
+				ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_infantry_trumpeter"), 1, {});
+				res.subtract({ "food": 180, "metal": 120 });
+				trumpeters++;
+			}
 		}
-	// War-stage floors must meet the wartime economy where it is: on mil7-s2
-	// stock food sat at 7-72 for 15 minutes, the 300/300 floors trained
-	// NOTHING, and the army froze at ~35 — no raid ever fired. Rich: batches
-	// of 5 at 300 floors (protects the construction budget). Poor: batches
-	// of 1 at cost-level floors, drawing from the flow like the pre-city
-	// muster. Every train order is checked against the live snapshot first.
+	}
+	// War-stage floors must meet the wartime economy where it is: rich =
+	// stock ≥ 300f/300-400w → batches of 5 at those floors (protects
+	// construction); poor → batches of 1 at cost-level floors, drawing from
+	// the flow like the pre-city muster — but only once the worker base
+	// stands at 100+ (below that the food flow goes to the women stream:
+	// refilling the economy outranks refilling the army).
 	const boom = this.warOn();
 	const rich = res.food >= 300 && res.wood >= (this.defenseBuildingsMissing ? 400 : 300);
-	// Poor war-stage: soldiers train from the flow ONLY once the worker base
-	// stands at 100+ — below that the food flow goes to the women stream
-	// (refilling the economy outranks refilling the army; mil8 starved
-	// itself training soldiers at 60-90 workers).
 	if (boom && !rich)
 	{
 		let workers = 0;
@@ -3308,11 +3340,27 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	const milBatch = boom && rich ? 5 : 1;
 	const floorF = boom && rich ? 300 : 50;
 	const floorW = boom && rich ? (this.defenseBuildingsMissing ? 400 : 300) : 50;
+	// The fanatic (120f) never beats the 50f muster for the food flow: at
+	// cost-level floors the stock never crosses 120 while barracks stream
+	// (rb4: two temples standing, ZERO champions trained). While a temple
+	// is ready for a fanatic and the stock is short, the barracks pause —
+	// one fanatic per ~5 s of income instead of zero forever.
+	let templeReady = false;
+	for (const ent of trainers)
+		if (ent.templateName() !== barracksType)
+		{
+			templeReady = true;
+			break;
+		}
+	const fanaticHold = templeReady && healerCount >= (boom ? (rich ? 10 : 4) : 2) &&
+		missing > 0 && res.food < 120;
 	if (missing > 0 && res.food >= floorF && res.wood >= floorW)
 		for (const ent of trainers)
 		{
 			if (ent.templateName() === barracksType)
 			{
+				if (fanaticHold)
+					continue;
 				if (res.food < 50 * milBatch || res.wood < 50 * milBatch)
 					continue;
 				const type = gameState.applyCiv(this.spearNext ?
@@ -3322,9 +3370,9 @@ BrennusBot.prototype.manageDefenseTraining = function()
 				res.subtract({ "food": 50 * milBatch, "wood": 50 * milBatch });
 				continue;
 			}
-			if (healerCount < (boom ? 10 : 2))
+			if (healerCount < (boom ? (rich ? 10 : 4) : 2))
 			{
-				const hb = boom ? 2 : 1;
+				const hb = boom && rich ? 2 : 1;
 				if (res.food < 100 * hb || res.metal < 30 * hb)
 					continue;
 				ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/support_healer_b"), hb, {});
@@ -3338,13 +3386,12 @@ BrennusBot.prototype.manageDefenseTraining = function()
 			ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_fanatic"), fb, {});
 			res.subtract({ "food": 120 * fb, "wood": 100 * fb });
 		}
-	// Rams for the raid: keep 6, started as soon as the army can escort
-	// them (30) — they are slow and must be mustered before the army hits
-	// raid size or every raid goes in without them. While a ram is needed
-	// and unaffordable, ramHold pauses the economy's wood spending: the
-	// 350-wood floor never fired in the wartime economy (mil11-s2: wood sat
-	// at 40-190 for 10 min post-city, zero rams with two arsenals standing)
-	// — the floors lesson again, ram edition.
+	// Rams for the raid: keep 4, started as soon as the army can escort
+	// them (25) — they are slow and must be mustered before the army hits
+	// raid size. While a ram is needed and unaffordable, ramHold pauses the
+	// economy's wood spending: the 350-wood floor never fires in the
+	// wartime economy (the floors lesson, ram edition). Rams are the only
+	// thing that razes CCs fast enough.
 	const arsenalType = gameState.applyCiv("structures/{civ}/arsenal");
 	let rams = 0;
 	const arsenals = [];
@@ -3360,22 +3407,22 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	}
 	for (const id in this.rams)
 		rams++;
-	this.ramHold = this.armyCount() >= 25 && rams < 6 && arsenals.length > 0 &&
+	this.ramHold = this.armyCount() >= 25 && rams < 4 && arsenals.length > 0 &&
 		(res.wood < 300 || res.metal < 150);
-	if (this.armyCount() >= 25 && rams < 6 && arsenals.length &&
+	if (this.armyCount() >= 25 && rams < 4 && arsenals.length &&
 		res.wood >= 300 && res.metal >= 150)
 		for (const arsenal of arsenals)
 		{
-			if (rams >= 6 || res.wood < 300 || res.metal < 150)
+			if (rams >= 4 || res.wood < 300 || res.metal < 150)
 				break;
 			arsenal.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/siege_ram"), 1, {});
 			res.subtract({ "wood": 300, "metal": 150 });
 			rams++;
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/6)\n`);
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/4)\n`);
 		}
 	// Pop room for a batch of 5: dismiss workers (idle first) until 5 slots are
 	// free, throttled and never below a floor that keeps the economy alive.
-	// Post-boom only: before city the women are still racing to pop 300 and
+	// Post-boom only: before city+300 the women are still racing to pop 300 and
 	// dismissing them would deadlock the boom (army pop counts toward 300).
 	if (boom && missing >= 5 &&
 		gameState.getPopulation() > gameState.getPopulationLimit() - 6 &&
@@ -3396,7 +3443,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 			fallback = fallback || ent;
 		}
 		victim = victim || fallback;
-		if (victim && workers > 145)
+		if (victim && workers > 160)
 		{
 			this.nextDismissTurn = this.turn + 15;
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m dismissing a civilian for army pop room (workers=${workers})\n`);
@@ -3406,6 +3453,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	}
 };
 
+// ---------------------------------------------------------------- logging
 BrennusBot.prototype.logStatus = function()
 {
 	const gameState = this.gameState;
@@ -3450,23 +3498,10 @@ BrennusBot.prototype.logStatus = function()
 		s.theo = 0;
 	}
 
-	// Enemy army telemetry: the real wave curve, not the 120 m threat sample.
-	let emil = 0, esiege = 0, eciv = 0;
-	for (const ent of gameState.getEnemyUnits().values())
-	{
-		if (ent.owner() === 0 || !ent.position())
-			continue;
-		if (ent.hasClass("Siege"))
-			esiege++;
-		else if (ent.hasClass("Soldier"))
-			emil++;
-		else if (ent.hasClass("Civilian") || ent.hasClass("Support"))
-			eciv++;
-	}
-
 	const dropsiteDist = this.meanDropsiteDistances();
+	const terr = this.expansionOn() ? this.territoryPercent() : undefined;
 	print(`[HARNESS] t=${Math.round(gameState.getTimeElapsed() / 60000)}m ` +
-		`pop=${gameState.getPopulation()}/${gameState.getPopulationLimit()} army=${this.armyCount()} emil=${emil} esiege=${esiege} eciv=${eciv} idle=${idle} starved=${this.starvedUnits || 0} ` +
+		`pop=${gameState.getPopulation()}/${gameState.getPopulationLimit()} idle=${idle} starved=${this.starvedUnits || 0} ` +
 		`gatherers food=${counts.food} wood=${counts.wood} stone=${counts.stone} metal=${counts.metal} ` +
 		`houses=${houses} fields=${fields} town=${town} techs=${techs}/${this.boomTechs.length} ` +
 		`rates ${rates} ` +
@@ -3474,6 +3509,12 @@ BrennusBot.prototype.logStatus = function()
 		`dist wood=${dropsiteDist.wood}m grain=${dropsiteDist.grain}m fruit=${dropsiteDist.fruit}m ` +
 		`founds=${gameState.getOwnFoundations().toEntityArray().length} failedSpots=${(this.failedSpots || []).length} ` +
 		`fruitStock=${Math.round(this.fruitStock)} ` +
+		`enemyArmy=${this.enemyArmy || 0} siege=${this.enemySiege || 0} enemyNear=${(this.enemyNearestHome || 0).toFixed(0)}m ` +
+		`army=${this.armyCount ? this.armyCount() : 0} ` +
+		`woodline=${this.woodline ? this.woodline.kind + "@" +
+			(this.woodline.center ? this.woodline.center[0].toFixed(0) + "," + this.woodline.center[1].toFixed(0) : "-") +
+			"=" + Math.round(this.woodline.total) : "none"} ` +
+		`terr=${terr ? terr.pct + "%(" + terr.own + "/" + terr.total + ")" : "-"} ` +
 		`stock ${Math.floor(res.food)}/${Math.floor(res.wood)}/${Math.floor(res.stone)}/${Math.floor(res.metal)}\n`);
 };
 
@@ -3541,6 +3582,854 @@ BrennusBot.prototype.meanDropsiteDistances = function()
 	};
 };
 
+BrennusBot.prototype.findExpansionWoodStorehouse = function(storeType, center)
+{
+	const pos = this.findBuildingPosition(storeType, center, 10, 90, true, this.expansionRegion);
+	return pos && this.placeOrder(storeType, pos, false) ? pos : false;
+};
+
+BrennusBot.prototype.findWonderSpot = function(wonderType)
+{
+	const template = this.gameState.getTemplate(wonderType);
+	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
+	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
+	const angle = this.getPlacementAngle();
+	const pass = this.gameState.getPassabilityMap();
+	const mask = this.gameState.getPassabilityClassMask("building-land");
+	const terr = this.territoryMap;
+	const ccType = this.gameState.applyCiv("structures/{civ}/civil_centre");
+	const anchors = [];
+	const cc = this.getCivicCentre();
+	if (cc)
+		anchors.push([cc.position(), 95]);
+	for (const ent of this.gameState.getOwnStructures().values())
+		if (ent.templateName() === ccType && ent.position() && ent.id() !== cc?.id())
+			anchors.push([ent.position(), 60]);
+	for (const anchor of anchors)
+		for (let r = 12; r <= anchor[1]; r += 2)
+			for (let a = 0; a < 64; ++a)
+			{
+				const ang = a * 2 * Math.PI / 64;
+				const x = anchor[0][0] + r * Math.cos(ang);
+				const z = anchor[0][1] + r * Math.sin(ang);
+				if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
+					continue;
+				if (this.nearEnemyForBuild([x, z]))
+					continue;
+				if (!this.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
+					continue;
+				return [x, z];
+			}
+	return undefined;
+};
+
+// ---------------------------------------------------------------- expansion
+BrennusBot.prototype.expansionOn = function()
+{
+	if (this.expOn)
+		return true;
+	// Goal 12: no pop-300 requirement — at difficulty 5 the pop count
+	// oscillates 60-170 under wave pressure and 300 never lands, so the
+	// expansion must start AT city (it is how the mid-game is won, not the
+	// reward for winning it).
+	if (this.gameState.isResearched("phase_city_generic"))
+	{
+		this.expOn = true;
+		const cc = this.getCivicCentre();
+		if (cc)
+			this.expansionRegion = this.accessibility.getAccessValue(cc.position());
+		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m expansion stage on (city researched)\n`);
+	}
+	return this.expOn;
+};
+
+/**
+ * Goal 10: the defense stage starts at the town phase (~5 min), not at the
+ * end of the boom — aggressive Petra must be met by a standing army and
+ * towers from her first raids on (~10-15 min), not by a muster that starts
+ * when her army is already camping the base.
+ */
+BrennusBot.prototype.defenseOn = function()
+{
+	if (this.defOn)
+		return true;
+	if (this.gameState.isResearched("phase_town_generic"))
+	{
+		this.defOn = true;
+		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m defense stage on (town researched)\n`);
+	}
+	return this.defOn;
+};
+
+/**
+ * Goal 10: the war stage starts at the city phase, WITHOUT the pop-300
+ * requirement of expansionOn — against aggressive Petra the waves arrive
+ * before 300 pop ever lands (agg2/agg3: city at ~14.5m, pop stuck at
+ * 240-290 under raid, so the whole post-boom war machine stayed off while
+ * the base burned). City unlocks fanatics/arsenal/rams; that is all the
+ * war machine needs.
+ */
+BrennusBot.prototype.warOn = function()
+{
+	if (this.war)
+		return true;
+	if (this.gameState.isResearched("phase_city_generic"))
+	{
+		this.war = true;
+		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m war stage on (city researched)\n`);
+	}
+	return this.war;
+};
+
+/** Distance (m) from a CC/storehouse at which a mine counts as served. */
+BrennusBot.prototype.mineServeDist = 130;
+
+BrennusBot.prototype.expBarterTarget = 52000;
+
+BrennusBot.prototype.targetTraders = 40;
+BrennusBot.prototype.traderType = "units/{civ}/support_trader";
+
+BrennusBot.prototype.expMarkets = 2;
+
+/** Expansion shares: mine crews sized to deplete every served mine by t=30
+ * at ~0.4 effective rate, capped at 26% of the workforce; the rest splits
+ * food/wood evenly. */
+BrennusBot.prototype.expansionShares = function(total)
+{
+	if (!total)
+		return { "food": 0.5, "wood": 0.33, "stone": 0.1, "metal": 0.07 };
+	const gameState = this.gameState;
+	const timeLeft = Math.max(90, (1800000 - gameState.getTimeElapsed()) / 1000);
+
+	const rate = 0.4;
+	const region = this.expansionRegion;
+	const sites = this.expansionMineDropsites();
+	const r2 = this.mineServeDist * this.mineServeDist;
+	const served = { "stone": 0, "metal": 0 };
+	this.servedMineIds = new Set();
+	for (const res of ["stone", "metal"])
+		for (const s of gameState.getResourceSupplies(res).values())
+		{
+			const pos = s.position();
+			if (!pos || !s.resourceSupplyAmount() || this.nearEnemy(pos, 100, 60))
+				continue;
+			if (region !== undefined && this.accessibility.getAccessValue(pos) !== region)
+				continue;
+			if (!sites.some(d => SquareDistance(pos, d) < r2))
+				continue;
+			served[res] += s.resourceSupplyAmount();
+			this.servedMineIds.add(s.id());
+		}
+	const shares = { "food": 0.3, "wood": 0.2, "stone": 0.0, "metal": 0.0 };
+	let mining = 0;
+	for (const res of ["stone", "metal"])
+	{
+		shares[res] = Math.min(0.31, served[res] / (rate * timeLeft) / total);
+		mining += shares[res];
+	}
+
+	if (mining > 0.26)
+	{
+		const scale = 0.26 / mining;
+		shares.stone *= scale;
+		shares.metal *= scale;
+		mining = 0.26;
+	}
+	const rest = 1 - mining;
+
+	shares.food = rest * 0.50;
+	shares.wood = rest * 0.50;
+	return shares;
+};
+
+BrennusBot.prototype.expansionMineDropsites = function()
+{
+	const gameState = this.gameState;
+	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
+	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
+	const sites = [];
+	for (const ent of gameState.getOwnStructures().values())
+		if (ent.position() && (ent.templateName() === storeType || ent.templateName() === ccType))
+			sites.push(ent.position());
+	for (const f of gameState.getOwnFoundations().values())
+	{
+		if (!f.position())
+			continue;
+		const built = gameState.getBuiltTemplate(f.templateName()).templateName();
+		if (built === storeType || built === ccType)
+			sites.push(f.position());
+	}
+	return sites;
+};
+
+/** CC lattice: hex-packed grid on ~210 m spacing (the engine's min CC
+ * distance is 200 m) tiling the 768 m map. */
+BrennusBot.prototype.expansionCandidates = function()
+{
+	const spots = [];
+	for (let gz = -3; gz <= 3; ++gz)
+		for (let gx = -3; gx <= 3; ++gx)
+		{
+			const x = 384 + gx * 210 + (gz & 1 ? 105 : 0);
+			const z = 384 + gz * 182;
+
+			if (Math.hypot(x - 384, z - 384) > 430)
+				continue;
+			spots.push([x, z]);
+		}
+	return spots;
+};
+
+/** CC placement check: clear rotated footprint on own OR neutral territory (a CC is a territory root). */
+BrennusBot.prototype.expansionSpotOK = function(spot, halfW, halfD)
+{
+	const pass = this.gameState.getPassabilityMap();
+	const mask = this.gameState.getPassabilityClassMask("building-land");
+	const terr = this.territoryMap;
+	const angle = this.getPlacementAngle();
+	const cosa = Math.cos(angle), sina = Math.sin(angle);
+	const ex = halfW + 0.75, ez = halfD + 0.75;
+	const pc = pass.cellSize, tc = terr.cellSize;
+	const px0 = Math.floor((spot[0] - ex) / pc), px1 = Math.floor((spot[0] + ex) / pc);
+	const pz0 = Math.floor((spot[1] - ez) / pc), pz1 = Math.floor((spot[1] + ez) / pc);
+	if (px0 < 0 || pz0 < 0 || px1 >= pass.width || pz1 >= pass.height)
+		return false;
+	for (let j = pz0; j <= pz1; ++j)
+		for (let i = px0; i <= px1; ++i)
+		{
+			const dx = (i + 0.5) * pc - spot[0];
+			const dz = (j + 0.5) * pc - spot[1];
+			const u = dx * cosa + dz * sina;
+			const v = -dx * sina + dz * cosa;
+			if (Math.abs(u) <= halfW + 0.75 && Math.abs(v) <= halfD + 0.75 &&
+				(pass.data[i + j * pass.width] & mask))
+				return false;
+		}
+	const tx0 = Math.floor((spot[0] - ex) / tc), tx1 = Math.floor((spot[0] + ex) / tc);
+	const tz0 = Math.floor((spot[1] - ez) / tc), tz1 = Math.floor((spot[1] + ez) / tc);
+	if (tx0 < 0 || tz0 < 0 || tx1 >= terr.width || tz1 >= terr.height)
+		return false;
+	for (let j = tz0; j <= tz1; ++j)
+		for (let i = tx0; i <= tx1; ++i)
+		{
+			const owner = terr.data[i + j * terr.width] & 0x1F;
+			if (owner !== this.player && owner !== 0)
+				return false;
+		}
+	return true;
+};
+
+BrennusBot.prototype.expansionSpotNear = function(anchor, halfW, halfD, ccSpots)
+{
+	for (let r = 0; r <= 60; r += 4)
+		for (let a = 0; a < 24; ++a)
+		{
+			const ang = a * 2 * Math.PI / 24;
+			const spot = [anchor[0] + r * Math.cos(ang), anchor[1] + r * Math.sin(ang)];
+			if (this.failedSpots.some(f => Math.abs(f[0] - spot[0]) < 6 && Math.abs(f[1] - spot[1]) < 6))
+				continue;
+			if (ccSpots.some(c => SquareDistance(c, spot) < 200 * 200))
+				continue;
+			if (this.nearEnemy(spot, 100, 60))
+				continue;
+			if (this.expansionRegion !== undefined &&
+				this.accessibility.getAccessValue(spot) !== this.expansionRegion)
+				continue;
+			if (this.expansionSpotOK(spot, halfW, halfD))
+				return spot;
+		}
+	return undefined;
+};
+
+/** Greedy marginal-coverage CC plan over the lattice, scored with a
+ * simulation of the engine's territory influence (linear-falloff
+ * floodfill); target 72% of the passable map. */
+BrennusBot.prototype.computeExpansionPlan = function()
+{
+	const gameState = this.gameState;
+	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
+	const template = gameState.getTemplate(ccType);
+	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
+	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
+
+	const ccSpots = [];
+	for (const ent of gameState.getStructures().values())
+		if (ent.hasClass("CivCentre") && ent.position())
+			ccSpots.push(ent.position());
+
+	const lattice = this.expansionCandidates();
+	const candidates = [];
+	for (const anchor of lattice)
+	{
+		const found = this.expansionSpotNear(anchor, halfW, halfD, ccSpots);
+		if (found)
+			candidates.push(found);
+	}
+	print(`[HARNESS] expansion candidates: ${candidates.length} of ${lattice.length} lattice anchors yield a buildable spot\n`);
+	for (const c of ccSpots)
+		print(`[HARNESS]   existing CC at ${c[0].toFixed(0)},${c[1].toFixed(0)}\n`);
+
+	const terr = this.territoryMap;
+	const pass = gameState.getPassabilityMap();
+	const tmask = gameState.getPassabilityClassMask("default-terrain-only");
+	// Territory cost grid (8 m tiles): 1 passable, 4 impassable — the engine's own downsampling.
+	const terrW = terr.width, terrH = terr.height;
+	const tcell = terr.cellSize / pass.cellSize;
+	const costGrid = new Uint8Array(terrW * terrH);
+	let totalPassable = 0;
+	for (let j = 0; j < terrH; ++j)
+		for (let i = 0; i < terrW; ++i)
+		{
+			let c = 0;
+			for (let dj = 0; dj < tcell; ++dj)
+				for (let di = 0; di < tcell; ++di)
+					c |= pass.data[((i * tcell + di) + (j * tcell + dj) * pass.width)];
+			if (c & tmask)
+				costGrid[i + j * terrW] = 4;
+			else
+			{
+				costGrid[i + j * terrW] = 1;
+				totalPassable++;
+			}
+		}
+
+	const own = new Uint8Array(terrW * terrH);
+	let ownCount = 0;
+	for (let j = 0; j < terrH; ++j)
+		for (let i = 0; i < terrW; ++i)
+		{
+			const idx = i + j * terrW;
+			if (costGrid[idx] === 1 && (terr.data[idx] & 0x1F) === this.player)
+			{
+				own[idx] = 1;
+				ownCount++;
+			}
+		}
+
+	const falloff = 10000 * 8 / 140; // weight x 8 / radius per orthogonal tile
+
+	const DIAG = 362 / 256;
+	const influence = spots => {
+		const w = new Float32Array(terrW * terrH);
+		const queue = new Int32Array(terrW * terrH);
+		let head = 0, tail = 0;
+		const push = (i, val) => {
+			if (val > w[i])
+			{
+				w[i] = val;
+				queue[tail++] = i;
+			}
+		};
+		for (const spot of spots)
+			push(Math.floor(spot[1] / 8) * terrW + Math.floor(spot[0] / 8), 10000);
+		while (head < tail)
+		{
+			const i = queue[head++];
+			const x = i % terrW, y = (i / terrW) | 0;
+			const val = w[i];
+			for (let dx = -1; dx <= 1; ++dx)
+				for (let dy = -1; dy <= 1; ++dy)
+				{
+					if (!dx && !dy)
+						continue;
+					const nx = x + dx, ny = y + dy;
+					if (nx < 0 || ny < 0 || nx >= terrW || ny >= terrH)
+						continue;
+					const c = costGrid[nx + ny * terrW];
+					if (c === 4)
+						continue;
+					const step = (dx && dy) ? DIAG : 1;
+					push(nx + ny * terrW, val - falloff * step);
+				}
+		}
+		return w;
+	};
+
+	const cov = new Uint8Array(own);
+	let covered = ownCount;
+	const spots = [];
+	const target = Math.ceil(totalPassable * 0.72);
+	while (candidates.length)
+	{
+		let best = -1, bestGain = 0, bestW = null;
+		for (const cand of candidates)
+		{
+
+			if (spots.some(s => SquareDistance(s, cand) < 200 * 200))
+				continue;
+			const w = influence([cand]);
+			let gain = 0;
+			for (let i = 0; i < w.length; ++i)
+				if (w[i] > 0 && !cov[i] && costGrid[i] === 1 &&
+					(terr.data[i] & 0x1F) === 0)
+					gain++;
+			if (gain > bestGain)
+			{
+				bestGain = gain;
+				best = cand;
+				bestW = w;
+			}
+		}
+		if (bestGain < 60 && covered >= target)
+			break;
+		if (best === -1)
+			break;
+
+		const idx = candidates.indexOf(best);
+		candidates.splice(idx, 1);
+		spots.push(best);
+		for (let i = 0; i < bestW.length; ++i)
+			if (bestW[i] > 0 && costGrid[i] === 1 && (terr.data[i] & 0x1F) === 0)
+				cov[i] = 1;
+		covered += bestGain;
+	}
+
+	const base = this.getCivicCentre()?.position() || [384, 384];
+	spots.sort((a, b) => SquareDistance(a, base) - SquareDistance(b, base));
+	print(`[HARNESS] expansion plan: ${spots.length} CCs, sim coverage ${(100 * covered / totalPassable).toFixed(1)}% of ${totalPassable} passable tiles (bar 70%)\n`);
+	return { "spots": spots, "next": 0, "done": false, "simPct": 100 * covered / totalPassable };
+};
+
+/** Expansion program, one order per block: wonder, far markets, corral, then the next planned CC. */
+BrennusBot.prototype.manageExpansion = function()
+{
+	if (!this.expansionOn())
+		return;
+	if (!this.expPlan || this.turn - (this.expPlan.turn || 0) >= 750)
+		// Recompute every 750 turns (2.5 min): raids raze Petra CCs and their
+		// territory reverts to neutral, opening spots the original plan —
+		// computed while Petra held half the map — could never claim (def14:
+		// plans of 7 spots, 2 orders in 25 min). The freed land must be claimed
+		// before Petra rebuilds. wonder/corral/market flags are re-derived from
+		// live state, so nothing is lost on rebuild.
+		this.expPlan = Object.assign(this.computeExpansionPlan(), { "turn": this.turn });
+	const gameState = this.gameState;
+	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
+	const plan = this.expPlan;
+
+	// Wonder (Glorious Expansion +20% pop): ordered once the first expansion CC stands, before the CC stream.
+	if (!plan.wonderDone && plan.next >= 1)
+	{
+		const wonderType = gameState.applyCiv("structures/{civ}/wonder");
+		const builtWonder = gameState.getOwnStructures().toEntityArray()
+			.some(ent => ent.templateName() === wonderType);
+		if (builtWonder)
+			plan.wonderDone = true;
+		else if (gameState.getOwnFoundations().toEntityArray().some(f =>
+			gameState.getBuiltTemplate(f.templateName()).templateName() === wonderType))
+		{
+
+		}
+		else if (!this.pendingBuilds.some(pb => pb.template === wonderType) &&
+			!this.constructionHold)
+		{
+			const res = gameState.getResources();
+
+			if (res.canAfford({ "wood": 1100, "stone": 1550, "metal": 1100 }))
+			{
+				const spot = this.findWonderSpot(wonderType);
+				if (spot && this.placeOrder(wonderType, spot))
+				{
+					res.subtract({ "wood": 1000, "stone": 1500, "metal": 1000 });
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wonder order at ${spot[0].toFixed(0)},${spot[1].toFixed(0)}\n`);
+					return;
+				}
+			}
+		}
+	}
+
+	if ((plan.marketsPlaced || 0) < this.expMarkets)
+	{
+		const marketType = gameState.applyCiv("structures/{civ}/market");
+		const base = this.getCivicCentre()?.position() || [384, 384];
+		const marketSpots = [];
+
+		for (const ent of gameState.getOwnStructures().values())
+			if (ent.hasClass("Market") && ent.position() && ent.foundationProgress() === undefined)
+				marketSpots.push(ent.position());
+		for (const f of gameState.getOwnFoundations().values())
+			if (f.position() && gameState.getBuiltTemplate(f.templateName()).hasClass("Market"))
+				marketSpots.push(f.position());
+		if (marketSpots.length >= 1 + this.expMarkets)
+
+			plan.marketsPlaced = this.expMarkets;
+		else if (!this.pendingBuilds.some(pb => pb.template === marketType &&
+				SquareDistance([pb.x, pb.z], base) > 150 * 150) &&
+			!this.constructionHold)
+		{
+			const res = gameState.getResources();
+			if (res.wood >= 600)
+			{
+
+				const ccType2 = gameState.applyCiv("structures/{civ}/civil_centre");
+				const anchors = gameState.getOwnStructures().toEntityArray()
+					.filter(ent => ent.templateName() === ccType2 && ent.position() &&
+						!marketSpots.some(m => SquareDistance(m, ent.position()) < 150 * 150))
+					.sort((a, b) => SquareDistance(b.position(), base) - SquareDistance(a.position(), base))
+					.slice(0, this.expMarkets);
+				for (const anchor of anchors)
+				{
+					const pos = this.findBuildingPosition(marketType, anchor.position(), 20, 80, true, this.expansionRegion);
+					if (pos && this.placeOrder(marketType, pos))
+					{
+						res.subtract({ "wood": 300 });
+						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m market at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for the trade routes\n`);
+						return;
+					}
+				}
+			}
+		}
+	}
+
+	if (plan.corralDone === undefined)
+		plan.corralDone = false;
+	if (plan.corralDone === false)
+	{
+		const corralType = gameState.applyCiv("structures/{civ}/corral");
+		const built = gameState.getOwnStructures().toEntityArray()
+			.some(ent => ent.templateName() === corralType);
+		if (built || gameState.isResearched("gather_animals_stockbreeding"))
+			plan.corralDone = true;
+		else if (!this.pendingBuilds.some(pb => pb.template === corralType) &&
+			!this.constructionHold && gameState.getResources().wood >= 300)
+		{
+			const spot = this.findBuildingPosition(corralType, this.getCivicCentre().position(), 12, 120, true, this.expansionRegion);
+			if (spot && this.placeOrder(corralType, spot))
+			{
+				gameState.getResources().subtract({ "wood": 100 });
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m corral at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} for the tech tree\n`);
+			}
+		}
+	}
+	if (plan.next < plan.spots.length)
+	{
+		// Two CC projects run concurrently (three once their army is broken):
+		// under Petra pressure a single sequential cursor starves the expansion
+		// (def9: 2 orders in 30 min). All entity collections are scanned once
+		// per call, not per spot.
+		const ccConcurrency = (this.enemyArmy || 0) < 60 ? 3 : 2;
+		const ownCCPos = [];
+		for (const ent of gameState.getOwnStructures().values())
+			if (ent.templateName() === ccType && ent.position())
+				ownCCPos.push(ent.position());
+		const ccFoundationPos = [];
+		for (const f of gameState.getOwnFoundations().values())
+			if (f.position() && gameState.getBuiltTemplate(f.templateName()).hasClass("CivCentre"))
+				ccFoundationPos.push(f.position());
+		const ccPending = this.pendingBuilds.filter(pb => pb.template === ccType);
+		const ccSpots = ownCCPos.concat(ccFoundationPos);
+		for (const ent of gameState.getStructures().values())
+			if (ent.hasClass("CivCentre") && ent.position())
+				ccSpots.push(ent.position());
+		let slots = ccConcurrency - ccFoundationPos.length - ccPending.length;
+		let scanned = 0;
+		while (slots > 0 && plan.next < plan.spots.length && scanned++ < plan.spots.length)
+		{
+			const spot = plan.spots[plan.next];
+			const near = pos => pos && Math.abs(pos[0] - spot[0]) < 6 && Math.abs(pos[1] - spot[1]) < 6;
+			if (ownCCPos.some(near))
+			{
+				plan.next++;
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC ${plan.next}/${plan.spots.length} completed at ${spot[0].toFixed(0)},${spot[1].toFixed(0)}\n`);
+				continue;
+			}
+			// In progress (foundation laid or order pending): rotate to the
+			// back so other spots can be ordered while this one builds.
+			const pending = ccPending.some(pb => Math.hypot(pb.x - spot[0], pb.z - spot[1]) < 30);
+			if (ccFoundationPos.some(near) || pending)
+			{
+				plan.spots.splice(plan.next, 1);
+				plan.spots.push(spot);
+				continue;
+			}
+
+			if (this.failedSpots.some(f => Math.abs(f[0] - spot[0]) < 6 && Math.abs(f[1] - spot[1]) < 6))
+			{
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC spot ${spot[0].toFixed(0)},${spot[1].toFixed(0)} failed, skipping\n`);
+				plan.next++;
+				continue;
+			}
+
+			{
+				// Re-validate the spot against the live state before ordering (borders and the 200 m rule move).
+				const template = gameState.getTemplate(ccType);
+				const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
+				const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
+				const nearCC = ccSpots.some(c => SquareDistance(c, spot) < 200 * 200);
+				// Once their army is broken, lone stragglers must not stale a spot.
+				const enemyNear = this.nearEnemy(spot, 100, this.enemyArmy > 40 ? 60 : 0);
+				const stale = nearCC || enemyNear ||
+					(this.expansionRegion !== undefined &&
+						this.accessibility.getAccessValue(spot) !== this.expansionRegion) ||
+					!this.expansionSpotOK(spot, halfW, halfD);
+				if (stale)
+				{
+					const terr = this.territoryMap;
+					const ti = Math.floor(spot[0] / terr.cellSize) + Math.floor(spot[1] / terr.cellSize) * terr.width;
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC spot ${spot[0].toFixed(0)},${spot[1].toFixed(0)} stale (owner=${terr.data[ti] & 0x1F} nearCC=${nearCC} nearEnemy=${enemyNear} spotOK=${this.expansionSpotOK(spot, halfW, halfD)}) skipping\n`);
+					// Stale spots rotate to the back of the queue instead of
+					// blocking the plan; nearEnemy clears when their patrol moves,
+					// nearCC clears when the raid razes their CC. Only terrain-level
+					// failures (bad spot, wrong region) are dropped immediately.
+					if (this.expansionSpotOK(spot, halfW, halfD) &&
+						(this.expansionRegion === undefined ||
+							this.accessibility.getAccessValue(spot) === this.expansionRegion))
+					{
+						plan.staleRetries = plan.staleRetries || {};
+						const key = `${spot[0].toFixed(0)},${spot[1].toFixed(0)}`;
+						plan.staleRetries[key] = (plan.staleRetries[key] || 0) + 1;
+						if (plan.staleRetries[key] < 100)
+						{
+							plan.spots.splice(plan.next, 1);
+							plan.spots.push(spot);
+							continue;
+						}
+					}
+					plan.next++;
+					continue;
+				}
+			}
+			const res = gameState.getResources();
+
+			if (this.constructionHold)
+				return;
+			// Frontier projects need escort conditions: while Petra masses an
+			// army we cannot cover, far CCs get captured rather than razed —
+			// gifting her the territory and killing the builder party (def16
+			// s3: 4 CCs captured, 856 civilians lost). Spots adjacent to an
+			// existing CC are safe enough to keep the first ring (and the
+			// wonder) flowing; gated spots rotate to the back of the queue.
+			if (!ownCCPos.some(c => SquareDistance(c, spot) < 260 * 260) &&
+				((this.enemyArmy || 0) > 100 || this.armyCount() < 50))
+			{
+				plan.spots.splice(plan.next, 1);
+				plan.spots.push(spot);
+				continue;
+			}
+			// Floors above the raw cost: the engine checks the real stock at processing.
+			if (!res.canAfford({ "wood": 400, "stone": 400, "metal": 300 }))
+				return;
+			if (!this.placeOrder(ccType, spot))
+				return;
+			// A lone builder dies or gets sheltered en route: send a party of 6.
+			const party = gameState.getOwnUnits()
+				.filter(ent => ent.isGatherer() && ent.position() &&
+					!this.army[ent.id()] && ent.id() !== this.herderId)
+				.filterNearest(spot, 6).toEntityArray();
+			for (const ent of party)
+				ent.construct(ccType, spot[0], spot[1], this.getPlacementAngle(), undefined);
+			res.subtract({ "wood": 300, "stone": 300, "metal": 250 });
+			slots--;
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC order at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} (${plan.next + 1}/${plan.spots.length}, slot ${ccConcurrency - slots}/${ccConcurrency})\n`);
+			// Ordered: rotate so the next call scans the remaining spots.
+			plan.spots.splice(plan.next, 1);
+			plan.spots.push(spot);
+		}
+		return;
+	}
+};
+
+/** Traders shuttle the farthest market pair; at the cap pin an idle civilian is dismissed to make room. */
+BrennusBot.prototype.manageTrade = function()
+{
+	if (!this.expansionOn())
+		return;
+	const gameState = this.gameState;
+	const markets = gameState.getOwnStructures().toEntityArray()
+		.filter(ent => ent.hasClass("Market") && ent.foundationProgress() === undefined);
+	if (markets.length < 2)
+		return;
+	let traders = 0;
+	for (const ent of gameState.getOwnUnits().values())
+		if (ent.hasClass("Trader"))
+			traders++;
+	if (traders < this.targetTraders)
+	{
+		const res = gameState.getResources();
+		if (res.food >= 40000 + 100 && res.metal >= 1200)
+		{
+			// Pop room for the trader — only when one is actually trained now;
+			// dismissing without training (food below the bar) was a pure leak
+			// (def15 s3: 51 pointless dismissals).
+			if (gameState.getPopulation() >= gameState.getPopulationLimit())
+				for (const ent of gameState.getOwnUnits().values())
+					if (ent.isGatherer() && !ent.hasClass("Cavalry") && ent.isIdle() && !this.army[ent.id()] &&
+						!(ent.id() === this.herderId && !this.herdingDone))
+					{
+						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m dismissing idle civilian for a trader\n`);
+						ent.destroy();
+						break;
+					}
+			for (const market of markets)
+				if ((market.trainingQueue()?.length || 0) <= 1)
+				{
+					market.train(gameState.getPlayerCiv(), gameState.applyCiv(this.traderType), 1, {});
+					res.subtract({ "food": 100, "metal": 80 });
+					break;
+				}
+		}
+	}
+	let far = markets[0], near = markets[1], best = -1;
+	for (const a of markets)
+		for (const b of markets)
+		{
+			if (a === b)
+				continue;
+			const dist = SquareDistance(a.position(), b.position());
+			if (dist > best)
+			{
+				best = dist;
+				far = a;
+				near = b;
+			}
+		}
+	if (best > 0 && !this.routeLogged)
+	{
+		this.routeLogged = true;
+		print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m trade route ${Math.sqrt(best).toFixed(0)}m (${markets.length} markets)\n`);
+	}
+	for (const ent of gameState.getOwnUnits().values())
+		if (ent.hasClass("Trader") && ent.isIdle())
+			ent.tradeRoute(far, near);
+};
+
+BrennusBot.prototype.expansionTechs = [
+	"gather_mining_servants",
+
+	"gather_mining_serfs",
+
+	"gather_mining_slaves",
+
+	"gather_mining_wedgemallet",
+
+	"gather_mining_shaftmining",
+
+	"gather_mining_silvermining",
+
+	"gather_lumbering_sharpaxes",
+
+	"gather_capacity_wheelbarrow",
+
+	"gather_capacity_carts",
+
+	"trade_gain_01",
+
+	"trade_gain_02",
+
+	"trade_commercial_treaty",
+
+	"trader_health",
+	"gather_animals_stockbreeding",
+	"health_civilians_01",
+	"wonder_population_cap"
+
+];
+
+BrennusBot.prototype.manageExpansionTechs = function()
+{
+	if (!this.expansionOn())
+		return false;
+	const gameState = this.gameState;
+	const resources = gameState.getResources();
+
+	let researching = 0;
+	for (const tech of this.expansionTechs)
+		if (gameState.isResearching(tech))
+			researching++;
+	if (researching >= 3)
+		return false;
+	for (const tech of this.expansionTechs)
+	{
+		if (gameState.isResearched(tech) || gameState.isResearching(tech))
+			continue;
+		const researchers = gameState.findResearchers(tech);
+		if (!researchers)
+			continue;
+		const cost = gameState.getTemplate(tech).cost();
+
+		if (!resources.canAfford({
+			"food": (cost.food || 0) + 150,
+			"wood": (cost.wood || 0) + 400,
+			"stone": (cost.stone || 0) + 150,
+			"metal": (cost.metal || 0) + 150 }))
+			continue;
+		const facility = researchers.toEntityArray()
+			.filter(ent => ent.foundationProgress() === undefined && (ent.trainingQueue()?.length || 0) <= 1)
+			.sort((a, b) => (a.trainingQueue()?.length || 0) - (b.trainingQueue()?.length || 0))[0];
+		if (facility)
+		{
+			facility.research(tech);
+			resources.subtract(cost);
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${tech}\n`);
+			this.constructionHold = true;
+			return true;
+		}
+	}
+	return false;
+};
+
+/** Price-aware stone/metal buying: pick the better-ratio seller, pause
+ * below 0.35 so prices recover, spend only above the stockpile floors. */
+BrennusBot.prototype.manageExpansionBarter = function(market)
+{
+	const gameState = this.gameState;
+	const res = gameState.getResources();
+	if (res.stone < this.expBarterTarget || res.metal < this.expBarterTarget)
+	{
+		const want = res.stone <= res.metal ? "stone" : "metal";
+		const prices = gameState.getBarterPrices();
+		const ratio = sell => prices.sell[sell] / prices.buy[want];
+		const foodRatio = ratio("food");
+		const woodRatio = ratio("wood");
+		const sell = foodRatio >= woodRatio ? "food" : "wood";
+		const bestRatio = Math.max(foodRatio, woodRatio);
+
+		if (bestRatio >= 0.35 && res[sell] >= 47000 && this.turn % 15 === 0)
+		{
+			market.barter(want, sell, 500);
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${sell} -> ${want} (ratio ${bestRatio.toFixed(2)})\n`);
+			return true;
+		}
+	}
+	return false;
+};
+
+/** percentMapControlled equivalent: own + connected + passable tiles over all passable tiles. */
+BrennusBot.prototype.territoryPercent = function()
+{
+	const terr = this.territoryMap;
+	if (!this.terrPassable)
+	{
+		const pass = this.gameState.getPassabilityMap();
+		const mask = this.gameState.getPassabilityClassMask("default-terrain-only");
+		const tcell = terr.cellSize / pass.cellSize;
+		const g = new Uint8Array(terr.width * terr.height);
+		for (let j = 0; j < terr.height; ++j)
+			for (let i = 0; i < terr.width; ++i)
+			{
+				let c = 0;
+				for (let dj = 0; dj < tcell; ++dj)
+					for (let di = 0; di < tcell; ++di)
+						c |= pass.data[((i * tcell + di) + (j * tcell + dj) * pass.width)];
+				if (!(c & mask))
+					g[i + j * terr.width] = 1;
+			}
+		this.terrPassable = g;
+	}
+	let own = 0, total = 0;
+	for (let i = 0; i < this.terrPassable.length; ++i)
+	{
+		if (!this.terrPassable[i])
+			continue;
+		total++;
+		const v = terr.data[i];
+		if ((v & 0x1F) === this.player && (v & 0x20))
+			own++;
+	}
+	return { "own": own, "total": total, "pct": total ? Math.floor(100 * own / total) : 0 };
+};
+
+// ---------------------------------------------------------------- save/load
 BrennusBot.prototype.Serialize = function()
 {
 	return {
@@ -3565,10 +4454,11 @@ BrennusBot.prototype.Serialize = function()
 		"herdDrop": this.herdDrop,
 		"herdWoundDist": this.herdWoundDist,
 		"mineId": this.mineId,
+		"expPlan": this.expPlan,
+		"expOn": this.expOn,
 		"army": this.army,
 		"rams": this.rams,
-		"healers": this.healers,
-		"cavForce": this.cavForce
+		"healers": this.healers
 	};
 };
 

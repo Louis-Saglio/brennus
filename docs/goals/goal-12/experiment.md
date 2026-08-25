@@ -231,4 +231,178 @@ more (83k vs 12k on s1, the longest game at ~26 min).
   come home — recalling everyone on every 8-unit probe stopped the
   economy outright; pre-city engage rule 2× → 1.3× when the threat
   centroid is within 100 m of the CC (under tower/CC arrows), 2× in the
-  open): probing seeds 1-3.
+  open): first run broke on a TDZ (`boom` used before its `const` in the
+  cav branch — 2504-5552 JS errors); **mil17b** (fix: `this.warOn()`
+  inline): s1 29.6m, s2 43.1m (city 23.6m, eco-raid fired 27.5m army 40
+  vs guard 12), s3 26.8m; zero JS errors. But the eco-raid pulled the
+  army out and the 28.7m wave killed ~60 workers — quiet-launch raids
+  come home to a graveyard. p1 trained 0 cavalry / 0 champions / 0 siege
+  all game (stable last in the wants loop behind the 350-wood floor).
+  Her whole war machine: 56 workers trained TOTAL (we killed 29) — her
+  ~30-worker economy out-produces our 120-worker one 3:1 because ours
+  keep dying. Killing her 30 workers IS the win.
+- **mil18** (stable from town (250w via the wood hold) so the cav force
+  forms at city; cavHold: the women stream pauses at food < 100 while
+  cavTotal < 10; eco-raid launches only within 100 turns after a serious
+  threat clears (the post-wave window), gate army ≥ 55; ram target 6 →
+  4): **all 3 seeds defeated** (s1 27.8m, s2 27.6m, s3 28.7m); zero JS
+  errors (one botched sed produced `&&&` and a no-op run, fixed). THE
+  CAVALRY RAIDS FIRE: s2 city 21.7m, raids from 23.2m with 6→9
+  javelineers. But: (a) each sortie kills ~2-3 civs then retreats at
+  guard ≥ 4 (6 kills in 4 sorties — javelins volley once and the fleeing
+  workers outrun them); (b) cavHold for all 10 stopped the women stream
+  for minutes — our pop crashed to 47-58 (vs 84-169) and we died at
+  27.6m (from 43.1m).
+- **mil19** (cavalry_swordsman instead of javelineer — gaul's +10% melee
+  cav bonus and swords stick to fleeing workers (100f+40w+10m); retreat
+  rule guard ≥ 4 → guard > cav × 1.5 (fight small guards, then kill the
+  workers); cavHold only for the first 6, replacements trickle without
+  hold): **all 3 seeds defeated** (s1 27.8m, s2 27.8m, s3 28.7m); zero JS
+  errors. Raids fire but the swords die in the guard fights (cav 6 → 3 →
+  6 → 2), 5 civs killed on s2 — the trade is ~2:1 AGAINST us (100f cav vs
+  50f civs, garrisoned CC arrows overhead).
+- **mil20** (assembly in boom wants after arsenal; hero training —
+  Viridomarus first (+15% gather), Vercingetorix on his death — plus 3
+  trumpeters; forge techs held only until 2 rams / metal ≥ 300 (was 4/500
+  — zero techs researched in most games); healer target 4 when poor, 10
+  when rich): identical to mil19 on s2 (deterministic replay — the
+  assembly never lands before the 27.8m death). The cavalry program's
+  cost-benefit verdict is final: ~1500f and the women-stream pause for
+  5-6 kills per sortie against a garrisoned base — a losing trade that
+  costs 15 min of survival (27.8m vs 43.1m on mil17b).
+- **mil21** (cavalry program CUT (no stable, no cavHold, no cav training;
+  the roster split and manageCavRaids stay as dead code); arrow-fortress
+  doctrine: fortress in boom wants after the assembly (10 default arrows
+  + 1/garrisoned Soldier ×20), towers 5 → 8 around the home CC, fortress
+  added to the garrison shelters): probing seeds 1-3.
+- **mil21** (cavalry program CUT; arrow-fortress doctrine: fortress in
+  boom wants, towers 5 → 8, fortress in garrison shelters): s1 29.6m, s2
+  39.9m, s3 26.8m; zero JS errors. Survival recovered (cav cut worked).
+  First ram 30.2m (1/4). But the 30×30 fortress found NO spot within
+  130 m in own territory (failed every placement), and HER siege (4-7
+  from 28m) razes the towers — the infantry-only defense has no answer.
+- **mil22** (fortress kind in tryConstruct (20-130 m coarse search);
+  anti-siege priority: when siegeN > 0 and army ≥ 0.8× nearThreat the
+  army attacks the siege, not the blob): s2 35.1m; fortress STILL failed
+  twice (151,140 / 243,107) — no 30×30 clear area in own territory near
+  the base exists on these maps. Fortress cut in mil23.
+- **mil23** (expansion: one forward CC post-city (200 m rule,
+  own-or-neutral spot away from Petra's base), army rallies at the
+  pending foundation, towers per CC (8 home / 4 expansion)): never fired
+  — the 350w/350s/300m resource gate never coexisted before death. s2
+  30.9m. But the eco-raid fired at army 61 (best yet).
+- **mil24** (TIMING ATTACK: pre-city, army ≥ 28 && t ≥ 7:30, the whole
+  muster marches on her least-guarded CC — her field army is committed
+  forward and her ~30-worker economy is the one thing her +56%
+  production cannot retrain; base race by design (raidHolds), abort at
+  army < 12 or guard ≥ 8 or 4 min): fired at 15.7/15.2m — SIX minutes
+  late because the muster reaches 28 only at ~15m; killed 8/0/0 civs
+  (her civs GARRISON the CC when attacked — without rams the raid just
+  sits in arrow fire).
+- **mil25** (muster acceleration: roster from t=4m (the 4 starting
+  soldiers fight, not gather), 2 village barracks, house women stream
+  paused until the raid (every 50f is a soldier at 8:30); timing abort
+  guard ≥ 8 → fight logic reverted): army 19 at 8m ✓ 32 at 10m ✓ — but
+  the launch window (army ≥ 28 AND quiet AND defenders ≤ 0.5×) was
+  missed by minutes again; fired at 15.2m and aborted in 30 s (guard 12
+  ≥ 8 instantly). 11 civs killed. Interaction bug: launch gate admits
+  what the abort threshold forbids.
+- **mil26** (timing army gate 28 → 25; timing abort guard ≥ 8 → guard ≥
+  army × 1.2 — 25+ swords vs a dozen guard is a WIN, then the workers
+  are catchable): probing seeds 1-3.
+- **mil26** (timing army gate 28 → 25; timing abort guard ≥ 8 → guard ≥
+  army × 1.2): s2 42.4m; the attack fired at 15.2m anyway (the launch
+  window muster-25 → wave-contact is ~1 min and needs quiet AND
+  defenders ≤ 0.5×). 8 civs killed.
+- **mil27** (manageOffense evaluated FIRST so the timing launch fires
+  into the teeth of the wave; eco-raid aborts on serious home threat):
+  identical replay of mil26-s2 — the real blocker was the defender
+  count, not the quiet gate.
+- **mil28** (timing defender gate 0.5× → 1.0×): the attack fired EARLY
+  (8.4m/11.4m) — straight into her whole army still at home (guard 35 at
+  launch, raid dead in 1 min, 6 civs). **The timing-attack premise is
+  FALSE at diff 5: she fields a wave AND a 30+ home guard
+  simultaneously from ~10m — the empty-base window does not exist.**
+- **mil29** (timing attack CUT; worker war cap 150 → 170, dismissal
+  145 → 160): s1 29.0m, s2 28.9m, s3 37.0m — pop limit grows but pop
+  doesn't follow; the waves shave faster than the cap matters.
+- **mil30** (expansion expHold): identical replay — the expansion never
+  fired again (city 26.7-28.9m too late; spot/resources never there).
+  **Verdict after 30 iterations: the home-grown architecture (boom bot +
+  ported defense layer) converges to "survive ~40 min, never win" — the
+  defense layer was re-derived but the expansion/trade war economy that
+  actually won goal 10 was never ported. Re-base.**
+
+## Re-base (rb) on the goal-10 winner
+
+super_brennus is now `brennus_gaul_generic_land_map.js` (the goal-10
+winner — boom → defend → expand → trade → war → raid, all integrated
+and debugged through def1-17) + the diff-5 hardening measured in
+mil1-30: expansionOn gated on city only (no pop 300); 2 village barracks
++ muster from the first barracks (target 35 pre-city, counting
+soldier-gatherers); roster from t=4m; milBuildingHold pre-war +
+arsenal-hold post-city; towers 8 home/4 expansion, placeTower floor
+200/200; engage rules pre-city 2× open / 1.3× under arrows + anti-siege
+priority at ≥ 0.8×; worker shelter 75 m + recall-on-path (110 m of the
+threat centroid, 45 m of the CC); sortie gate army ≥ 40 (1.5× camp);
+rams 4 + ramHold at army ≥ 25 (no 350/200 floors); military techs held
+only until 2 rams / metal ≥ 300; assembly (Viridomarus → Vercingetorix,
+3 trumpeters); flow-level training when poor gated on workers ≥ 100;
+eco-raid (army ≥ 55, defenders ≤ 0.5×, post-wave window ≤ 100 turns,
+recall on serious); raids evaluated FIRST + raidHolds at army ≥ 75;
+barter metal → stone for the city bank; worker war cap 170, dismissal
+floor 160 throttle 15; nearEnemyForBuild for all building placement;
+construction timeout ∝ walk distance for every template.
+
+- **rb1**: probing seeds 1-3.
+- **rb1** (re-base on the goal-10 winner + the 16 mil-hardening edits):
+  all 3 seeds defeated (s1 27.6m, s2 30.2m, s3 27.1m); zero JS errors —
+  the re-base is mechanically sound. City+expansion at 25.3m on s2.
+- **rb2** (stone mining from t=5:00, phase-2 share cap 0.18 → 0.25):
+  **s2 40.1m** (best of the rb line), s1 28.2m, s3 28.6m; zero JS
+  errors. The expansion machinery RUNS (lattice candidates, plan
+  recompute every 750 turns) but only 1-3 of 19 anchors are buildable
+  under Petra's territory/army pressure, and far CCs are correctly
+  escort-gated (enemyArmy 87-136 vs our 17-35) — the war economy never
+  starts. Army 50 + sorties at 28m (closest to the raid gate yet), then
+  siege 4-7 grinds it down.
+- **rb3** (army-first opening: women capped at 60 until the first wave
+  is beaten, muster target 60): all defeated (28.7/29.2/26.9m). The
+  muster reached only 30 at 10m — the constraint is the food-flow
+  production rate, not the allocation. Reverted in the consolidation.
+- **rb4** (2 temples from town, fanatic muster): ZERO champions trained
+  — at 120f the fanatic never beats the 50f muster for the food flow
+  (stock never crosses 120). **rb5** (fanaticHold: barracks pause while
+  the temple banks 120f): identical replay — healers (100f) have the
+  same barrier, healerCount stays 0, the chain never starts. Lesson: in
+  a flow economy nothing ≥ 100f ever trains pre-city.
+- **rb6** (citizen-soldier economy: the standing army farms the fields
+  under the towers between waves): s1 REGRESSED to 24.5m — soldiers
+  scattered across fields die one field at a time. **rb7** (recall at
+  150 m): s1 24.9m still — the oscillation (enemies constantly near)
+  keeps them off work. Reverted in the consolidation.
+- **Walls are impossible from the AI API** (verified headless: a plain
+  construct order for `structures/palisades_long` is accepted but no
+  foundation ever appears — no WallSet chaining exposed; Petra never
+  builds walls either).
+- **rb8** (consolidation: rb2 config + 2 temples, rb3/rb6/rb7 reverted):
+  verification probe.
+
+## Assessment after ~100 matches (2026-08-26, night)
+
+Zero wins across two architectures (home-grown boom+defense, and the
+re-based goal-10 winner with full expansion/trade) and ~40 strategy
+variations. The invariant, measured every way: **at difficulty 5,
+Petra's standing army is 2-4× ours from t=10m and grows ~5-7/min
+sustained; the bot's army mass rate (~1-2/min net) is set by the food
+flow, which is set by worker survival, which is set by the same waves
+the food is needed to fight.** Her home guard is never thin (timing
+attacks die into 30+ defenders), her workers garrison on contact (raids
+kill 0-11 civs), her siege arrives ~28m and out-ranges the towers. The
+defense itself is excellent (kill ratios 1.8-2.3× in our favor,
+survivals to 40-45m) but defense cannot convert: a raid needs 75 army +
+2 rams assembled by ~30m and the food flow never banks it. Walls (the
+one structure that would break the worker-death cycle) are not exposed
+to the AI API. Remaining honest options: (a) accept this as the
+current ceiling and report; (b) a qualitatively different frame not yet
+found.
