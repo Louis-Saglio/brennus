@@ -490,4 +490,52 @@
   trunk, 330 food + 220 metal (the ×1.1 mixin); the Scythed Chariot
   300 HP, 1/5/20, bow 15 pierce, 30 s. The champion infantry are
   identity-only variants of the generic champion pikeman/swordsman.
->>>>>>> de9c6a2 (docs: add seleucid game description (per-entity guides + civ.md))
+
+## 2026-08-25 (britons)
+
+- **British data quirks** (verified against templates while writing the
+  brit docs): the **war dog is the only 0-population combat unit** in the
+  game (100 food, 15 s, kennel) and the **fastest land unit** (27 m/s
+  run — only scout ships at 28.39 are quicker, verified by a full
+  template scan). Dogs carry the `Human` class (healable, affected by
+  Cunobeline's regen aura) but **not** `Infantry` (so the Woad Warriors
+  bonus skips them), and their attack is restricted to
+  `!Structure !Ship !Siege`.
+- **The brit civil-centre limit is generic**: unlike ptol/sele,
+  `special/players/brit.xml` has no hero-gated `LimitRemovers` — the CC
+  limit lifts at `phase_town` alone. The **crannog** counts as a
+  `CivilCentre` (category + class via its CC parent): it enforces the
+  200 m spacing and the CC limit, but the limit is already lifted when a
+  crannog becomes buildable (Town phase), so the practical gate is only
+  the spacing. The crannog also **researches `phase_city`** (its
+  researcher removes `phase_town_{civ}` and `hellenistic_metropolis` but
+  keeps `phase_city_{civ}`) — a water-borne age-up building.
+- **Brit start includes a war dog** (`civs/brit.json` StartEntities adds
+  `units/brit/war_dog` on top of the standard 4+2+2+1 pattern — the only
+  civ with an extra starting combat unit).
+- **The celtic kennel sits in the generic builder list**:
+  `mixins/builder.xml` carries `structures/{civ}/kennel` and
+  `structures/{civ}/crannog`, so every brit builder unit can place both;
+  gaul's entries silently drop (no gaul templates). The **rotary mill
+  and range are vestigial for brit** (no builder references), same as
+  gaul. `civbonuses/celt_structures` ("Wooden Construction") is shared
+  brit+gaul and lives in `generic/technologies/` — brit's only own tech
+  is `civbonuses/brit_woad_warriors` (Infantry ×1.05 walk speed, +1
+  Looter per resource — the `Looter` component is the corpse-loot
+  mechanism, not the raze loot).
+- **The celtic healer aura is shared**: brit's Druid and gaul's Druid
+  both attach `units/celtic_healer` ("Deas Celtica", +5% soldier damage
+  within 10 m) — documented in `generic/auras/`, not per-civ. The
+  civs.json "Deas Celtica" display text ("increase attack rates… by 5%")
+  is loose — the actual modification is +5% attack **damage** (melee and
+  ranged), not rate.
+- **Hero switcher variants are vestigial**: `hero_boudicca_sword`,
+  `hero_boudicca_cavalry_javelineer` and `hero_cunobelin_infantry` exist
+  as templates but nothing trains them; the trainable forms are the
+  chariot Boudicca and the mounted Cunobeline.
+- **Supremacy checks that surprised while writing**: Boudicca's 60-pierce
+  javelin is *not* the strongest hero ranged attack (han's Wei Qing
+  infantry crossbowman does 63, athen's Xenophon/Iphicrates 62), and the
+  brit javelin chariot (36 pierce) is the hardest-hitting **chariot** but
+  not the hardest-hitting ranged champion overall.
+>>>>>>> 2ca01e5 (docs: add briton game description (per-entity guides + civ.md))
