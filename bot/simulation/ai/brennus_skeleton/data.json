@@ -1,0 +1,7 @@
+{
+	"name": "Brennus — skeleton",
+	"description": "Skeleton bot: loads, initializes, and does nothing. Starting point for new strategies.",
+	"constructor": "BrennusSkeleton",
+	"filename": "brennus_skeleton.js",
+	"useShared": true
+}
