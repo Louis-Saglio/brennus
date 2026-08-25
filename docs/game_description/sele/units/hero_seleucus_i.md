@@ -13,11 +13,11 @@ engine. His aura, "Zooiarchos" (+20% melee damage and +20% speed for
 champion elephants within 60 m), is the amplifier for the civ's armored
 war elephants (already 1100 HP / 33 hack + 49.5 crush): with Seleucus
 alive the elephant corps is the hardest-hitting melee screen in the
-game. Uniquely among the Seleucid heroes he is a 0-population unit
-trained at the **civic centre** (City phase) — same building as the
-other two heroes — and is subject to the global limit of 1 hero alive at
-a time, which for the Seleucids also gates the second civic centre (see
-`civ.md`).
+game. Like all heroes he costs 0 population, and — a Seleucid speciality
+— he trains at the **civic centre** (City phase), the same building as
+the other two heroes, and is subject to the global limit of 1 hero alive
+at a time, which for the Seleucids also gates the second civic centre
+(see `civ.md`).
 
 ## Basic stats
 
