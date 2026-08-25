@@ -105,7 +105,7 @@ for i in $(seq 1 120); do
     sudo test -f "/var/lib/kiln/results/kimi-agent/$pair/result.json" && n=$((n+1))
   done
   [ "$n" -eq 2 ] && exit 0
-  sleep 30
+  sleep 15
 done
 exit 1
 ```
