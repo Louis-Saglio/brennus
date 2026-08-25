@@ -17,6 +17,8 @@ implementation), shipped as a 0 A.D. mod and developed against **0.28.0 only**.
   grounded in the pinned game copy. Consult before writing bot logic.
 - `docs/ai_engine_api.md` — reference of the AI scripting API the bot uses.
 - `docs/pyrogenesis_cli.md` — the engine command line, headless usage.
+- `docs/kiln.md` — the remote match-running farm: MCP tools, job-spec
+  format, reading results, waiting without polling.
 
 ## Hard constraints
 
@@ -78,13 +80,6 @@ See "Running test games with kiln" below for the how-to.
   be good seems at first to yield bad results, keep it and try to rebalance
   the behavior around it before discarding it. Discard it only when you
   understand why the change is theoretically incorrect.
-
-## Parallel runs
-
-Pyrogenesis is mostly single-threaded: one running match saturates roughly
-one core. When several matches must be run (e.g. multi-seed verification),
-run them **in parallel, one per core**, each with its own isolated HOME —
-this speeds up verification batches a lot compared to running them serially.
 
 ## Running test games with kiln
 
