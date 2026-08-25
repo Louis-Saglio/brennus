@@ -538,4 +538,15 @@
   infantry crossbowman does 63, athen's Xenophon/Iphicrates 62), and the
   brit javelin chariot (36 pierce) is the hardest-hitting **chariot** but
   not the hardest-hitting ranged champion overall.
->>>>>>> 2ca01e5 (docs: add briton game description (per-entity guides + civ.md))
+- **The war-dog cap is engine-enforced** (correcting the first draft,
+  which missed it): the dog template carries `TrainingRestrictions/
+  Category = WarDog`, the player template sets the `WarDog` **limit to 0**
+  with `LimitChangers/WarDog/Kennel = 10` — so each **completed** kennel
+  (`Kennel` class) raises the cap by 10, and at most 2 kennels can exist
+  (`<Kennel>2</Kennel>` keyed on the kennel's build category). Net: 0
+  dogs without a kennel, 10 with one, 20 with two. Foundations do not
+  change limits (`EntityLimits.js` skips `Foundation` entities in
+  `OnGlobalOwnershipChanged`), and limits are counted via the
+  BuildRestrictions/TrainingRestrictions **Category** (`GetCategory()`),
+  not via Identity classes.
+>>>>>>> 8dba4d7 (docs: war dogs are capped at 10 per kennel (20 max), kennels limited to 2)

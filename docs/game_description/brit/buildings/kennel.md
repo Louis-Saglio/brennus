@@ -9,8 +9,13 @@ Stats resolved from `simulation/templates/structures/brit/kennel` (full british 
 The Kennel (Cunattegia) is the British war-dog factory — the only
 building in the game that trains a **0-population combat unit**. For 100
 wood and 50 s (Village phase) it trains war dogs at 100 food each in 15 s
-(×0.7 batch time), and it is capped at **1 per player** (`Kennel`
-category). It is cheap enough to place in the first minutes, and the
+(×0.7 batch time), and the player may own up to **2 kennels** (the
+player template's `EntityLimits` sets `<Kennel>2</Kennel>`, keyed on the
+building's `Kennel` category). Each **completed** kennel also raises the
+war-dog training cap by 10 — the player's `WarDog` limit is 0 at base
+with `LimitChangers/WarDog/Kennel = 10`, so a finished kennel means 10
+dogs, two mean 20, and a foundation counts for nothing until it
+completes. It is cheap enough to place in the first minutes, and the
 dogs it produces are food-only, pop-free chasers — the Britons' way to
 turn surplus food into army size that no other civ can match. It also
 carries a surprisingly large 20 m territory influence (weight 30000)
@@ -31,7 +36,7 @@ not the building.
 - **Vision:** 20 m
 - **Capture points:** 500
 - **Build territory:** own
-- **Build category:** Kennel (one per player)
+- **Build category:** Kennel (max 2 per player — `<Kennel>2</Kennel>` in the player's `EntityLimits`)
 - **Placement:** land
 - **Requirements:** phase_village
 - **Trains:** units/{civ}/war_dog

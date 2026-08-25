@@ -16,11 +16,13 @@ Ships or Siege** (the attack carries `RestrictedClasses Structure Ship
 Siege`), it cannot gather or build, and it has only 30 m vision. It
 counts as `Human` class (not `Infantry`), so it is healable and is
 covered by Cunobeline's regeneration aura but not by the Woad Warriors
-bonus. The kennel is capped at 1 per player and each dog is 100 food —
-so dogs are a food-sink for the civ that has none of the population cost
-of real soldiers: swarm them as pop-free cannon fodder, raiders of
-villagers and corpse-guards, not as a main line. One starts the match
-with the Britons.
+bonus. There is a hard **dog cap**: the player's `WarDog` training limit
+is 0 at base plus 10 per completed kennel (each `Kennel` raises it via
+`LimitChangers`), and at most 2 kennels can be built — so a British
+army tops out at **20 dogs**. Each dog is 100 food — a food-sink for the
+civ, but one that costs none of the population real soldiers need: swarm
+them as pop-free cannon fodder, raiders of villagers and corpse-guards,
+not as a main line. One starts the match with the Britons.
 
 ## Basic stats
 

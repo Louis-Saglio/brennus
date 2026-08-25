@@ -31,8 +31,9 @@ is the civ's signature: a 0-population, 100-food chaser (27 m/s run, the
 fastest land unit in the game) trained at the kennel from the Village
 phase — one
 starts the match with the Britons. Dogs turn surplus food into army size
-no other civ can express: the Britons never run out of population room,
-only food.
+no other civ can express — capped at 10 per kennel and 20 total, but
+still pop-free — so the Britons never run out of population room,
+only food (and kennels).
 
 The elite is small but sharp: **two champion lines** — the Brythonic
 champion swordsman (the only heavy infantry) and the **Celtic chariot**,
@@ -86,8 +87,10 @@ fight everywhere, and never stop producing dogs.
   capture points** — British buildings go up 20% faster but are 20%
   weaker and easier to capture.
 - **War dogs** (`units/brit/war_dog`): the only 0-population combat unit
-  in the game, trained at the brit-only kennel from the Village phase
-  (see Buildings and Units).
+  in the game, trained at the brit-only kennel from the Village phase —
+  capped at **10 per kennel, 20 total** (the player's `WarDog` limit is 0
+  base + 10 per completed kennel, and kennels are limited to 2 — see
+  Buildings and Units).
 
 ## Starting entities
 
@@ -106,8 +109,12 @@ fight everywhere, and never stop producing dogs.
 - **Brit-only building — Kennel / Cunattegia**
   (`structures/brit/kennel`): the war-dog factory — 100 wood, 50 s,
   **Village phase**; 500 HP, 20 m territory influence (weight 30000),
-  10 garrison slots (dogs only), max **1 per player** (`Kennel`
-  category). Trains `war_dog` at ×0.7 batch time. It sits in the generic
+  10 garrison slots (dogs only), max **2 per player** (the player
+  template's `EntityLimits` sets `<Kennel>2</Kennel>` on the `Kennel`
+  category). Trains `war_dog` at ×0.7 batch time, and **each completed
+  kennel raises the war-dog cap by 10** (`LimitChangers/WarDog/Kennel =
+  10` on a base `WarDog` limit of 0 — so 10 dogs with one kennel, 20
+  with two). It sits in the generic
   builder list (`structures/{civ}/kennel`), so every British builder unit
   can place it.
 - **Brit-only building — Crannog / Cranogion** ("Island Settlement",
