@@ -2555,10 +2555,11 @@ BrennusBot.prototype.manageDefense = function()
 	const serious = threat && (threat.n >= 8 || threat.siegeN > 0);
 	// A strong raid does NOT come home for a serious threat: at diff 5 a
 	// wave lands every ~6 min and cancelling every raid means never raiding
-	// (goal-12 mil9: zero raids in 22 post-city minutes). With 75+ soldiers
+	// (goal-12 mil9: zero raids in 22 post-city minutes). With 60+ soldiers
 	// and rams at their CC the base race beats the recall loop — home holds
-	// on towers, garrisoned workers and arrows.
-	const raidHolds = serious && this.offense && this.armyCount() >= 75;
+	// on towers, garrisoned workers and arrows. (60, not 75: her CC guard
+	// measured at 12-13 at 28m, and the army masses to 56-61 but never 75.)
+	const raidHolds = serious && this.offense && this.armyCount() >= 60;
 	if (this.manageOffense(gameState, armyEnts, healerEnts, mil, homePos, serious))
 	{
 		// raid in progress, commands issued there — evaluated FIRST so a
@@ -2989,7 +2990,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			return false;
 		const bp = best.position();
 		const defenders = Math.floor(bestScore / 10000);
-		if (this.armyCount() >= 75 && ramEnts.length >= 2)
+		if (this.armyCount() >= 60 && ramEnts.length >= 2)
 		{
 			this.offense = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn };
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${defenders}, army=${armyEnts.length}, rams=${ramEnts.length})\n`);

@@ -386,7 +386,11 @@ construction timeout ∝ walk distance for every template.
   foundation ever appears — no WallSet chaining exposed; Petra never
   builds walls either).
 - **rb8** (consolidation: rb2 config + 2 temples, rb3/rb6/rb7 reverted):
-  verification probe.
+  s1 27.2m, s2 34.1m, s3 25.4m; zero JS errors. Committed as 2e5a287.
+- **rb9** (raid gate 75 → 60 + raidHolds 60 — her CC guard measured at
+  12-13 at 28m and the army masses to 56-61 but never 75, so the 75
+  number was a medium value never tested here): identical replay — the
+  gate is not the binding constraint; the rams (0-1) and the mass are.
 
 ## Assessment after ~100 matches (2026-08-26, night)
 
