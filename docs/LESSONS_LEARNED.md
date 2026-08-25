@@ -549,4 +549,45 @@
   `OnGlobalOwnershipChanged`), and limits are counted via the
   BuildRestrictions/TrainingRestrictions **Category** (`GetCategory()`),
   not via Identity classes.
->>>>>>> 8dba4d7 (docs: war dogs are capped at 10 per kennel (20 max), kennels limited to 2)
+
+## 2026-08-25 (spartans)
+
+- **Spartan data quirks** (verified against templates while writing the
+  spart docs): **Sparta cannot build stone walls** — every spart builder
+  unit's `Builder/Entities` carries `-structures/{civ}/wallset_stone`
+  (and the civs.json skirmish wall replacements are emptied), so only
+  the shared palisade remains buildable; the stone wallset and its wall
+  pieces still exist in the data and stay in `civs.json` `WallSets`, so
+  map wall scripts (the only consumer of `WallSets`,
+  `maps/random/rmgen-common/wall_builder.js`) may still place them.
+- **The syssiton is Village-phase and the gerousia Town-phase**: the
+  Spartan Hoplite is the only Village-phase champion in the game (its
+  requirement resolves `-phase_city phase_village` → `phase_village`),
+  and the gerousia is the earliest hero trainer (heroes themselves keep
+  the City-phase requirement). Both special buildings are added to
+  every spart builder's list (women, spearmen, javelineers, the Skiritai
+  Commando) — and the Skiritai Commando is the only champion trained at
+  **Elite** rank (already in the generic docs).
+- **The Agoge tech has no researcher** — no `Researcher` list references
+  `agoge` anywhere in the templates, so the City-phase +25%-champion-
+  health tech is unreachable (same class of data bug as athen's
+  `pheidian_workshop`). Also: the civs.json "Agoge" display text claims
+  "−10% attack time" while the actual tech is +25% health, and
+  "Ritualistic Exercise" (citizen-soldiers +40% HP / +50% hack) has
+  **no implementing tech at all** — both are stale display entries.
+- **`spart_hero_agis_2` is a broken aura**: the JSON has only
+  auraName/auraDescription ("Agis +50% health") with no `type`,
+  `affects` or `modifications` — the engine applies nothing. Attached by
+  the hero template alongside the functional `spart_hero_agis_1`.
+- **The olympian promotion is a template stat swap, not a rank step**:
+  `champion_infantry_spear_olympian` carries no `Rank`, so the
+  `unit_advanced` tech does not apply; the promotion at **150 XP** (the
+  hoplite chain's RequiredXp) gives only the template's own ×1.2 Health
+  and ×1.2 melee damage (200 → 240 HP, 10 + 8.5 → 12 + 10.2). The
+  generated rank dumps for this unit must be hand-corrected accordingly.
+- **`BuildRestrictions/Category` limits are only real when the player
+  template has a matching `Limits` entry**: the gerousia's `Council`
+  category and the syssiton's inherited `Structure` category have no
+  matching limits in `template_player.xml`, so both are uncapped
+  (EntityLimits.js `AllowedToCreate` only blocks when both `count` and
+  `limit` exist for the category).
