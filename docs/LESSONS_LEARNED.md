@@ -591,3 +591,38 @@
   matching limits in `template_player.xml`, so both are uncapped
   (EntityLimits.js `AllowedToCreate` only blocks when both `count` and
   `limit` exist for the category).
+
+## 2026-08-25 (goal 12: very hard aggressive Petra)
+
+- **A flat 50-turn pending-build timeout is shorter than the walk to a
+  70-90 m build spot** (units walk ~1-1.5 m/turn): the order is declared
+  failed while the builder is still walking, the same best spot is
+  re-picked forever, and the building never stands. Budget the timeout
+  with the walk distance (60 + dist turns works).
+- **failedSpots entries must carry the placement turn** or any time-based
+  expiry silently never fires (`f[2] || 0` == 0 keeps them only 1500
+  turns from t=0).
+- **An enemy-proximity placement filter freezes a turtled base**: with
+  aggressive Petra camping 40-80 m from the CC for tens of minutes, a
+  `nearEnemy(60 m)` filter on building placement blocks every civic
+  building (the town trio → no city phase for 25+ min) even though the
+  spots sit under friendly arrows. Spots inside the home guard ring must
+  be exempt from the mobile-enemy check (structures check stays).
+- **Difficulty-5 aggressive Petra (0.28.0, mainland 192)**: first serious
+  wave lands at ~10-12 in-game min (vs ~16 min at difficulty 3) and she
+  trained 411-450 military over a ~30 min loss. Trades favor the turtle
+  (the bot killed ~1.8-2.3× its own military losses) but she replaces
+  losses and farms outlying workers between waves — the refill stream,
+  not the army, is what dies.
+- **Gaul barracks/temple cost pure wood (300 each, no stone)** — village
+  phase barracks are affordable from t=3:30 if the economy's wood
+  spending is held while they are unfunded (a bare resource floor never
+  fires: the boom spends the flow every block, same lesson as goal-10
+  agg1/agg2 for unit floors).
+- **The stone defense tower requires `phase_town` by template**
+  (`template_structure_defensive_tower_stone.xml` Requirements) — pre-town
+  construct orders are engine-rejected: the builder walks over, nothing
+  commits, and a placer that retries loops forever. The village-phase
+  sentry tower (100 wood, 40 s build) upgrades to it at town for
+  50w/100s/100s-time. Stone tower stats: 100w/100s, 150 s build, 1000 HP,
+  garrison 5, 4 default arrows + 1 per garrisoned Infantry.
