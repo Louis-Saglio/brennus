@@ -4,7 +4,7 @@ Kiln is the remote 0 A.D. match-running farm. Full goal matches are too
 heavy for this VPS (Louis's rule: **never run test games here — always
 use kiln**), and kiln runners are faster anyway: `pc` benchmarks at
 ~210 turns/s with 14 slots, `vps` at ~142 turns/s with 2 slots. A 45-min
-goal-10 match takes 2-4 wall minutes on `pc`.
+match takes 2-4 wall minutes on `pc`.
 
 ## The MCP tools
 
@@ -12,11 +12,13 @@ goal-10 match takes 2-4 wall minutes on `pc`.
   canary status. Check first if jobs sit queued: an `active` runner with
   `canary_ok: true` is healthy; `0ad_version` confirms the pinned engine
   (0.28.0).
-- `submit_batch` — pack a local mod directory, upload it, queue jobs.
-  Returns a batch id and one job id per spec.
-- `get_batch_status` — per-job state (`queued` / `running` / `done`)
-  plus, once finished, the full result: exit code, wall seconds, turn
-  count, turns/s and the per-player end-of-game statistics.
+- `submit_batch` — pack a mod directory, submit a job spec. Returns a
+  batch id and one job id. Submit one batch per seed for multi-seed runs
+  (they run in parallel on free runner slots).
+- `get_batch_status` — per-job state (`queued` → `running` →
+  `done`/`failed`); once finished, a job embeds its full result: exit
+  code, wall seconds, turn count, turns/s and the per-player end-of-game
+  statistics.
 - `get_result` — same result for a single job id.
 
 ## Submitting
@@ -24,12 +26,12 @@ goal-10 match takes 2-4 wall minutes on `pc`.
 ```jsonc
 // mcp__kiln__submit_batch
 {
-  "batch_name": "goal10-agg12-s3",        // optional, but name it: <goal>-<iteration>-s<seed>
+  "batch_name": "goal11-tel-s1",          // optional, but name it: <goal>-<iteration>-s<seed>
   "mod_dir": "/home/ubuntu/brennus/bot",  // ABSOLUTE path; packaged as-is
   "spec": {
     "map": "random/mainland",
-    "seed": 3,
-    "aiseed": 3,
+    "seed": 1,
+    "aiseed": 1,
     "biome": "generic/temperate",
     "placement": "circle",
     "size": 192,
@@ -45,16 +47,51 @@ goal-10 match takes 2-4 wall minutes on `pc`.
 }
 ```
 
-Every field matters: each player needs `ai`, `diff`, `behavior`, `civ`
-and `team`, and determinism needs `seed` **and** `aiseed` pinned (same
-value is fine), plus explicit `biome` and `placement` — the gamesetup
-defaults resolve randomly otherwise.
+Field reference (validation is strict — unknown values are rejected
+instead of silently ignored by the engine):
 
-Practical habits from the goal-10 campaign:
+- `map`: `random/<name>` (also skirmish/scenario maps) from the pinned
+  0.28.0 allowlist.
+- `players[].ai`: the AI directory name, i.e. a `simulation/ai/<name>/`
+  with a `data.json` — `petra` or one of the bot's AI ids. **A wrong AI
+  name does not fail the job**: the game runs with an idle player and
+  `exit_code` stays 0. Detect it by checking the artifacts' `stdout.log`
+  for `Failed to create AI player` and by confirming your bot's
+  `[HARNESS]` line printed and its stats are non-zero.
+- `players[].diff`: 0..=5. `players[].behavior`: `random`, `balanced`,
+  `defensive` or `aggressive`. **Every** player needs `ai`, `diff`,
+  `behavior`, `civ` and `team` — including your own bot.
+- `players[].team`: `-1` (no team) or 1-based `1..=N` — **not** 0-based.
+- `size`: 64..=1024. Max 8 players.
+- `player`: local player slot, `-1` = observer (use that for bot matches).
+- `seed`/`aiseed`: map and AI seeds. Pin both (same value is fine), plus
+  explicit `biome` and `placement` — the gamesetup defaults resolve
+  randomly otherwise (verified: resubmitting the same spec yields
+  identical turn counts and statistics; only wall-clock timings differ).
+- `in_game_limit_min`: the kiln harness (a mod that mounts last and
+  overrides `maps/scripts/NonVisualTrigger.js`) ends the game after this
+  many in-game minutes by marking player 1 `won` and the rest `defeated`,
+  so a capped run still exits cleanly and prints statistics. Always set
+  it; 15 in-game minutes = 4499 turns. `playerState` in the stats only
+  reflects a real victory when the game ended before the limit.
+- `wall_budget_s`: hard wall-clock kill enforced by the runner (server
+  cap: 7200). Size it generously above the expected run time — a killed
+  job is `failed` and loses the clean end-of-game output.
+- `collect_replay`: also uploads the `commands.txt` replay.
+- `mod_dir`: an absolute path the server process can read (on this VPS,
+  `/home/ubuntu/brennus/bot` just works — it is packaged as-is, not
+  interpreted). Its basename becomes the mod folder the runner installs
+  and mounts (`-mod=<basename>`). Omit entirely for petra-only games.
+  Bundles are content-addressed (sha256) and cached server-side, so
+  resubmitting an unchanged mod costs nothing. A submit that fails with
+  "not a directory" on a real directory means the server process cannot
+  traverse that path (wrong host or permissions).
+
+Practical habits:
 
 - **One batch per seed.** Batches are the unit of naming and waiting;
-  `goal10-agg12-s3` beats a 5-job anonymous batch when you grep results
-  later. Submit one `submit_batch` call per seed, in parallel.
+  `goal11-tel-s1` beats a 5-job anonymous batch when you grep results
+  later.
 - **Syntax-check the mod before submitting** — a broken JS file wastes a
   full match slot before you see the error:
   `node --experimental-default-type=module --check bot/simulation/ai/<bot>/<bot>.js`
@@ -73,9 +110,16 @@ Results land locally as soon as a job finishes:
 ```
 
 Readable via sudo; `tools/fetch-kiln-artifacts.sh <batch> <job> <dir>`
-extracts and greps the interesting lines in one go. The local
-`result.json` is a summary only — the per-player statistics are in the
-end-of-game JSON blocks inside `stdout.log` (or via `get_result`).
+extracts and greps the interesting lines in one go. The tarball contains:
+
+- `stdout.log` / `stderr.log` — full engine output; this is where
+  `print()` lines (e.g. `[HARNESS]`) and JS errors land. **Always grep it
+  for `ERROR`** before trusting a result.
+- `stats.json` — the per-player statistics also embedded in the MCP
+  result.
+- `result.json` — exit code, wall seconds, turn count, turns/s.
+- `metadata.json`, `mainlog.html`, `interestinglog.html` — engine logs.
+- `replay/` — only when `collect_replay: true`.
 
 Quick verdict recipe:
 
