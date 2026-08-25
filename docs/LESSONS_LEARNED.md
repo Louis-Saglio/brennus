@@ -424,3 +424,62 @@
   goal-11 full match with the bot ran 106 turns/s). Follow Louis's rule —
   never run test games on the VPS, always use kiln.
 
+## 2026-08-25
+
+- **Seleucid data quirks** (verified against templates while writing the
+  sele docs): the **sele civil centre trains the three heroes** — the
+  only civ whose CC trainer lists heroes (ptol's trains at the
+  City-phase Temple of Isis; the generic fortress trainer has no
+  entities, and sele's fortress adds none). Sele shares the ptol
+  **hero-gated CivilCentre limit**: `special/players/sele.xml` has the
+  same `LimitRemovers/CivilCentre` override (`phase_town` + class `Hero`).
+- **The library is buildable by ptol only**: ptol units list it in their
+  `Builder` lists as **absolute paths** (`structures/ptol/lighthouse`,
+  `structures/ptol/library`, `structures/ptol/temple_2` — not `{civ}`),
+  and no mace/sele unit references the library at all, so
+  `structures/mace/library` and `structures/sele/library` (and the
+  "Center of Scholarship" aura) are vestigial for those civs. The
+  generic buildings analysis had therefore counted the library as
+  single-civ; like ptol, sele documents it in `civ.md` only.
+- **Sele has no citizen archer or slinger**: its ranged infantry are the
+  javelineer plus the **Syrian Archer mercenary** (`infantry_archer_merc_b`,
+  single-civ — only `structures/sele/military_colony` references it).
+  Also no citizen swordsman/maceman/axeman/clubman and no citizen melee
+  cavalry (spearman/swordsman/axeman); citizen cavalry = javelineer +
+  horse archer.
+- **The sele military colony adds to, not replaces, the CC trainer**:
+  its `Trainer/Entities` (three mercenaries) merges with the inherited
+  CC trainer (women), whereas ptol's colony uses `replace` and trains
+  only its four mercenaries — no women.
+- **Army-reform pair has no engine exclusivity**: `traditional_army_sele`
+  / `reformed_army_sele` are free, instant, City-phase techs with no
+  `modifications` — the unlocks live in the champion templates'
+  `Identity/Requirements/Techs` (pikeman: `traditional_army_sele`,
+  swordsman: `reformed_army_sele`), and each tech is gated only by
+  `phase_city` + `civ: sele`, so both halves can be researched and both
+  champions unlocked. Note the `-phase_city` prefix inside those
+  requirement token lists is **template-merge subtraction** (removes the
+  inherited `phase_city` token), not a negation — only `!tech` negates
+  in RequirementsHelper (`simulation/helpers/Requirements.js`).
+- **Rank stat changes come from auto-researched techs, not the `_a`/`_e`
+  templates**: the rank templates only change `Identity/Rank`,
+  `Promotion` and the actor, so resolving the `_a` template yields base
+  stats. The `extract_ptol.py`-derived dump script printed the base
+  value as the rank value (and mangled "archer" → "ercher" via
+  `replace("_a","_e")` matching the `_a` in `_archer`); fixed in
+  `tmp/extract_sele.py` by applying the `unit_advanced`/`unit_elite`
+  modifiers (×1.25/×1.5625 health etc.) to the base stats and taking
+  the elite template name from the advanced template's `Promotion`.
+- **sele tech gates**: sele cannot research `unlock_champion_infantry`,
+  `siege_bolt_accuracy`, `warship_arrow_attack`, `warship_health`,
+  `warship_fireship_attack`; it CAN research `hellenistic_metropolis`,
+  `unlock_champion_chariots` and `nisean_horses` (specific name
+  "Nisioi", affects the cataphract: +10% HP, +10% build time).
+- **sele champion stat deltas** (vs the generic champion templates): the
+  Cataphract (`champion_cavalry`, parent `cataphract|...`) 260 HP, 8/9/20
+  armor, 7 m spear reach, walk 14.4; the Armored War Elephant
+  (`champion_elephant`, parent `elephant_indian|...`) 1100 HP, 33 + 49.5
+  trunk, 330 food + 220 metal (the ×1.1 mixin); the Scythed Chariot
+  300 HP, 1/5/20, bow 15 pierce, 30 s. The champion infantry are
+  identity-only variants of the generic champion pikeman/swordsman.
+>>>>>>> de9c6a2 (docs: add seleucid game description (per-entity guides + civ.md))
