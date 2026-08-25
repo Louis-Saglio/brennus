@@ -591,3 +591,10 @@
   matching limits in `template_player.xml`, so both are uncapped
   (EntityLimits.js `AllowedToCreate` only blocks when both `count` and
   `limit` exist for the category).
+
+## 2026-08-25
+
+- **`louis_bot` is Louis's own bot** (renamed from `brennus_skeleton`):
+  he develops it himself and keeps the direction of its behavior. Agent
+  changes to its code only on explicit prompt; **never run a game
+  (kiln or otherwise) for this bot unless Louis explicitly asks**.

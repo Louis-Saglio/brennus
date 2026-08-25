@@ -1,7 +1,7 @@
 {
-	"name": "Brennus — skeleton",
+	"name": "Louis — bot",
 	"description": "Skeleton bot: loads, initializes, and does nothing. Starting point for new strategies.",
-	"constructor": "BrennusSkeleton",
-	"filename": "brennus_skeleton.js",
+	"constructor": "LouisBot",
+	"filename": "louis_bot.js",
 	"useShared": true
 }
