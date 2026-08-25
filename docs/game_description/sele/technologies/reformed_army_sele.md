@@ -19,5 +19,6 @@ Data file: `simulation/data/technologies/reformed_army_sele.json`.
 Note: the bottom half of the army-reform pair — the Roman-style choice.
 Researching it makes the Romanized Swordsman (the sele champion
 swordsman) trainable at the barracks. Like the traditional half it is
-free and instant, and the two halves are not engine-enforced exclusive
-(see `traditional_army_sele`).
+free and instant, and the two halves are **mutually exclusive**: queueing
+one blocks the other, and once one is researched the other can never be
+(see `pair_unlock_champions_sele`).

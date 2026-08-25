@@ -451,15 +451,23 @@
   its `Trainer/Entities` (three mercenaries) merges with the inherited
   CC trainer (women), whereas ptol's colony uses `replace` and trains
   only its four mercenaries — no women.
-- **Army-reform pair has no engine exclusivity**: `traditional_army_sele`
-  / `reformed_army_sele` are free, instant, City-phase techs with no
-  `modifications` — the unlocks live in the champion templates'
+- **`pair_*` techs enforce mutual exclusivity in the engine** (correcting
+  the earlier ptol-docs claim of "no engine-level exclusivity", which is
+  wrong — the ptol cult pair has the same structure and the same rule):
+  each half carries a `"pair"` back-reference, and
+  `TechnologyManager.CanResearch` refuses a half unless the pair tech is
+  itself still researchable (`simulation/components/TechnologyManager.js`
+  line ~313) — the pair is blocked while either half is queued
+  (`top`/`bottom` in progress, line ~309) and is auto-marked researched
+  by `UpdateAutoResearch` the moment either half completes (line ~266).
+  Net: for `traditional_army_sele` / `reformed_army_sele`, queueing one
+  locks the other out, and only its champion infantry can ever be
+  trained. The two halves are free, instant, City-phase techs with no
+  `modifications`; the unlocks live in the champion templates'
   `Identity/Requirements/Techs` (pikeman: `traditional_army_sele`,
-  swordsman: `reformed_army_sele`), and each tech is gated only by
-  `phase_city` + `civ: sele`, so both halves can be researched and both
-  champions unlocked. Note the `-phase_city` prefix inside those
-  requirement token lists is **template-merge subtraction** (removes the
-  inherited `phase_city` token), not a negation — only `!tech` negates
+  swordsman: `reformed_army_sele`). Note the `-phase_city` prefix inside
+  those requirement token lists is **template-merge subtraction** (removes
+  the inherited `phase_city` token), not a negation — only `!tech` negates
   in RequirementsHelper (`simulation/helpers/Requirements.js`).
 - **Rank stat changes come from auto-researched techs, not the `_a`/`_e`
   templates**: the rank templates only change `Identity/Rank`,

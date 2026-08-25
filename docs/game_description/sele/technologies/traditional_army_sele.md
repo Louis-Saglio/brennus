@@ -20,6 +20,7 @@ Note: the top half of the army-reform pair — the Macedonian-style choice.
 It carries no stats itself; researching it makes the Silver Shield Pikeman
 (the sele champion pikeman) trainable at the barracks. The pair is
 researched in the City phase, is free and instant, and the two halves are
-not engine-enforced exclusive: the champion templates gate independently
-on their own tech, so both could be researched and both champions
-unlocked.
+**mutually exclusive**: queueing one blocks the other, and once one is
+researched the other can never be (see `pair_unlock_champions_sele`).
+Pick the army that fits the game — Silver Shield pikemen vs Romanized
+heavy swordsmen.

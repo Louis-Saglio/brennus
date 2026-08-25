@@ -173,9 +173,10 @@ population, require the City phase, are subject to the global limit of
 - CC: women, spearman_b, javelineer_b, cavalry_javelineer_b, **the 3 heroes**.
 - Barracks: spearman_b, pikeman_b, javelineer_b,
   **champion_infantry_pikeman** (Silver Shield, gated on
-  `traditional_army_sele`) and **champion_infantry_swordsman** (Romanized
-  Heavy Swordsman, gated on `reformed_army_sele`) — **no clubman, maceman,
-  axeman, swordsman_b, slinger or archer_b**.
+  `traditional_army_sele`) **or** **champion_infantry_swordsman**
+  (Romanized Heavy Swordsman, gated on `reformed_army_sele`) — the
+  two unlock techs are mutually exclusive, so pick one — and
+  **no clubman, maceman, axeman, swordsman_b, slinger or archer_b**.
 - Stable: cavalry_javelineer_b, cavalry_archer_b, **champion_cavalry**
   (Seleucid Cataphract, gated on `unlock_champion_cavalry`),
   **champion_chariot** (Scythed Chariot, gated on `unlock_champion_chariots`).
@@ -215,8 +216,11 @@ population, require the City phase, are subject to the global limit of
 - **Sele-only techs**: `civbonuses/sele_farms` (auto),
   `traditional_army_sele` and `reformed_army_sele` (barracks, City, free
   and instant — each unlocks its champion infantry via the unit's
-  `Identity/Requirements`), `pair_unlock_champions_sele` (the UI pair that
-  presents them) and `parade_of_daphne` (fortress, City, 500 food + 300
+  `Identity/Requirements`, and the two are **mutually exclusive**: only
+  one can ever be researched, so exactly one of the two champion infantry
+  types becomes trainable), `pair_unlock_champions_sele` (the UI pair
+  that presents them, and the engine mechanism enforcing the exclusivity)
+  and `parade_of_daphne` (fortress, City, 500 food + 300
   metal, 60 s: Champions −20% training time) — see the per-tech files in
   [`technologies/`](technologies/).
 - **Phase techs**: sele researches the generic ones (`phase_town_generic`,

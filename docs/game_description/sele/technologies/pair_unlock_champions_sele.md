@@ -18,8 +18,12 @@ Data file: `simulation/data/technologies/pair_unlock_champions_sele.json`.
 Note: a **pair tech** — not a researchable technology itself but a UI
 grouping: the Researcher returns it as a `{pair, top, bottom}` object, so
 the barracks presents the two army doctrines ("Traditional Army" and
-"Reform Army") as one paired City-phase slot, and picking one removes the
-pair from the UI. There is no engine-level exclusivity between the two
-halves (each is an independent tech gated only by `phase_city` + `sele`,
-and each champion template requires its own half), so both could in
-principle be researched and both champions unlocked.
+"Reform Army") as one paired City-phase slot. The two halves are
+**mutually exclusive, engine-enforced**: each half's template carries a
+`"pair"` back-reference to this tech, and `CanResearch` refuses a half
+unless the pair tech itself can still be researched — the pair is blocked
+while either half is queued (in progress), and it is auto-marked
+researched the moment either half completes (`UpdateAutoResearch`). So
+only one doctrine can ever be researched, and only its champion infantry
+becomes trainable; the other champion template's requirement can never
+be met.
