@@ -5,6 +5,14 @@ analyzing and comparing their results, and keeping `docs/game_description`
 consistent with the pinned 0 A.D. data. Extracted and generalized from the
 scratch scripts in `tmp/`.
 
+## Remote matches: kiln
+
+`run.sh` runs matches on this machine. For anything heavy (full goal
+matches), use the kiln runner farm instead — see **`kiln.md`** for the
+MCP tools, the job-spec format, how to read results
+(`/var/lib/kiln/results/...`, `fetch-kiln-artifacts.sh`) and how to wait
+without polling.
+
 ## Match harness
 
 ### run.sh — run headless matches
