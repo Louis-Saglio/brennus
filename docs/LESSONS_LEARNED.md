@@ -341,3 +341,86 @@
   `Heal/Health 5`, interval 2000 ms) — so Hippocrates' "Hippocratic
   Oath" (+3/tick) is a **+60%** heal-output buff, not the ~40% a naive
   reading suggests. Hero healers use `Heal/Health 15` (7.5 HP/s).
+
+## 2026-08-25 (goal 11: worker-efficiency telemetry)
+
+- **`-mod=<name>` looks for the mod under `<HOME>/.local/share/0ad/mods/<name>`**;
+  if it is not there the engine reports `ERROR: Trying to start with
+  incompatible mods: <name>.` — misleading: a *missing* mod is flagged
+  "incompatible", not "not found" (`Mod::CheckForIncompatibleMods` pushes
+  unavailable mods onto the same list). `tools/run.sh` already copies
+  `bot/` there; a bare smoke command must do the same first. (The
+  AGENTS.md smoke command also still says `-autostart-ai=1:brennus`, but
+  there is no `brennus` AI dir anymore — bots live in
+  `simulation/ai/brennus_gaul_*_map/`. Reported, AGENTS.md is off-limits.)
+- **`Engine.GetAIs()` returns the *registered* AI descriptors** (all
+  `simulation/ai/**/*.json` in the VFS, as `{id, data}`), not the AIs
+  actually running in the current game — useless for mapping player → AI
+  from a trigger script. The harness convention is player 1 = bot under
+  test, and that is what the telemetry keys on.
+- **UnitAI facts used by the efficiency telemetry** (all verified in
+  `UnitAI.js`): gather tasks live in a `Gather` order whose
+  `data.type = {generic, specific}`; during the drop walk the state is
+  `INDIVIDUAL.GATHER.RETURNINGRESOURCE` and the order's `data.target` is
+  swapped to the dropsite with the supply kept in `data.formerTarget`;
+  re-targeting walks use a `GatherNearPosition` order (also carries
+  `data.type`, no target). Tasked states = `INDIVIDUAL.GATHER.*` +
+  `INDIVIDUAL.RETURNRESOURCE.*` (`GetCurrentState()`, order queue via
+  `GetOrders()`).
+- **`ResourceGatherer` facts for the telemetry**: carrying is per
+  *generic* type only (`GetCarryingStatus()` → `[{type:"wood"|"food"|…,
+  amount, max}]`), so subtype attribution (fruit vs grain) must come from
+  the unit's current gather order, not from the carry. `GetTargetGatherRate(target)`
+  already returns the live units/sec incl. techs/auras and the supply's
+  diminishing-returns multiplier — exactly the "theoretical rate" the
+  metric needs. Carry deltas only change on gather ticks (+1, ≥870 ms
+  apart for rates ≤1.15) and full drop-offs, so 200 ms sampling counts
+  every pick-up via positive deltas **except the "invisible fill"**: when
+  a pick-up fills the carry while the dropsite is already within gather
+  range (bot farmsteads sit next to their fields, so this is the field
+  workers' normal last pick-up), the fill and the commit happen in the
+  same 200 ms sim turn — no sampling frequency can see the carry at max.
+  It must be reconstructed from the drop: prev carry == max−1, now
+  absent, previous sample in GATHERING, same-generic gather order still
+  queued ⇒ +1. Without it, field-class pick-ups undercount ~5%.
+  `CommitResources` *deletes* the carrying key on drop (doesn't zero it),
+  so "dropped" looks like a vanished key, not amount 0. Verified on kiln:
+  with the reconstruction, per-class pick-up counts match the statistics
+  tracker's own counts to <0.1% (sandbox isolate; the statistics tracker
+  counts pick-ups at the gather tick, `ResourceGatherer.js:286`, so it is
+  the ground truth).
+- **Sandbox Petra is not passive**: difficulty 0 (sandbox) runs a full
+  economy — it gathered 3038 wood / 2509 food in a 12-min mainland match.
+  Only use sandbox as a no-combat opponent; it still consumes map
+  resources and skews any supply-side accounting.
+- **Foundation placement clears resources** (trees/rocks/ores in the
+  footprint are destroyed without being gathered — and CC placement at
+  game setup clears its footprint before the first trigger tick): supply
+  depletion ≠ pick-ups, and tree/rock/ore template amounts vary on
+  mainland, so per-supply accounting needs first-sight baselines, not
+  assumed template sizes.
+- **Trigger scripts can run periodic code deterministically** via
+  `RegisterTrigger("OnInterval", name, {enabled:true, delay, interval})`
+  — implemented with `cmpTimer.SetInterval`, so it rides the
+  deterministic sim timer (Trigger.js `EnableTrigger`). Same for
+  `DoAfterDelay` (already used by the harness time limit).
+- **kiln's harness mod shadows the mod under test's `NonVisualTrigger.js`**:
+  the kiln runner mounts `-mod=public <mod-under-test> -mod=kiln` (last
+  wins), and `/var/lib/kiln/harness/` ships its own
+  `maps/scripts/NonVisualTrigger.js` (statistics + `[KILN]` in-game limit
+  read from `simulation/kiln/harness.json`). Anything the goal mod needs
+  at game end must NOT live in `NonVisualTrigger.js`. The autostart
+  trigger set also loads `scripts/TriggerHelper.js`,
+  `scripts/ConquestCommon.js`, `scripts/ConquestCivicCentres.js` — the
+  kiln harness ships none of those, so overriding
+  `maps/scripts/ConquestCivicCentres.js` (11 lines in public, victory
+  condition fixed at `conquest_civic_centers`) is the working hook for
+  goal-11 telemetry. Multiple trigger scripts can each register their own
+  `OnPlayerWon`/`OnPlayerDefeated` handlers (keyed by name) — they
+  coexist.
+- **Local VPS runs are now ~6× slower than kiln**: the goal-10 bot vs
+  medium aggressive Petra measured ~18 turns/s here (10.4 in-game min in
+  170 wall s, timed out) vs ~210 turns/s on the kiln `pc` runner (a
+  goal-11 full match with the bot ran 106 turns/s). Follow Louis's rule —
+  never run test games on the VPS, always use kiln.
+
