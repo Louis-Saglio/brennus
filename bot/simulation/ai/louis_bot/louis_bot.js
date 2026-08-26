@@ -18,168 +18,6 @@ export function LouisBot(settings) {
 LouisBot.prototype = Object.create(BaseAI.prototype);
 
 /**
- * @param {Iterable<Entity>} structures — own structures to scan.
- * @param {string} ccType — template name of the civic centre, e.g.
- *   "structures/gaul/civil_centre".
- * @returns {Entity|undefined} the player's civic centre.
- */
-function findCivicCentre(structures, ccType) {
-  // Entity: one own structure
-  for (const entity of structures)
-    if (entity.templateName() === ccType) return entity;
-  return undefined;
-}
-
-/**
- * @param {Array<{pos: [number, number], food: number}>} supplies — food
- *   supplies with their positions and current amounts.
- * @param {[number, number]} civic_centre_pos — civic centre position.
- * @returns {{anchor: [number, number], food: number, bushes: number,
- *   median: [number, number]}|undefined}
- */
-function findFarmCluster(supplies, civic_centre_pos) {
-  // object or undefined: best cluster found so far
-  let best;
-  // number: distance from the civic centre to the best anchor
-  let best_distance = Infinity;
-  // object { pos, food }: one supply, the circle anchor
-  for (const anchor of supplies) {
-    // array of { pos, food }: supplies inside the 20 m circle
-    const members = supplies.filter(
-      (supply) =>
-        Math.hypot(
-          supply.pos[0] - anchor.pos[0],
-          supply.pos[1] - anchor.pos[1],
-        ) <= 20,
-    );
-    // number: total food in the circle
-    const food = members.reduce((sum, supply) => sum + supply.food, 0);
-    if (food < 500) continue;
-    // number: distance from the anchor to the civic centre
-    const distance = Math.hypot(
-      anchor.pos[0] - civic_centre_pos[0],
-      anchor.pos[1] - civic_centre_pos[1],
-    );
-    if (distance < best_distance) {
-      best_distance = distance;
-      best = {
-        anchor: anchor.pos,
-        food: food,
-        bushes: members.length,
-        median: geometricMedian(members.map((supply) => supply.pos)),
-      };
-    }
-  }
-  return best;
-}
-
-/**
- * 50 iterations settle the typical handful of bushes.
- * @param {Array<[number, number]>} points — positions to serve.
- * @returns {[number, number]} the geometric median.
- */
-function geometricMedian(points) {
-  // number: x of the iterate
-  let x = 0;
-  // number: z of the iterate
-  let z = 0;
-  // [number, number]: one position
-  for (const point of points) {
-    x += point[0];
-    z += point[1];
-  }
-  x /= points.length;
-  z /= points.length;
-  // number: Weiszfeld iteration index
-  for (let iteration = 0; iteration < 50; ++iteration) {
-    // number: weighted sum over x
-    let weighted_x = 0;
-    // number: weighted sum over z
-    let weighted_z = 0;
-    // number: total weight
-    let weight_sum = 0;
-    // [number, number]: one position
-    for (const point of points) {
-      // number: distance to the iterate, floored to avoid division by zero
-      const distance = Math.max(0.01, Math.hypot(point[0] - x, point[1] - z));
-      weighted_x += point[0] / distance;
-      weighted_z += point[1] / distance;
-      weight_sum += 1 / distance;
-    }
-    x = weighted_x / weight_sum;
-    z = weighted_z / weight_sum;
-  }
-  return [x, z];
-}
-
-/**
- * @param {Array<{id: number, pos: [number, number]}>} candidates — units to
- *   rank.
- * @param {[number, number]} target_pos — reference position.
- * @param {number} count — how many ids to return.
- * @returns {Array<number>} ids of the nearest candidates.
- */
-function nearestIds(candidates, target_pos, count) {
-  return candidates
-    .map((candidate) => ({
-      id: candidate.id,
-      distance_squared:
-        (candidate.pos[0] - target_pos[0]) *
-          (candidate.pos[0] - target_pos[0]) +
-        (candidate.pos[1] - target_pos[1]) * (candidate.pos[1] - target_pos[1]),
-    }))
-    .sort((a, b) => a.distance_squared - b.distance_squared)
-    .slice(0, count)
-    .map((candidate) => candidate.id);
-}
-
-/**
- * @param {{half_w: number, half_d: number, angle: number, pass: object,
- *   mask: number, terr: object, player: number}} placement — building half
- *   extents, placement angle, passability map, passability class mask,
- *   territory map and player id, all from the game state.
- * @param {[number, number]} center — ideal spot to search around.
- * @param {number} max_radius — search distance from `center`, in meters.
- * @param {Array<[number, number]>} failed_spots — spots to skip.
- * @returns {[number, number]|undefined}
- */
-function findPlacementSpot(placement, center, max_radius, failed_spots) {
-  // number: ring radius in meters
-  for (let radius = 0; radius <= max_radius; radius += 2)
-    // number: sample index around the ring
-    for (let sample_index = 0; sample_index < 64; ++sample_index) {
-      // number: angle of this sample
-      const angle = (sample_index * 2 * Math.PI) / 64;
-      // number: candidate x coordinate
-      const x = center[0] + radius * Math.cos(angle);
-      // number: candidate z coordinate
-      const z = center[1] + radius * Math.sin(angle);
-      // [number, number]: one rejected spot
-      if (
-        failed_spots.some(
-          (spot) => Math.abs(spot[0] - x) < 8 && Math.abs(spot[1] - z) < 8,
-        )
-      )
-        continue;
-      if (
-        placementOK(
-          x,
-          z,
-          placement.half_w,
-          placement.half_d,
-          placement.angle,
-          placement.pass,
-          placement.mask,
-          placement.terr,
-          placement.player,
-        )
-      )
-        return [x, z];
-    }
-  return undefined;
-}
-
-/**
  * @param {number} x, z — candidate position.
  * @param {number} half_width, half_depth — building half width and half depth.
  * @param {number} angle — building rotation in radians.
@@ -295,6 +133,161 @@ function placementOK(
       )
         return false;
   return true;
+}
+
+/**
+ * @param {{half_w: number, half_d: number, angle: number, pass: object,
+ *   mask: number, terr: object, player: number}} placement — building half
+ *   extents, placement angle, passability map, passability class mask,
+ *   territory map and player id, all from the game state.
+ * @param {[number, number]} anchor — the triggering source position.
+ * @param {Array<{pos: [number, number], amount: number}>} cluster — the
+ *   same-resource sources within 20 m of the anchor.
+ * @param {Array<[number, number]>} blocked_positions — failed and already
+ *   planned spots to skip.
+ * @returns {[number, number]|undefined}
+ */
+function findDropoffSpot(placement, anchor, cluster, blocked_positions) {
+  // [number, number] or undefined: best valid spot so far
+  let best_spot;
+  // number: its amount-weighted walking cost
+  let best_cost = Infinity;
+  // number: ring radius in meters
+  for (let radius = 0; radius <= 20; radius += 2)
+    // number: sample index around the ring
+    for (let sample_index = 0; sample_index < 64; ++sample_index) {
+      // number: angle of this sample
+      const angle = (sample_index * 2 * Math.PI) / 64;
+      // number: candidate x coordinate
+      const x = anchor[0] + radius * Math.cos(angle);
+      // number: candidate z coordinate
+      const z = anchor[1] + radius * Math.sin(angle);
+      if (
+        blocked_positions.some(
+          (spot) => Math.abs(spot[0] - x) < 8 && Math.abs(spot[1] - z) < 8,
+        )
+      )
+        continue;
+      if (
+        !placementOK(
+          x,
+          z,
+          placement.half_w,
+          placement.half_d,
+          placement.angle,
+          placement.pass,
+          placement.mask,
+          placement.terr,
+          placement.player,
+        )
+      )
+        continue;
+      // number: amount-weighted walking cost of this candidate
+      let cost = 0;
+      // object { pos, amount }: one cluster source
+      for (const source of cluster)
+        cost +=
+          source.amount * Math.hypot(source.pos[0] - x, source.pos[1] - z);
+      if (cost < best_cost) {
+        best_cost = cost;
+        best_spot = [x, z];
+      }
+    }
+  return best_spot;
+}
+
+/**
+ * @param {Array<{id: number, pos: [number, number], generic: string}>}
+ *   assigned_sources — unique sources with at least one gatherer.
+ * @param {Array<{pos: [number, number], kind: string}>} coverage_dropsites —
+ *   built and founded dropsites; kind is storehouse, farmstead or
+ *   civic_centre.
+ * @param {object} supplies_by_generic — generic resource -> array of
+ *   { pos: [number, number], amount: number }.
+ * @param {object} placement_by_kind — dropsite kind -> placement env, as in
+ *   findDropoffSpot.
+ * @param {Array<[number, number]>} planned_positions — spots ordered in
+ *   previous passes.
+ * @param {Array<[number, number]>} failed_positions — spots the engine
+ *   rejected.
+ * @param {object} uncoverable_source_by_id — source id -> turn it was
+ *   marked, no expiry for now.
+ * @param {number} turn — current bot turn, stamped into un-coverable marks.
+ * @returns {{orders: Array<{x: number, z: number, kind: string}>,
+ *   uncoverable_source_by_id: object}}
+ */
+function planDropsites(
+  assigned_sources,
+  coverage_dropsites,
+  supplies_by_generic,
+  placement_by_kind,
+  planned_positions,
+  failed_positions,
+  uncoverable_source_by_id,
+  turn,
+) {
+  // array of { x, z, kind }: foundations to order
+  const orders = [];
+  // array of { pos, kind }: coverage extended with this pass's plans
+  const coverage = [...coverage_dropsites];
+  // array of [x, z]: spots to skip in the placement scan
+  const blocked = [...failed_positions, ...planned_positions];
+  // dict: source id -> turn it was marked un-coverable
+  const new_uncoverable_source_by_id = { ...uncoverable_source_by_id };
+
+  // object { id, pos, generic }: one assigned source
+  for (const source of assigned_sources) {
+    if (new_uncoverable_source_by_id[source.id] !== undefined) continue;
+    // string: dropsite kind this source's resource needs
+    const kind = source.generic === "food" ? "farmstead" : "storehouse";
+    if (
+      coverage.some(
+        (dropsite) =>
+          (dropsite.kind === kind || dropsite.kind === "civic_centre") &&
+          Math.hypot(
+            dropsite.pos[0] - source.pos[0],
+            dropsite.pos[1] - source.pos[1],
+          ) <= 20,
+      )
+    )
+      continue;
+    // array of { pos, amount }: same-resource sources within 20 m of the source
+    const cluster = supplies_by_generic[source.generic].filter(
+      (supply) =>
+        Math.hypot(
+          supply.pos[0] - source.pos[0],
+          supply.pos[1] - source.pos[1],
+        ) <= 20,
+    );
+    if (cluster.length === 0) continue;
+    // [number, number] or undefined: best buildable spot
+    const spot = findDropoffSpot(
+      placement_by_kind[kind],
+      source.pos,
+      cluster,
+      blocked,
+    );
+    if (!spot) {
+      new_uncoverable_source_by_id[source.id] = turn;
+      continue;
+    }
+    // number: amount of the served resource within 20 m of the spot
+    const nearby_amount = supplies_by_generic[source.generic].reduce(
+      (sum, supply) =>
+        Math.hypot(supply.pos[0] - spot[0], supply.pos[1] - spot[1]) <= 20
+          ? sum + supply.amount
+          : sum,
+      0,
+    );
+    if (nearby_amount < 300) continue;
+    orders.push({ x: spot[0], z: spot[1], kind: kind });
+    coverage.push({ pos: spot, kind: kind });
+    blocked.push(spot);
+  }
+  return {
+    orders,
+    uncoverable_source_by_id: new_uncoverable_source_by_id,
+  };
 }
 
 /**
@@ -742,6 +735,181 @@ function manageWorkers(worker_state, game_state, turn) {
 }
 
 /**
+ * @param {object} construction_state — { pending_orders, failed_positions,
+ *   uncoverable_source_by_id }.
+ * @param {object} worker_state — the updated worker state of this pass.
+ * @param {GameState} game_state — this player's game state.
+ * @param {number} turn — current bot turn.
+ * @param {number} player — this bot's player id.
+ * @param {object} territory_map — territory map: { width, height, cellSize,
+ *   data: Uint8Array }.
+ * @returns {object} the updated construction_state.
+ */
+function manageConstruction(
+  construction_state,
+  worker_state,
+  game_state,
+  turn,
+  player,
+  territory_map,
+) {
+  // array of { x, z, kind, turn }: orders awaiting their foundation
+  let pending_orders = construction_state.pending_orders || [];
+  // array of [x, z]: spots the engine rejected
+  let failed_positions = construction_state.failed_positions || [];
+  // dict: source id -> turn it was marked un-coverable
+  let uncoverable_source_by_id =
+    construction_state.uncoverable_source_by_id || {};
+
+  // array of { pos, kind }: built dropsites and dropsite foundations
+  const coverage_dropsites = [];
+  // Entity: one own structure, built or foundation
+  for (const ent of game_state.getOwnStructures().toEntityArray()) {
+    // [number, number] or undefined: its position
+    const pos = ent.position();
+    if (!pos) continue;
+    // Template or Entity: the built template behind a foundation, or the structure
+    const built =
+      ent.foundationProgress() === undefined
+        ? ent
+        : game_state.getBuiltTemplate(ent.templateName());
+    // string or undefined: dropsite kind of the built template
+    const kind = built.hasClass("Storehouse")
+      ? "storehouse"
+      : built.hasClass("Farmstead")
+        ? "farmstead"
+        : built.hasClass("CivCentre")
+          ? "civic_centre"
+          : undefined;
+    if (kind) coverage_dropsites.push({ pos: pos, kind: kind });
+  }
+
+  // array of Entity: current foundations
+  const foundations = game_state.getOwnFoundations().toEntityArray();
+  pending_orders = pending_orders.filter((order) => {
+    // boolean: a foundation now stands on the ordered spot
+    const built = foundations.some(
+      (foundation) =>
+        foundation.position() &&
+        Math.abs(foundation.position()[0] - order.x) < 4 &&
+        Math.abs(foundation.position()[1] - order.z) < 4,
+    );
+    if (built) return false;
+    if (turn - order.turn > 50) {
+      failed_positions.push([order.x, order.z]);
+      return false;
+    }
+    return true;
+  });
+  if (failed_positions.length > 32) failed_positions.shift();
+
+  // dict: source id -> true, the unique assigned sources
+  const assigned_source_by_id = {};
+  // array of { id, pos, generic }: the assigned sources
+  const assigned_sources = [];
+  // object: one assignment record
+  for (const assignment of Object.values(
+    worker_state.assignment_by_worker_id || {},
+  )) {
+    if (assigned_source_by_id[assignment.source_id]) continue;
+    // Entity or undefined: the assigned source
+    const supply = game_state.getEntityById(assignment.source_id);
+    // [number, number] or undefined: its position
+    const pos = supply?.position();
+    // object { generic, specific } or undefined: its type
+    const type = supply?.resourceSupplyType();
+    if (!pos || !type) continue;
+    assigned_source_by_id[assignment.source_id] = true;
+    assigned_sources.push({
+      id: assignment.source_id,
+      pos: pos,
+      generic: type.generic,
+    });
+  }
+
+  // dict: generic resource -> array of { pos, amount }
+  const supplies_by_generic = {};
+  // string: generic resource name
+  for (const resource of ["food", "wood", "stone", "metal"]) {
+    // array of { pos, amount }: all supplies of this resource
+    const supplies = [];
+    // Entity: one supply
+    for (const supply of game_state.getResourceSupplies(resource).values()) {
+      // [number, number] or undefined: its position
+      const pos = supply.position();
+      if (!pos) continue;
+      supplies.push({ pos: pos, amount: supply.resourceSupplyAmount() || 0 });
+    }
+    supplies_by_generic[resource] = supplies;
+  }
+
+  // dict: dropsite kind -> placement env (see findDropoffSpot)
+  const placement_by_kind = {};
+  // string: dropsite kind
+  for (const kind of ["storehouse", "farmstead"]) {
+    // Template: the building template
+    const template = game_state.getTemplate(
+      game_state.applyCiv("structures/{civ}/" + kind),
+    );
+    placement_by_kind[kind] = {
+      half_w: +template.get("Obstruction/Static/@width") / 2 + 0.5,
+      half_d: +template.get("Obstruction/Static/@depth") / 2 + 0.5,
+      angle: 0,
+      pass: game_state.getPassabilityMap(),
+      mask: game_state.getPassabilityClassMask("building-land"),
+      terr: territory_map,
+      player: player,
+    };
+  }
+
+  // array of [x, z]: spots ordered in previous passes
+  const planned_positions = pending_orders.map((order) => [order.x, order.z]);
+  // object: { orders, uncoverable_source_by_id }
+  const decision = planDropsites(
+    assigned_sources,
+    coverage_dropsites,
+    supplies_by_generic,
+    placement_by_kind,
+    planned_positions,
+    failed_positions,
+    uncoverable_source_by_id,
+    turn,
+  );
+  uncoverable_source_by_id = decision.uncoverable_source_by_id;
+
+  // Entity or undefined: command carrier, any own unit works
+  const carrier = game_state.getOwnUnits().toEntityArray()[0];
+  // object { x, z, kind }: one order to post
+  for (const order of decision.orders) {
+    if (!carrier) break;
+    carrier.construct(
+      game_state.applyCiv("structures/{civ}/" + order.kind),
+      order.x,
+      order.z,
+      0,
+      undefined,
+    );
+    pending_orders.push({
+      x: order.x,
+      z: order.z,
+      kind: order.kind,
+      turn: turn,
+    });
+  }
+
+  // string: source id as object key
+  for (const source_id of Object.keys(uncoverable_source_by_id))
+    if (!game_state.getEntityById(+source_id))
+      delete uncoverable_source_by_id[source_id];
+
+  return {
+    pending_orders: pending_orders,
+    failed_positions: failed_positions,
+    uncoverable_source_by_id: uncoverable_source_by_id,
+  };
+}
+
+/**
  * @param {GameState} gameState — this player's game state.
  */
 LouisBot.prototype.CustomInit = function (gameState) {
@@ -749,8 +917,8 @@ LouisBot.prototype.CustomInit = function (gameState) {
 };
 
 /**
- * The top of the call stack: the only place that reads the engine and posts
- * commands, everything below is pure data transformation.
+ * The top of the call stack: reads and writes the bot state, each concern
+ * lives in its own pass below.
  * No parameters.
  */
 LouisBot.prototype.OnUpdate = function () {
@@ -770,8 +938,21 @@ LouisBot.prototype.OnUpdate = function () {
   // object: { assignment_by_worker_id, carried_amount_by_worker_id,
   //   measured_rate_by_worker_id, last_delivery_time_by_worker_id }
   const worker_state = this.worker_state ?? saved_state?.worker_state ?? {};
+  // object: { pending_orders, failed_positions, uncoverable_source_by_id }
+  const construction_state =
+    this.construction_state ?? saved_state?.construction_state ?? {};
 
-  this.worker_state = manageWorkers(worker_state, game_state, turn);
+  // object: the worker state updated by this pass
+  const new_worker_state = manageWorkers(worker_state, game_state, turn);
+  this.worker_state = new_worker_state;
+  this.construction_state = manageConstruction(
+    construction_state,
+    new_worker_state,
+    game_state,
+    turn,
+    this.player,
+    this.territoryMap,
+  );
   this.turn = turn + 1;
 };
 
@@ -782,6 +963,7 @@ LouisBot.prototype.OnUpdate = function () {
 LouisBot.prototype.Serialize = function () {
   return {
     worker_state: this.worker_state,
+    construction_state: this.construction_state,
   };
 };
 
