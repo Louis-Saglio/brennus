@@ -483,3 +483,12 @@ The counter is what kills, not the raze. The two honest directions left:
 (a) raze EARLIER (rams by ~19m, counter ~110-130 not 196) — needs the
 whole chain ~3 min faster; (b) accept the counter but survive it with a
 bigger standing army — the army peaks at 63-84 by ~26m on this config.
+- **rb45** (cavalry program CUT — stable, cav training, cavHold,
+  traderHunt: 2800f for 0 trader kills and ~2 min of city delay): rams
+  19.6m (from 20.2m) but the raid gate had been left at 90 from rb44 —
+  zero raids. Caught and fixed in rb46.
+- **rb46** (raid gate 50 + gate-blocked diagnostic): **raid at 22.7m,
+  razed CC at 23.4m**, detour home with 44 + 6 rams. Survived 29.5m.
+- **rb47-48** (hero Vercingetorix first + heroHold on the women stream):
+  zero JS errors; the hero still never trained (the 100f barrier
+  persists — heroHold holds only when the assembly's own queue is idle).

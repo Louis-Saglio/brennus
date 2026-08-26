@@ -1152,9 +1152,8 @@ BrennusBot.prototype.trainWorkers = function()
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
 
-	// The trader-hunt force forming outranks the women stream (see
-	// manageDefenseTraining).
-	if (this.cavHold)
+	// The hero forming outranks the women stream (see manageDefenseTraining).
+	if (this.heroHold)
 		return;
 
 	// Leave pop room for the mustering army and its refills: stop the civilian
@@ -2547,8 +2546,6 @@ BrennusBot.prototype.manageDefense = function()
 			milSiege.push(pos);
 	}
 
-	this.manageTraderHunt(gameState, mil);
-
 	// Threat: enemies within 120 m of an own CC; the CC nearest home wins.
 	// Serious means a real assault (8+ units, or siege within 160 m) — only a
 	// serious threat cancels or blocks a raid; small probing parties are the
@@ -3181,7 +3178,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		// by it (rb34-43: one raze, then death at ~28-30m). With ~100 the
 		// counter-trades ~1.8-2.3× in our favor under the towers, HER
 		// curve dips to ~50-80 — and the next raid fires into that dip.
-		if (this.armyCount() >= 90 && ramEnts.length >= 2 && defenders <= this.armyCount() &&
+		if (this.armyCount() >= 50 && ramEnts.length >= 2 && defenders <= this.armyCount() &&
 			(serious || pathBlockers <= 12))
 		{
 			this.offense = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn };
@@ -3189,15 +3186,20 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			for (const ent of armyEnts)
 				ent.setStance("aggressive");
 		}
+		else if (this.armyCount() >= 50 && ramEnts.length >= 2 &&
+			this.turn - (this.raidGateLogTurn || -10000) > 300)
+		{
+			this.raidGateLogTurn = this.turn;
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid gate blocked (army=${this.armyCount()}, rams=${ramEnts.length}, defenders=${defenders}, path=${pathBlockers}, serious=${!!serious})\n`);
+		}
 		else if (this.armyCount() >= 70 && ramEnts.length >= 2 && defenders <= this.armyCount() * 0.6 &&
 			this.turn - (this.lastSeriousEndTurn || -10000) < 100)
 		{
-			// Eco-raid, the dip-CREATOR: her field army does not dip on its
-			// own before our death — it dips when 70+ soldiers trade into it
-			// (rb15: 153 → 80 after the 84-army sortie). Civ-kills are the
-			// bonus; the purpose is opening the CC-raid window above — so it
-			// must wait for the rams (rb20: the dip at 22.8m closed before
-			// the first ram stood at 27.3m). Rams stay home.
+			// Eco-raid, the dip-CREATOR (rb15: 153 → 80 after the 84-army
+			// sortie). Civ-kills are the bonus; the purpose is opening the
+			// CC-raid window above — so it must wait for the rams (rb20:
+			// the dip at 22.8m closed before the first ram stood at 27.3m).
+			// Rams stay home.
 			this.offense = { "eco": true, "x": bp[0], "z": bp[1], "turn": this.turn };
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m eco-raiding enemy base ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (guard=${defenders}, army=${armyEnts.length})\n`);
 			for (const ent of armyEnts)
@@ -3258,98 +3260,6 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 	return true;
 };
 
-/**
- * Trader hunt: a small swords-cav force kills Petra's traders on their
- * route. At diff 5 her LATE army growth (7+/min from ~25m, vs ~2-3/min
- * early) is funded by trade income at +56% — the compounding that makes
- * her untouchable by 30m while our raid clock runs. Traders are unarmed
- * and walk fixed routes far from her field army; every kill is a direct
- * cut to her growth curve, not a trade of units (the mil18-20 worker
- * raids failed because workers garrison and the guard answers — traders
- * have neither shelter nor guard on the open route).
- */
-BrennusBot.prototype.manageTraderHunt = function(gameState, mil)
-{
-	const homePos = this.getCivicCentre()?.position();
-	const cavEnts = [];
-	for (const id in this.cavForce)
-	{
-		const ent = gameState.getEntityById(+id);
-		if (ent?.position())
-			cavEnts.push(ent);
-	}
-	if (!homePos || !cavEnts.length)
-	{
-		this.traderHunt = undefined;
-		return;
-	}
-	if (this.turn < (this.huntCmdTurn || 0))
-		return;
-	this.huntCmdTurn = this.turn + 15;
-
-	// Enemy traders, safest first (fewest soldiers within 60 m).
-	let best, bestGuard = Infinity, bestD = Infinity;
-	for (const ent of gameState.getEnemyUnits().values())
-	{
-		if (ent.owner() === 0 || !ent.hasClass("Trader"))
-			continue;
-		const pos = ent.position();
-		if (!pos)
-			continue;
-		let guard = 0;
-		for (const p of mil)
-			if (SquareDistance(p, pos) < 60 * 60)
-				guard++;
-		if (guard >= bestGuard)
-			continue;
-		const d = SquareDistance(pos, homePos);
-		if (guard < bestGuard || d < bestD)
-		{
-			bestGuard = guard;
-			bestD = d;
-			best = pos;
-		}
-	}
-
-	if (this.traderHunt)
-	{
-		let guard = 0;
-		for (const p of mil)
-			if (SquareDistance(p, [this.traderHunt.x, this.traderHunt.z]) < 60 * 60)
-				guard++;
-		if (guard >= 4 || cavEnts.length < 3)
-		{
-			print(`[CAV] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m hunt retreat (guard=${guard}, cav=${cavEnts.length})\n`);
-			this.traderHunt = undefined;
-			for (const ent of cavEnts)
-				ent.move(homePos[0], homePos[1]);
-			return;
-		}
-		if (best)
-		{
-			this.traderHunt = { "x": best[0], "z": best[1] };
-			for (const ent of cavEnts)
-				ent.attackMove(best[0], best[1], "Unit", false);
-			return;
-		}
-		// No traders visible: hold the current spot a while, then home.
-		if (this.turn - (this.traderHunt.turn || 0) > 450)
-		{
-			this.traderHunt = undefined;
-			for (const ent of cavEnts)
-				ent.move(homePos[0], homePos[1]);
-		}
-		return;
-	}
-
-	if (cavEnts.length < 4 || !best || bestGuard > 3)
-		return;
-	this.traderHunt = { "x": best[0], "z": best[1], "turn": this.turn };
-	print(`[CAV] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m hunting traders at ${best[0].toFixed(0)},${best[1].toFixed(0)} (guard=${bestGuard}, cav=${cavEnts.length})\n`);
-	for (const ent of cavEnts)
-		ent.attackMove(best[0], best[1], "Unit", false);
-};
-
 /** Military buildings: 2 barracks from the village phase (at difficulty 5 the first serious wave lands ~10-12 min — waiting for town to start the muster meant meeting it with ~20 soldiers), 3 barracks + 8 home towers from town; after the boom the full set — 4 barracks, temples, forge, arsenal, assembly + 4 towers per expansion CC. Stone is plentiful on mainland; towers are our cheapest defense. */
 BrennusBot.prototype.manageDefenseBuildings = function()
 {
@@ -3370,9 +3280,7 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 		// core — 200 HP champions at 22 m/s vs her 100 HP legion basics
 		// (rb3: 30 basics lose the wave fight even at equal numbers).
 		[gameState.applyCiv("structures/{civ}/temple"), boom ? 3 : defOn ? 2 : 0],
-		[gameState.applyCiv("structures/{civ}/forge"), boom ? 1 : 0],
-		// The stable feeds the trader-hunt cavalry (see manageTraderHunt).
-		[gameState.applyCiv("structures/{civ}/stable"), defOn ? 1 : 0]
+		[gameState.applyCiv("structures/{civ}/forge"), boom ? 1 : 0]
 	];
 	// While any of these is missing, training holds a wood reserve (see
 	// manageDefenseTraining) so the buildings actually get funded — otherwise
@@ -3548,9 +3456,8 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	const barracksType = gameState.applyCiv("structures/{civ}/barracks");
 	const templeType = gameState.applyCiv("structures/{civ}/temple");
 	const assemblyType = gameState.applyCiv("structures/{civ}/assembly");
-	const stableType = gameState.applyCiv("structures/{civ}/stable");
-	let queued = 0, barracksUp = 0, queuedCav = 0;
-	const trainers = [], assemblies = [], stables = [];
+	let queued = 0, barracksUp = 0;
+	const trainers = [], assemblies = [];
 	for (const ent of gameState.getOwnStructures().values())
 	{
 		if (ent.foundationProgress() !== undefined)
@@ -3559,14 +3466,6 @@ BrennusBot.prototype.manageDefenseTraining = function()
 		{
 			if ((ent.trainingQueue()?.length || 0) <= 1)
 				assemblies.push(ent);
-			continue;
-		}
-		if (ent.templateName() === stableType)
-		{
-			for (const item of ent.trainingQueue() || [])
-				queuedCav += item.count;
-			if ((ent.trainingQueue()?.length || 0) <= 1)
-				stables.push(ent);
 			continue;
 		}
 		if (ent.templateName() !== barracksType && ent.templateName() !== templeType)
@@ -3598,31 +3497,11 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	let healerCount = 0;
 	for (const id in this.healers)
 		healerCount++;
-	// Trader-hunt cavalry: 6 swords-cav from the stable post-city (100f+40w
-	// +10m each). Her late-game army growth (7+/min after ~25m) is funded
-	// by TRADE at +56%, not by gathering — the hunt cuts the compounding
-	// income that makes her untouchable by 30m (see manageTraderHunt).
-	let cavTotal = queuedCav;
-	for (const id in this.cavForce)
-		cavTotal++;
-	if (this.warOn() && cavTotal < 6 && res.food >= 100 && res.wood >= 40)
-		for (const ent of stables)
-		{
-			if (cavTotal >= 6 || res.food < 100 || res.wood < 40)
-				break;
-			ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/cavalry_swordsman_b"), 1, {});
-			res.subtract({ "food": 100, "wood": 40, "metal": 10 });
-			cavTotal++;
-		}
-	// While the hunt force forms, the women stream pauses at food < 100 —
-	// 600f for 6 cavalry against her compounding trade income is the
-	// cheapest brake we can buy (mil18: the hold works; holding for 10+
-	// starves the boom, 6 does not).
-	this.cavHold = this.warOn() && cavTotal < 6 && stables.length > 0 && res.food < 100;
-	// Assembly: the hero first — Viridomarus (+15% gather, global: the
-	// economy IS the war machine), Vercingetorix (+20% attack aura for the
-	// raids) once he falls — then 3 trumpeters for the blob (−10% enemy
-	// attack at 20 m). Heroes cost 0 pop.
+	// Assembly: the hero first — Vercingetorix (+20% attack aura at 60 m
+	// for soldiers AND siege: every fight shortens — the anti-siege ram
+	// kill must finish before her infantry arrives in ~20 s, and the raid
+	// escort bleeds less), Viridomarus (+15% gather) once he falls. Then 3
+	// trumpeters for the blob (−10% enemy attack at 20 m). Heroes cost 0 pop.
 	if (this.warOn() && assemblies.length)
 	{
 		let heroUp = false;
@@ -3644,7 +3523,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 			if (!heroUp && res.food >= 100 && res.metal >= 250)
 			{
 				const hero = this.heroTrained ?
-					"units/{civ}/hero_vercingetorix" : "units/{civ}/hero_viridomarus";
+					"units/{civ}/hero_viridomarus" : "units/{civ}/hero_vercingetorix";
 				ent.train(gameState.getPlayerCiv(), gameState.applyCiv(hero), 1, {});
 				res.subtract({ "food": 100, "metal": 250 });
 				this.heroTrained = true;
@@ -3659,6 +3538,11 @@ BrennusBot.prototype.manageDefenseTraining = function()
 				trumpeters++;
 			}
 		}
+		// The hero outranks the women stream: +20% attack for the whole
+		// army at 0 pop is the biggest single force multiplier available,
+		// and the 100f cost never crosses while women stream at 50 (rb47:
+		// assembly standing, metal 1000+, zero hero ever).
+		this.heroHold = !heroUp && !this.heroTrained && res.food < 100;
 	}
 	// War-stage floors must meet the wartime economy where it is: rich =
 	// stock ≥ 300f/300-400w → batches of 5 at those floors (protects
