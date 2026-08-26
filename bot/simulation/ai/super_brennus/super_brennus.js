@@ -2509,8 +2509,11 @@ BrennusBot.prototype.manageDefense = function()
 				continue;
 			}
 			// Cavalry is the trader-hunt force, not the blob (see
-			// manageTraderHunt).
-			if (id !== this.herderId && ent.hasClass("Cavalry") && !this.cavForce[id])
+			// manageTraderHunt). Never split MID-RAID: the split drops the
+			// raid's army count by the whole cav roster in one block and
+			// the spent-check aborts a healthy raid (rb29-s2: blitz died
+			// at army "27" while 27+17 stood there).
+			if (!this.offense && id !== this.herderId && ent.hasClass("Cavalry") && !this.cavForce[id])
 			{
 				delete this.army[id];
 				this.cavForce[id] = 1;
@@ -2674,8 +2677,55 @@ BrennusBot.prototype.manageDefense = function()
 			const outmassed = (this.enemyArmy || 0) > this.armyCount() * 2;
 			// Enemy siege is the priority target: rams left alone raze the
 			// towers and the CC from range — when siege is up and the fight
-			// is anywhere near even (≥ 0.8×), attack IT, not the blob.
-			if (threat.siegeN > 0 && this.armyCount() >= nearThreat * 0.8)
+			// is anywhere near even (≥ 0.8×), attack IT, not the blob. But
+			// not into HER WHOLE ARMY: attacking her 6 rams while 190
+			// legions stand behind them is a donation (rb27-s2: the
+			// post-raze army of 42 died that way at 30m). The exception:
+			// her siege is SLOW and lags her infantry — when her rams are
+			// 60+ m ahead of her nearest soldier the kill window is free
+			// whatever the total numbers say (rb28's outmassed gate let
+			// her 6-10 rams raze the base unharried).
+			let siegeExposed = false;
+			if (threat.siegeN > 0)
+			{
+				const inf = [];
+				for (const ent of gameState.getEnemyUnits().values())
+				{
+					if (ent.owner() === 0 || !ent.hasClass("Soldier") || ent.hasClass("Siege"))
+						continue;
+					const pos = ent.position();
+					if (pos)
+						inf.push(pos);
+				}
+				siegeExposed = threat.siegeN > 0;
+				for (const sp of milSiege)
+				{
+					let near = Infinity;
+					for (const p of inf)
+					{
+						const d = SquareDistance(p, sp);
+						if (d < near)
+							near = d;
+					}
+					if (near < 60 * 60)
+					{
+						siegeExposed = false;
+						break;
+					}
+				}
+			}
+			// Enemy siege is the priority target: rams left alone raze the
+			// towers and the CC from range, and the base dies by HER RAMS,
+			// not her infantry (rb41-42: 6-10 enemy rams fell the towers,
+			// the garrison ejects and dies, base gone in ~2 min). Attack
+			// her rams at our doorstep whenever they close within 100 m of
+			// the threatened CC and the army can swarm them (≥ 25, ≥ 4 per
+			// ram) — under our tower/CC arrows her escort bleeds too.
+			// The isolation case (her rams 60+ m ahead of her infantry)
+			// stays a free kill at any number.
+			const siegeAtDoor = threat.siegeN > 0 && this.armyCount() >= 25 &&
+				this.armyCount() >= threat.siegeN * 4;
+			if (threat.siegeN > 0 && (siegeExposed || siegeAtDoor || (!outmassed && this.armyCount() >= nearThreat * 0.8)))
 			{
 				let sx = 0, sz = 0;
 				for (const p of milSiege)
@@ -2784,8 +2834,12 @@ BrennusBot.prototype.manageDefense = function()
 		// stay home and let the towers and CC arrows bleed the camp instead.
 		// Post-city the sortie gate drops to army ≥ 40: a standing army that
 		// never sallies lets the camp farm the workers between waves forever.
-		// Still 1.5× — the camp grows while the army marches.
-		if (campN >= 10 && this.armyCount() >= 40 && this.armyCount() >= campN * 1.5 && this.turn >= this.armyCmdTurn)
+		// Still 1.5× — the camp grows while the army marches. And not
+		// within 60 s of a raze: the "camp" right after a raze is HER
+		// RECALL blob, and sortieing the raid survivors into it donates
+		// them (rb38: 55 → 24 at 24.4m) — the army comes home first.
+		if (campN >= 10 && this.armyCount() >= 40 && this.armyCount() >= campN * 1.5 &&
+			this.turn >= this.armyCmdTurn && this.turn - (this.lastRazeTurn || -10000) > 300)
 		{
 			this.armyCmdTurn = this.turn + 10;
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m sortie against siege camp ${(cx / campN).toFixed(0)},${(cz / campN).toFixed(0)} (camp=${campN}, army=${armyEnts.length})\n`);
@@ -2797,7 +2851,22 @@ BrennusBot.prototype.manageDefense = function()
 		else if (this.turn >= this.armyCmdTurn)
 		{
 			// Rally: at a pending expansion CC (escort the builders) else home.
-			let rally = homePos;
+			// A set retreatPoint (post-raze detour) outranks both: walk the
+			// off-axis segment first, then come home — cleared once the
+			// force gathers there.
+			if (this.retreatPoint)
+			{
+				let gathered = 0, total = 0;
+				for (const ent of armyEnts)
+				{
+					total++;
+					if (SquareDistance(ent.position(), this.retreatPoint) < 50 * 50)
+						gathered++;
+				}
+				if (total && gathered >= total * 0.7)
+					this.retreatPoint = undefined;
+			}
+			let rally = this.retreatPoint || homePos;
 			for (const pb of this.pendingBuilds)
 				if (pb.template === ccType)
 				{
@@ -2989,12 +3058,50 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			if (!target || !target.position())
 			{
 				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m razed enemy CC at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)}\n`);
+				this.lastRazeTurn = this.turn;
+				// Retreat via a detour OFF the recall axis: the raid force
+				// dies walking the direct line home through her recall
+				// (~30 units every time, rb34-40). Segment 1 is 150 m off
+				// the home axis, on the side with fewer enemies; the rally
+				// (see manageDefense) walks segment 2 home once the force
+				// gathers there.
+				if (homePos)
+				{
+					const dxh = homePos[0] - this.offense.x, dzh = homePos[1] - this.offense.z;
+					const nh = Math.hypot(dxh, dzh) || 1;
+					const cands = [
+						[this.offense.x - dzh / nh * 150, this.offense.z + dxh / nh * 150],
+						[this.offense.x + dzh / nh * 150, this.offense.z - dxh / nh * 150]
+					];
+					let detour, detourScore = -1;
+					for (const c of cands)
+					{
+						let near = Infinity;
+						for (const p of mil)
+						{
+							const d = SquareDistance(p, c);
+							if (d < near)
+								near = d;
+						}
+						if (near > detourScore)
+						{
+							detourScore = near;
+							detour = c;
+						}
+					}
+					this.retreatPoint = detour;
+					print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m retreat detour via ${detour[0].toFixed(0)},${detour[1].toFixed(0)} (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+					for (const ent of armyEnts)
+						ent.move(detour[0], detour[1]);
+					for (const ram of ramEnts)
+						ram.move(detour[0], detour[1]);
+					for (const ent of healerEnts)
+						ent.move(detour[0], detour[1]);
+				}
 				this.offense = undefined;
 				this.armyCmdTurn = 0;	// rally home next block
 				for (const ent of armyEnts)
-					ent.setStance("defensive");
-				sendRamsHome();
-				sendHealersHome();
+					ent.setStance("passive");
 			}
 			else if (ramEnts.length < 1 || this.turn - (this.offense.turn || 0) > 1800)
 			{
@@ -3054,11 +3161,28 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			{
 				const t = Math.max(0, Math.min(1, ((p[0] - homePos[0]) * dx + (p[1] - homePos[1]) * dz) / len2));
 				const px = homePos[0] + t * dx, pz = homePos[1] + t * dz;
-				if (SquareDistance(p, [px, pz]) < 60 * 60)
+				// 100 m, not 60: her recall covers 350 m in ~20 s at run
+				// speed and meets the raid mid-march (rb33: 55 → 24 in
+				// 18 s right after the raze). The margin must cover the
+				// whole walk, not just the launch instant.
+				if (SquareDistance(p, [px, pz]) < 100 * 100)
 					pathBlockers++;
 			}
 		}
-		if (this.armyCount() >= 55 && ramEnts.length >= 2 && defenders <= this.armyCount() && pathBlockers <= 12)
+		// Two launch windows: (1) quiet with a clear path (≤ 12 enemies
+		// within 100 m of the route); (2) a SERIOUS threat at home — her
+		// whole field army is then committed to razing our towers (2-4 min
+		// per building, bought by the garrison) and the raid slips out the
+		// back. Post-raze launches into quiet die mid-march (she sees
+		// everything; hiding is impossible — rb35's ambush was found and
+		// killed at its staging point).
+		// Raid only with a REAL army (90+): razing at 42 triggers her full
+		// counter (~196 within a minute) and the ~35 survivors are zeroed
+		// by it (rb34-43: one raze, then death at ~28-30m). With ~100 the
+		// counter-trades ~1.8-2.3× in our favor under the towers, HER
+		// curve dips to ~50-80 — and the next raid fires into that dip.
+		if (this.armyCount() >= 90 && ramEnts.length >= 2 && defenders <= this.armyCount() &&
+			(serious || pathBlockers <= 12))
 		{
 			this.offense = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn };
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${defenders}, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
@@ -3083,7 +3207,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		else
 			return false;
 	}
-	if (this.armyCount() < (this.offense.eco ? 40 : 35))
+	if (this.armyCount() < (this.offense.eco ? 40 : 25))
 	{
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid spent, regrouping (army=${armyEnts.length})\n`);
 		this.offense = undefined;
@@ -3108,7 +3232,13 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 	for (const ent of armyEnts)
 	{
 		if (SquareDistance(ent.position(), [this.offense.x, this.offense.z]) < 60 * 60)
-			ent.attack(this.offense.id, false);
+			// Arrived: the escort fights UNITS, it does not capture —
+			// capture-attacking the CC holds the whole escort under her
+			// arrows for the whole raze (rb29/30: razing one CC cost ~20
+			// soldiers and the blitz chain died at army 34, one short of
+			// the spent floor). The rams do the razing (Louis tip 2:
+			// buildings only with siege); the escort screens.
+			ent.attackMove(this.offense.x, this.offense.z, "Unit", false);
 		else
 			// Plain move, not attackMove: the raid must SLIP PAST her
 			// mid-map force — attackMove stops to fight it and the raid

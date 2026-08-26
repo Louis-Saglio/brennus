@@ -443,3 +443,43 @@ found.
   ENEMY CC RAZED AT 24.4m** (0.7 min raid, defenders 17). The raze is
   free (~20 army left) but her counter (194-207 + 6 siege) ends the
   game at 31.5m before raid #2 can form.
+- **rb28** (anti-siege gated on !outmassed): raze repeats at 24.4m; post-raze
+  the counter (~168+6 siege) razes our base at ~31m — raid #2 never forms.
+- **rb29-30** (blitz chain to the next CC): fires, but dies to her recall
+  mid-march (55 → 23-27 in 18 s — her recall covers 350 m in ~20 s at run
+  speed; and a roster-split artifact pulled the whole cavForce out of the
+  army count mid-raid, fixed in rb30).
+- **rb31** (escort screens, does NOT capture — Louis tip 2): raze cost per
+  CC drops 20 → 6.
+- **rb32-33** (blitz target = farthest from her force): dies mid-march all
+  the same — the march, not the target defense, is the killer.
+- **rb34** (path margin 100 m; blitz only when clearly free): rallies
+  instead of suiciding, survives to 33.4m post-raze, rams restock — but
+  raid #2 never assembles (army 20-27 vs her 180-211).
+- **rb35** (ambush staging): REFUTED — she is omniscient; the staging
+  point is found and the force killed there. Hiding is impossible.
+- **rb36-37** (launch also during a serious threat at home; rally after
+  raze): identical to rb34 — no raid #2.
+- **rb38** (retreat home passive): the post-raze SORTIE into her recall
+  blob donates the survivors (55 → 24 at 24.4m).
+- **rb39** (sortie cooldown 60 s post-raze): survives 32.5m, still no
+  raid #2 (army 19-23 vs her 190+).
+- **rb40-42** (raid gate 50 → 42): raid #1 EARLIER (23.0-23.1m), raze
+  23.7m. Counter at ~24.5-25m with ~196 kills the ~35 survivors. The
+  detour retreat (rb41) DOES save the force (49 back vs ~24-30 before).
+- **rb43** (anti-siege at our doorstep when army ≥ 25 and ≥ 4× siegeN):
+  no visible change — the counter still ends it at 30.3m.
+- **rb44** (raid gate 90 — only raze with a real army): NO raid at all;
+  the army peaks at 63 at ~26m and dies at 27.4m. The 108-army of rb13
+  was an outlier from a 36-minute game, not a reproducible peak.
+
+## The campaign problem, measured
+
+Petra has **3 CCs** (1 start + 2 expansions, ~350 m apart; she does not
+rebuild a lost one). Razing #1 at ~23-24m provokes her FULL army
+(~150-200) onto us within ~1 min; our ~35-63 army + towers + garrison
+cannot hold it, and the base falls at ~28-31m before raid #2 can form.
+The counter is what kills, not the raze. The two honest directions left:
+(a) raze EARLIER (rams by ~19m, counter ~110-130 not 196) — needs the
+whole chain ~3 min faster; (b) accept the counter but survive it with a
+bigger standing army — the army peaks at 63-84 by ~26m on this config.
