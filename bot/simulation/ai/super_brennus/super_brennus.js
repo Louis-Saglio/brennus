@@ -205,6 +205,7 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.army = this.savedState?.army || {};
 	this.rams = this.savedState?.rams || {};
 	this.healers = this.savedState?.healers || {};
+	this.cavForce = this.savedState?.cavForce || {};
 	this.armyCmdTurn = 0;
 	this.shelterDanger = {};
 	this.spearNext = true;
@@ -1071,6 +1072,19 @@ BrennusBot.prototype.managePhaseUp = function()
 	// the early returns below so the money accumulates through every hold.
 	if (!this.warOn() && this.defenseBuildingsMissing)
 		this.phaseReserve = { "wood": 150 };
+	// Post-city siege reserve: 300 wood stays out of EVERY spender's reach
+	// (construction, research, batch-5 floors) until the 4 rams stand —
+	// without it the batch-5s burn the wood the arsenal/rams need and the
+	// siege package lands 6-10 min late (rb14-rb22: arsenal 21-27m, rams
+	// 27-28m, eco/CC raids never chain).
+	if (this.warOn())
+	{
+		let rams = 0;
+		for (const id in this.rams)
+			rams++;
+		if (rams < 6)
+			this.phaseReserve = { ...(this.phaseReserve || {}), "wood": (this.phaseReserve?.wood || 0) + 300 };
+	}
 	if (!tech || gameState.isResearching(tech) || gameState.isResearched(tech))
 		return;
 	if (!gameState.canResearch(tech))
@@ -1137,6 +1151,11 @@ BrennusBot.prototype.trainWorkers = function()
 {
 	const gameState = this.gameState;
 	const resources = gameState.getResources();
+
+	// The trader-hunt force forming outranks the women stream (see
+	// manageDefenseTraining).
+	if (this.cavHold)
+		return;
 
 	// Leave pop room for the mustering army and its refills: stop the civilian
 	// stream at the cap once the war stage is on. Gating this on army <
@@ -1225,6 +1244,9 @@ BrennusBot.prototype.manageResearch = function()
 	const resources = gameState.getResources();
 	const reserve = this.phaseReserve || {};
 	if (this.banking)
+		return;
+	// The siege wood fund outranks boom techs (see manageDefenseTraining).
+	if (this.ramHold || this.milBuildingHold)
 		return;
 
 	const fert = this.houseTrainingTech;
@@ -2383,6 +2405,11 @@ BrennusBot.prototype.updateEnemyPositions = function()
 	this.enemyArmy = army;
 	this.enemySiege = siege;
 	this.enemyNearestHome = Math.sqrt(nearest);
+	// Her army's recent peak, decaying ~12%/min: a raid window opens when
+	// her army dips under 55% of it — she just lost a wave on our arrows
+	// and is mid-rebuild (rb17: her main force is otherwise always home
+	// and the 0.8× gate never opens).
+	this.enemyArmyPeak = Math.max(army, (this.enemyArmyPeak || 0) * 0.998);
 
 	// First-contact telemetry: log once per threshold crossing (tightening).
 	for (const th of [400, 250, 150, 80])
@@ -2463,6 +2490,9 @@ BrennusBot.prototype.manageDefense = function()
 	for (const id in this.healers)
 		if (!gameState.getEntityById(+id))
 			delete this.healers[id];
+	for (const id in this.cavForce)
+		if (!gameState.getEntityById(+id))
+			delete this.cavForce[id];
 	if (this.defenseOn() || gameState.getTimeElapsed() >= 240000)
 		for (const ent of gameState.getOwnUnits().values())
 		{
@@ -2475,6 +2505,15 @@ BrennusBot.prototype.manageDefense = function()
 			if (ent.hasClass("Healer"))
 			{
 				this.healers[id] = 1;
+				delete this.assignments[id];
+				continue;
+			}
+			// Cavalry is the trader-hunt force, not the blob (see
+			// manageTraderHunt).
+			if (id !== this.herderId && ent.hasClass("Cavalry") && !this.cavForce[id])
+			{
+				delete this.army[id];
+				this.cavForce[id] = 1;
 				delete this.assignments[id];
 				continue;
 			}
@@ -2504,6 +2543,8 @@ BrennusBot.prototype.manageDefense = function()
 		if (ent.hasClass("Siege"))
 			milSiege.push(pos);
 	}
+
+	this.manageTraderHunt(gameState, mil);
 
 	// Threat: enemies within 120 m of an own CC; the CC nearest home wins.
 	// Serious means a real assault (8+ units, or siege within 160 m) — only a
@@ -2622,9 +2663,15 @@ BrennusBot.prototype.manageDefense = function()
 			// with the soldiers. Under tower/CC arrows (threat centroid
 			// within 100 m of the CC) 1.3× suffices — the arrows tip the
 			// balance; in the open stay at 2× and garrison. Post-city the
-			// standing 1× rule applies.
+			// standing 1× rule applies — BUT the 150 m centroid count lies
+			// when her whole army marches in columns (rb10-s2: it read 34
+			// while 107 marched in, the 34-strong army attack-moved into
+			// the open and melted 34 → 22 → 2). The engagement must also
+			// hold against her TOTAL visible army: garrison and let the
+			// arrows work whenever she outmasses us 2× overall.
 			const underArrows = SquareDistance([threat.x, threat.z], [threat.ccx, threat.ccz]) < 100 * 100;
 			const engageAt = this.warOn() ? 1 : underArrows ? 1.3 : 2;
+			const outmassed = (this.enemyArmy || 0) > this.armyCount() * 2;
 			// Enemy siege is the priority target: rams left alone raze the
 			// towers and the CC from range — when siege is up and the fight
 			// is anywhere near even (≥ 0.8×), attack IT, not the blob.
@@ -2648,7 +2695,7 @@ BrennusBot.prototype.manageDefense = function()
 				for (const ent of healerEnts)
 					ent.move(sx / milSiege.length, sz / milSiege.length);
 			}
-			else if (this.armyCount() >= engageAt * nearThreat)
+			else if (this.armyCount() >= engageAt * nearThreat && !outmassed)
 			{
 				// Local superiority: eject the garrisons and take the fight to them.
 				for (const s of shelters)
@@ -2916,13 +2963,14 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 	{
 		if (this.offense.eco)
 		{
-			// Eco-raid: abort when her guard returns, the army is spent, a
-			// serious threat lands at home, or the 3-min window closes.
+			// Eco-raid: abort when her guard returns en force, the army is
+			// spent (40 — keep trading: the dip is the product), a serious
+			// threat lands at home, or the 3-min window closes.
 			let guard = 0;
 			for (const p of mil)
 				if (SquareDistance(p, [this.offense.x, this.offense.z]) < 100 * 100)
 					guard++;
-			if (this.armyCount() < 25 || guard >= this.armyCount() || serious ||
+			if (this.armyCount() < 40 || guard >= this.armyCount() * 1.2 || serious ||
 				this.turn - (this.offense.turn || 0) > 900)
 			{
 				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m eco-raid over at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} (guard=${guard}, army=${armyEnts.length})\n`);
@@ -2977,7 +3025,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			const cp = ent.position();
 			let defenders = 0;
 			for (const p of mil)
-				if (SquareDistance(p, cp) < 100 * 100)
+				if (SquareDistance(p, cp) < 150 * 150)
 					defenders++;
 			const score = defenders * 10000 + (homePos ? SquareDistance(cp, homePos) : 0);
 			if (best === undefined || score < bestScore)
@@ -2990,21 +3038,42 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			return false;
 		const bp = best.position();
 		const defenders = Math.floor(bestScore / 10000);
-		if (this.armyCount() >= 60 && ramEnts.length >= 2)
+		// The 100 m guard measure lied: her main force camps at ~150-180 m
+		// of the CC and intercepted the raid in 12 s (rb16-s2: army 55 →
+		// 44, raid spent before contact). Count defenders at 150 m. The
+		// base race accepts up to even odds at her CC — the rams decide
+		// the race. But the path between the bases must be CLEAR: rb24/25's
+		// raids met her field army mid-map and bled out before contact
+		// (army 61 → 34 in 66 s, never reached the CC).
+		let pathBlockers = 0;
+		if (homePos)
+		{
+			const dx = bp[0] - homePos[0], dz = bp[1] - homePos[1];
+			const len2 = dx * dx + dz * dz || 1;
+			for (const p of mil)
+			{
+				const t = Math.max(0, Math.min(1, ((p[0] - homePos[0]) * dx + (p[1] - homePos[1]) * dz) / len2));
+				const px = homePos[0] + t * dx, pz = homePos[1] + t * dz;
+				if (SquareDistance(p, [px, pz]) < 60 * 60)
+					pathBlockers++;
+			}
+		}
+		if (this.armyCount() >= 55 && ramEnts.length >= 2 && defenders <= this.armyCount() && pathBlockers <= 12)
 		{
 			this.offense = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn };
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${defenders}, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 			for (const ent of armyEnts)
 				ent.setStance("aggressive");
 		}
-		else if (this.armyCount() >= 55 && defenders <= this.armyCount() * 0.5 &&
+		else if (this.armyCount() >= 70 && ramEnts.length >= 2 && defenders <= this.armyCount() * 0.6 &&
 			this.turn - (this.lastSeriousEndTurn || -10000) < 100)
 		{
-			// Eco-raid: her guard is thin right after a repelled wave — go
-			// bleed her workers (her whole war machine runs on ~30 civs).
-			// Rams stay home. Launches ONLY in the ~20 s post-wave window:
-			// launching into quiet means the next wave is already marching
-			// and the army returns to 60 dead workers.
+			// Eco-raid, the dip-CREATOR: her field army does not dip on its
+			// own before our death — it dips when 70+ soldiers trade into it
+			// (rb15: 153 → 80 after the 84-army sortie). Civ-kills are the
+			// bonus; the purpose is opening the CC-raid window above — so it
+			// must wait for the rams (rb20: the dip at 22.8m closed before
+			// the first ram stood at 27.3m). Rams stay home.
 			this.offense = { "eco": true, "x": bp[0], "z": bp[1], "turn": this.turn };
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m eco-raiding enemy base ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (guard=${defenders}, army=${armyEnts.length})\n`);
 			for (const ent of armyEnts)
@@ -3014,7 +3083,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		else
 			return false;
 	}
-	if (this.armyCount() < (this.offense.eco ? 25 : 50))
+	if (this.armyCount() < (this.offense.eco ? 40 : 35))
 	{
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid spent, regrouping (army=${armyEnts.length})\n`);
 		this.offense = undefined;
@@ -3041,21 +3110,117 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		if (SquareDistance(ent.position(), [this.offense.x, this.offense.z]) < 60 * 60)
 			ent.attack(this.offense.id, false);
 		else
-			ent.attackMove(this.offense.x, this.offense.z, "Unit", false);
+			// Plain move, not attackMove: the raid must SLIP PAST her
+			// mid-map force — attackMove stops to fight it and the raid
+			// bleeds out before ever reaching the CC (rb24-26: army 61 →
+			// 34 in 66 s, spent mid-march).
+			ent.move(this.offense.x, this.offense.z);
 	}
 	for (const ram of ramEnts)
 	{
 		if (SquareDistance(ram.position(), [this.offense.x, this.offense.z]) < 50 * 50)
 			ram.attack(this.offense.id, false);
 		else
-			ram.attackMove(this.offense.x, this.offense.z, "Structure", false);
+			ram.move(this.offense.x, this.offense.z);
 	}
 	for (const ent of healerEnts)
 		ent.move(this.offense.x, this.offense.z);
 	return true;
 };
 
-/** Military buildings: 2 barracks from the village phase (at difficulty 5 the first serious wave lands ~10-12 min — waiting for town to start the muster means meeting it with ~20 soldiers), 3 barracks + 8 home towers from town; after the boom the full set — 4 barracks, temples, forge, arsenal, assembly + 4 towers per expansion CC. Stone is plentiful on mainland; towers are our cheapest defense. */
+/**
+ * Trader hunt: a small swords-cav force kills Petra's traders on their
+ * route. At diff 5 her LATE army growth (7+/min from ~25m, vs ~2-3/min
+ * early) is funded by trade income at +56% — the compounding that makes
+ * her untouchable by 30m while our raid clock runs. Traders are unarmed
+ * and walk fixed routes far from her field army; every kill is a direct
+ * cut to her growth curve, not a trade of units (the mil18-20 worker
+ * raids failed because workers garrison and the guard answers — traders
+ * have neither shelter nor guard on the open route).
+ */
+BrennusBot.prototype.manageTraderHunt = function(gameState, mil)
+{
+	const homePos = this.getCivicCentre()?.position();
+	const cavEnts = [];
+	for (const id in this.cavForce)
+	{
+		const ent = gameState.getEntityById(+id);
+		if (ent?.position())
+			cavEnts.push(ent);
+	}
+	if (!homePos || !cavEnts.length)
+	{
+		this.traderHunt = undefined;
+		return;
+	}
+	if (this.turn < (this.huntCmdTurn || 0))
+		return;
+	this.huntCmdTurn = this.turn + 15;
+
+	// Enemy traders, safest first (fewest soldiers within 60 m).
+	let best, bestGuard = Infinity, bestD = Infinity;
+	for (const ent of gameState.getEnemyUnits().values())
+	{
+		if (ent.owner() === 0 || !ent.hasClass("Trader"))
+			continue;
+		const pos = ent.position();
+		if (!pos)
+			continue;
+		let guard = 0;
+		for (const p of mil)
+			if (SquareDistance(p, pos) < 60 * 60)
+				guard++;
+		if (guard >= bestGuard)
+			continue;
+		const d = SquareDistance(pos, homePos);
+		if (guard < bestGuard || d < bestD)
+		{
+			bestGuard = guard;
+			bestD = d;
+			best = pos;
+		}
+	}
+
+	if (this.traderHunt)
+	{
+		let guard = 0;
+		for (const p of mil)
+			if (SquareDistance(p, [this.traderHunt.x, this.traderHunt.z]) < 60 * 60)
+				guard++;
+		if (guard >= 4 || cavEnts.length < 3)
+		{
+			print(`[CAV] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m hunt retreat (guard=${guard}, cav=${cavEnts.length})\n`);
+			this.traderHunt = undefined;
+			for (const ent of cavEnts)
+				ent.move(homePos[0], homePos[1]);
+			return;
+		}
+		if (best)
+		{
+			this.traderHunt = { "x": best[0], "z": best[1] };
+			for (const ent of cavEnts)
+				ent.attackMove(best[0], best[1], "Unit", false);
+			return;
+		}
+		// No traders visible: hold the current spot a while, then home.
+		if (this.turn - (this.traderHunt.turn || 0) > 450)
+		{
+			this.traderHunt = undefined;
+			for (const ent of cavEnts)
+				ent.move(homePos[0], homePos[1]);
+		}
+		return;
+	}
+
+	if (cavEnts.length < 4 || !best || bestGuard > 3)
+		return;
+	this.traderHunt = { "x": best[0], "z": best[1], "turn": this.turn };
+	print(`[CAV] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m hunting traders at ${best[0].toFixed(0)},${best[1].toFixed(0)} (guard=${bestGuard}, cav=${cavEnts.length})\n`);
+	for (const ent of cavEnts)
+		ent.attackMove(best[0], best[1], "Unit", false);
+};
+
+/** Military buildings: 2 barracks from the village phase (at difficulty 5 the first serious wave lands ~10-12 min — waiting for town to start the muster meant meeting it with ~20 soldiers), 3 barracks + 8 home towers from town; after the boom the full set — 4 barracks, temples, forge, arsenal, assembly + 4 towers per expansion CC. Stone is plentiful on mainland; towers are our cheapest defense. */
 BrennusBot.prototype.manageDefenseBuildings = function()
 {
 	if (this.constructionHold)
@@ -3075,7 +3240,9 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 		// core — 200 HP champions at 22 m/s vs her 100 HP legion basics
 		// (rb3: 30 basics lose the wave fight even at equal numbers).
 		[gameState.applyCiv("structures/{civ}/temple"), boom ? 3 : defOn ? 2 : 0],
-		[gameState.applyCiv("structures/{civ}/forge"), boom ? 1 : 0]
+		[gameState.applyCiv("structures/{civ}/forge"), boom ? 1 : 0],
+		// The stable feeds the trader-hunt cavalry (see manageTraderHunt).
+		[gameState.applyCiv("structures/{civ}/stable"), defOn ? 1 : 0]
 	];
 	// While any of these is missing, training holds a wood reserve (see
 	// manageDefenseTraining) so the buildings actually get funded — otherwise
@@ -3099,6 +3266,19 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 	}
 	this.defenseBuildingsMissing = missingAny;
 	this.milBuildingHold = false;
+	// Towers are the defense's force multiplier and must NOT wait for the
+	// whole wants list: on poor seeds (s1) the temple/barracks spend
+	// starved them forever and the arrow defense never existed (rb8-s1:
+	// ZERO towers all game, 29 workers dead at 13m, loss at 27m vs 40m
+	// on towered seeds). One per block, ahead of the military buildings —
+	// PRE-CITY ONLY: post-city the arsenal outranks them (8 towers = 800w
+	// kept the arsenal 6-10 min late, rb14-rb21).
+	if (defOn && !this.warOn())
+	{
+		const home = this.getCivicCentre();
+		if (home && this.placeTower(home.position(), 8))
+			return;
+	}
 	for (const [type, want] of wants)
 	{
 		if (haveByType[type] >= want || this.pendingBuilds.some(pb => pb.template === type))
@@ -3238,8 +3418,9 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	const barracksType = gameState.applyCiv("structures/{civ}/barracks");
 	const templeType = gameState.applyCiv("structures/{civ}/temple");
 	const assemblyType = gameState.applyCiv("structures/{civ}/assembly");
-	let queued = 0, barracksUp = 0;
-	const trainers = [], assemblies = [];
+	const stableType = gameState.applyCiv("structures/{civ}/stable");
+	let queued = 0, barracksUp = 0, queuedCav = 0;
+	const trainers = [], assemblies = [], stables = [];
 	for (const ent of gameState.getOwnStructures().values())
 	{
 		if (ent.foundationProgress() !== undefined)
@@ -3248,6 +3429,14 @@ BrennusBot.prototype.manageDefenseTraining = function()
 		{
 			if ((ent.trainingQueue()?.length || 0) <= 1)
 				assemblies.push(ent);
+			continue;
+		}
+		if (ent.templateName() === stableType)
+		{
+			for (const item of ent.trainingQueue() || [])
+				queuedCav += item.count;
+			if ((ent.trainingQueue()?.length || 0) <= 1)
+				stables.push(ent);
 			continue;
 		}
 		if (ent.templateName() !== barracksType && ent.templateName() !== templeType)
@@ -3279,6 +3468,27 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	let healerCount = 0;
 	for (const id in this.healers)
 		healerCount++;
+	// Trader-hunt cavalry: 6 swords-cav from the stable post-city (100f+40w
+	// +10m each). Her late-game army growth (7+/min after ~25m) is funded
+	// by TRADE at +56%, not by gathering — the hunt cuts the compounding
+	// income that makes her untouchable by 30m (see manageTraderHunt).
+	let cavTotal = queuedCav;
+	for (const id in this.cavForce)
+		cavTotal++;
+	if (this.warOn() && cavTotal < 6 && res.food >= 100 && res.wood >= 40)
+		for (const ent of stables)
+		{
+			if (cavTotal >= 6 || res.food < 100 || res.wood < 40)
+				break;
+			ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/cavalry_swordsman_b"), 1, {});
+			res.subtract({ "food": 100, "wood": 40, "metal": 10 });
+			cavTotal++;
+		}
+	// While the hunt force forms, the women stream pauses at food < 100 —
+	// 600f for 6 cavalry against her compounding trade income is the
+	// cheapest brake we can buy (mil18: the hold works; holding for 10+
+	// starves the boom, 6 does not).
+	this.cavHold = this.warOn() && cavTotal < 6 && stables.length > 0 && res.food < 100;
 	// Assembly: the hero first — Viridomarus (+15% gather, global: the
 	// economy IS the war machine), Vercingetorix (+20% attack aura for the
 	// raids) once he falls — then 3 trumpeters for the blob (−10% enemy
@@ -3340,7 +3550,9 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	}
 	const milBatch = boom && rich ? 5 : 1;
 	const floorF = boom && rich ? 300 : 50;
-	const floorW = boom && rich ? (this.defenseBuildingsMissing ? 400 : 300) : 50;
+	// The batch floors also respect the siege reserve (see managePhaseUp).
+	const floorW = (boom && rich ? (this.defenseBuildingsMissing ? 400 : 300) : 50) +
+		(this.phaseReserve?.wood || 0);
 	// The fanatic (120f) never beats the 50f muster for the food flow: at
 	// cost-level floors the stock never crosses 120 while barracks stream
 	// (rb4: two temples standing, ZERO champions trained). While a temple
@@ -3355,7 +3567,14 @@ BrennusBot.prototype.manageDefenseTraining = function()
 		}
 	const fanaticHold = templeReady && healerCount >= (boom ? (rich ? 10 : 4) : 2) &&
 		missing > 0 && res.food < 120;
-	if (missing > 0 && res.food >= floorF && res.wood >= floorW)
+	// The siege wood fund (arsenal placement, then the 4 rams) outranks
+	// soldier training ONCE THE ARMY IS STRONG (≥ 60): batch-5s at 250w
+	// are the biggest wood drain post-city, and rb13-s2's arsenal waited
+	// 14 min for a 350 floor the training kept burning (army 108, zero
+	// rams). Below 60 the defense comes first — pausing training at 50
+	// let her siege walk through the thin army (rb14-s2, dead at 30.7m).
+	const siegeWoodHold = (this.ramHold || this.milBuildingHold) && this.armyCount() >= 60;
+	if (missing > 0 && res.food >= floorF && res.wood >= floorW && !siegeWoodHold)
 		for (const ent of trainers)
 		{
 			if (ent.templateName() === barracksType)
@@ -3408,18 +3627,18 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	}
 	for (const id in this.rams)
 		rams++;
-	this.ramHold = this.armyCount() >= 25 && rams < 4 && arsenals.length > 0 &&
+	this.ramHold = this.armyCount() >= 25 && rams < 6 && arsenals.length > 0 &&
 		(res.wood < 300 || res.metal < 150);
-	if (this.armyCount() >= 25 && rams < 4 && arsenals.length &&
+	if (this.armyCount() >= 25 && rams < 6 && arsenals.length &&
 		res.wood >= 300 && res.metal >= 150)
 		for (const arsenal of arsenals)
 		{
-			if (rams >= 4 || res.wood < 300 || res.metal < 150)
+			if (rams >= 6 || res.wood < 300 || res.metal < 150)
 				break;
 			arsenal.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/siege_ram"), 1, {});
 			res.subtract({ "wood": 300, "metal": 150 });
 			rams++;
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/4)\n`);
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/6)\n`);
 		}
 	// Pop room for a batch of 5: dismiss workers (idle first) until 5 slots are
 	// free, throttled and never below a floor that keeps the economy alive.
@@ -4459,7 +4678,8 @@ BrennusBot.prototype.Serialize = function()
 		"expOn": this.expOn,
 		"army": this.army,
 		"rams": this.rams,
-		"healers": this.healers
+		"healers": this.healers,
+		"cavForce": this.cavForce
 	};
 };
 

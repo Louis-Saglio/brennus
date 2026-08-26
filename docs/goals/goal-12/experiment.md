@@ -410,3 +410,36 @@ one structure that would break the worker-death cycle) are not exposed
 to the AI API. Remaining honest options: (a) accept this as the
 current ceiling and report; (b) a qualitatively different frame not yet
 found.
+- **rb10** (towers BEFORE the military wants list — the diagnosis: s1 had
+  ZERO towers all game because the temple/barracks spend starved them):
+  towers stand on all seeds (5/5/4), **s2 city at 15.0m (record)**.
+- **rb11** (engage rule also requires advantage vs her TOTAL visible
+  army, not just the 150 m centroid count): the army survives waves
+  (52 at ~33m) and the first rams train (2/4 at 27.8m).
+- **rb12-13** (trader-hunt cavalry: stable from town, 6 swords-cav,
+  cavHold): hunts fire (28 cav trained) but kill ZERO traders.
+- **rb14-15** (siege wood hold covers training+research, gated on army
+  ≥ 60): arsenal 21.5m (from 29.2m) but the pause weakened the army.
+- **rb16** (eco-raid cut as net-negative — 27 soldiers for ≤ 1 civ):
+  **FIRST CC RAID FIRES** (28.6m, 55+2 rams) — intercepted mid-field in
+  12 s.
+- **rb17-19** (defenders at 150 m ≤ 0.8×, dip gates): never fire — her
+  army is monotonic, the dip doesn't come on its own.
+- **rb20-21** (two-stage doctrine: eco-raid CREATES the dip → CC raid):
+  eco fires at 22.8m (84→57) but rams only stand at 27-28m — the window
+  is mistimed by ~5 min.
+- **rb22** (arsenal before towers post-city — 8 towers = 800w were
+  starving it): still 26.2m, batch-5s burn the wood.
+- **rb23** (siege reserve: 300 wood out of EVERY spender's reach until
+  4 rams stand): **arsenals at 18.6/18.9m (1 min after city!), rams
+  4/4 at 21.4m** — but the reserve slowed the batch-5s (army 35-45,
+  died 26.5m).
+- **rb24-26** (CC raid gate army ≥ 55 + 2 rams + defenders(150m) ≤ army
+  + path clear ≤ 12): raid FIRES at 23.7m (61+4 rams, defenders 16-17)
+  — intercepted/bleeding mid-march (army 61 → 34 in 66 s, spent before
+  contact). Path-clear-at-launch does not protect the 2-min walk.
+- **rb27** (the raid marches with plain `move`, not attackMove — slips
+  PAST her mid-map force instead of stopping to fight it): **FIRST
+  ENEMY CC RAZED AT 24.4m** (0.7 min raid, defenders 17). The raze is
+  free (~20 army left) but her counter (194-207 + 6 siege) ends the
+  game at 31.5m before raid #2 can form.
