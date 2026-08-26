@@ -598,3 +598,19 @@
   he develops it himself and keeps the direction of its behavior. Agent
   changes to its code only on explicit prompt; **never run a game
   (kiln or otherwise) for this bot unless Louis explicitly asks**.
+
+## 2026-08-26
+
+- **`getResourceSupplies("food")` includes docile huntables in 0.28.0**, contrary
+  to the ai_engine_api.md pitfall. `filters.byResource` keeps an entity when
+  `ent.isHuntable()` is truthy, and `entity.isHuntable()` checks
+  `get("ResourceSupply/KillBeforeGather") && (!Health || !Attack)`. Every gaia
+  supply template (tree, fruit, ore, rock, fish) defines
+  `<KillBeforeGather>false</KillBeforeGather>` explicitly, and the *string*
+  "false" is truthy in JS, so the accessor returns truthy for all of them.
+  Net effect: the filter excludes only sea creatures and retaliating animals
+  (they have Attack); deer, chickens and sheep pass. Verified in a kiln smoke
+  run: louis_bot's food slots sent a worker to hunt (400 meat gathered) while
+  the docs claimed meat needs `getHuntableSupplies()`. Exclude huntables in
+  bot code with `ent.get("ResourceSupply/KillBeforeGather") === "true"` (or
+  `hasClass("Animal")`) if unwanted.
