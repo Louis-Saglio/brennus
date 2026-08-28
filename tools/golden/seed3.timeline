@@ -1,0 +1,285 @@
+[KILN] in-game limit set to 45 minutes from harness.json
+[HARNESS] brennus: loaded for player 1
+[HARNESS] t=0.00m woodPoor=false
+[HUNT] t=0.00m target gaia/fauna_chicken collect at 464,621 dist=36
+[HARNESS] t=0.00m placement angle=135.0°
+[HARNESS] t=0.0m phase=phase_village
+[HARNESS] t=0m pop=9/20 idle=9 starved=0 gatherers food=0 wood=0 stone=0 metal=0 houses=0 fields=0 town=0 techs=0/10 rates wood=- grain=- fruit=- stone=- metal=- foodmix fruit=0 grain=0 meat=0 dist wood=-m grain=-m fruit=-m founds=0 failedSpots=0 fruitStock=400 enemyArmy=5 siege=0 enemyNear=516m army=0 woodline=undefined@570,543=4000 terr=- stock 300/300/300/300
+[HARNESS] t=0.0m farmstead at 401,626 for next fruit patch 390,622 (stock 400)
+[HUNT] t=0.05m adopted carcass resource|gaia/fauna_chicken at 464,621 mode=collect dropDist=36
+[HUNT] t=0.05m carcass resource|gaia/fauna_chicken at 464,621 mode=collect inTerr=true dropDist=36
+[HUNT] t=0.25m target gaia/fauna_chicken collect at 536,636 dist=37
+[HUNT] t=0.35m adopted carcass resource|gaia/fauna_chicken at 536,636 mode=collect dropDist=37
+[HUNT] t=0.35m carcass resource|gaia/fauna_chicken at 536,636 mode=collect inTerr=true dropDist=37
+[HUNT] t=0.59m target gaia/fauna_chicken collect at 463,627 dist=37
+[HUNT] t=0.69m adopted carcass resource|gaia/fauna_chicken at 464,622 mode=collect dropDist=36
+[HUNT] t=0.69m carcass resource|gaia/fauna_chicken at 464,622 mode=collect inTerr=true dropDist=36
+[HUNT] t=0.90m target gaia/fauna_chicken collect at 463,620 dist=38
+[HUNT] t=0.94m adopted carcass resource|gaia/fauna_chicken at 463,620 mode=collect dropDist=38
+[HUNT] t=0.94m carcass resource|gaia/fauna_chicken at 463,620 mode=collect inTerr=true dropDist=38
+[HUNT] t=1.17m target gaia/fauna_chicken collect at 465,633 dist=35
+[HUNT] t=1.20m adopted carcass resource|gaia/fauna_chicken at 465,633 mode=collect dropDist=35
+[HUNT] t=1.20m carcass resource|gaia/fauna_chicken at 465,633 mode=collect inTerr=true dropDist=35
+[HARNESS] t=1.3m research gather_wicker_baskets
+[HUNT] t=1.42m target gaia/fauna_chicken collect at 534,637 dist=35
+[HUNT] t=1.52m adopted carcass resource|gaia/fauna_chicken at 533,634 mode=collect dropDist=34
+[HUNT] t=1.52m carcass resource|gaia/fauna_chicken at 533,634 mode=collect inTerr=true dropDist=34
+[HUNT] t=1.74m target gaia/fauna_chicken collect at 553,635 dist=54
+[HUNT] t=1.79m adopted carcass resource|gaia/fauna_chicken at 553,635 mode=collect dropDist=54
+[HUNT] t=1.79m carcass resource|gaia/fauna_chicken at 553,635 mode=collect inTerr=true dropDist=54
+[HUNT] t=2.10m target gaia/fauna_chicken collect at 552,633 dist=53
+[HUNT] t=2.14m adopted carcass resource|gaia/fauna_chicken at 552,633 mode=collect dropDist=53
+[HUNT] t=2.14m carcass resource|gaia/fauna_chicken at 552,633 mode=collect inTerr=true dropDist=53
+[HUNT] t=2.42m target gaia/fauna_deer herd at 365,753 dist=184
+[HARNESS] t=3m pop=29/35 idle=0 starved=0 gatherers food=13 wood=10 stone=0 metal=0 houses=3 fields=0 town=0 techs=1/10 rates wood=90% grain=- fruit=74% stone=- metal=- foodmix fruit=674 grain=0 meat=280 dist wood=4m grain=-m fruit=5m founds=1 failedSpots=0 fruitStock=1083 enemyArmy=9 siege=0 enemyNear=540m army=0 woodline=undefined@570,543=3530 terr=- stock 310/40/300/300
+[HUNT] t=3.14m wounded gaia/fauna_deer at 390,745 dropDist=120
+[HUNT] t=3.42m kill gaia/fauna_deer at 393,644 dropDist=19 inTerr=true fleeing=true
+[HUNT] t=3.50m adopted carcass resource|gaia/fauna_deer at 389,631 mode=herd dropDist=13
+[HUNT] t=3.50m carcass resource|gaia/fauna_deer at 389,631 mode=herd inTerr=true dropDist=13
+[HUNT] t=3.50m target gaia/fauna_deer herd at 361,729 dist=172
+[HUNT] t=3.65m wounded gaia/fauna_deer at 363,727 dropDist=108
+[HUNT] t=3.90m kill gaia/fauna_deer at 400,643 dropDist=17 inTerr=true fleeing=true
+[HARNESS] t=4.0m research unlock_civilians_house_generic
+[HUNT] t=4.05m adopted carcass resource|gaia/fauna_deer at 414,620 mode=herd dropDist=14
+[HUNT] t=4.05m carcass resource|gaia/fauna_deer at 414,620 mode=herd inTerr=true dropDist=14
+[HUNT] t=4.05m target gaia/fauna_deer herd at 327,707 dist=190
+[HUNT] t=4.27m wounded gaia/fauna_deer at 328,714 dropDist=114
+[HUNT] t=4.49m adopted carcass resource|gaia/fauna_deer at 366,662 mode=herd dropDist=50
+[HUNT] t=4.49m carcass resource|gaia/fauna_deer at 366,662 mode=herd inTerr=false dropDist=50
+[HARNESS] t=4.8m farmstead at 390,661 for fruit 365,669 (5 underserved)
+[HUNT] t=4.94m target gaia/fauna_chicken collect at 535,626 dist=35
+[HUNT] t=5.00m adopted carcass resource|gaia/fauna_chicken at 535,626 mode=collect dropDist=35
+[HUNT] t=5.00m carcass resource|gaia/fauna_chicken at 535,626 mode=collect inTerr=true dropDist=35
+[HARNESS] t=5m pop=44/50 idle=0 starved=0 gatherers food=24 wood=19 stone=0 metal=0 houses=6 fields=3 town=0 techs=1/10 rates wood=85% grain=73% fruit=51% stone=- metal=- foodmix fruit=1203 grain=40 meat=280 dist wood=8m grain=2m fruit=45m founds=2 failedSpots=0 fruitStock=359 enemyArmy=19 siege=0 enemyNear=451m army=0 woodline=undefined@570,543=2242 terr=- stock 389/20/300/200
+[HARNESS] t=5.2m defense stage on (town researched)
+[HARNESS] t=5.2m phase=phase_town_generic
+[HUNT] t=5.20m target gaia/fauna_deer herd at 312,607 dist=189
+[HUNT] t=5.49m wounded gaia/fauna_deer at 315,609 dropDist=88
+[HUNT] t=5.67m kill gaia/fauna_deer at 379,626 dropDist=22 inTerr=true fleeing=true
+[HUNT] t=6.02m adopted carcass resource|gaia/fauna_deer at 398,639 mode=herd dropDist=14
+[HUNT] t=6.02m carcass resource|gaia/fauna_deer at 398,639 mode=herd inTerr=true dropDist=14
+[HUNT] t=6.02m target gaia/fauna_deer herd at 323,579 dist=184
+[HUNT] t=6.17m wounded gaia/fauna_deer at 326,580 dropDist=88
+[HUNT] t=6.35m kill gaia/fauna_deer at 381,617 dropDist=22 inTerr=true fleeing=true
+[HUNT] t=6.47m adopted carcass resource|gaia/fauna_deer at 401,642 mode=herd dropDist=16
+[HUNT] t=6.47m carcass resource|gaia/fauna_deer at 401,642 mode=herd inTerr=true dropDist=16
+[HUNT] t=6.47m target gaia/fauna_deer herd at 338,726 dist=189
+[HARNESS] t=6.5m defense building barracks
+[HUNT] t=6.62m wounded gaia/fauna_deer at 340,724 dropDist=80
+[HUNT] t=6.80m kill gaia/fauna_deer at 384,677 dropDist=17 inTerr=true fleeing=true
+[HUNT] t=6.84m adopted carcass resource|gaia/fauna_deer at 387,678 mode=herd dropDist=17
+[HUNT] t=6.84m carcass resource|gaia/fauna_deer at 387,678 mode=herd inTerr=true dropDist=17
+[HUNT] t=6.84m target gaia/fauna_deer herd at 309,600 dist=193
+[HUNT] t=6.99m wounded gaia/fauna_deer at 311,601 dropDist=94
+[HARNESS] t=7.1m defense building barracks
+[HUNT] t=7.20m kill gaia/fauna_deer at 385,628 dropDist=16 inTerr=true fleeing=true
+[HUNT] t=7.29m adopted carcass resource|gaia/fauna_deer at 393,633 mode=herd dropDist=11
+[HUNT] t=7.29m carcass resource|gaia/fauna_deer at 393,633 mode=herd inTerr=true dropDist=11
+[HUNT] t=7.29m target gaia/fauna_deer collect at 285,617 dist=215
+[HUNT] t=7.50m adopted carcass resource|gaia/fauna_deer at 276,615 mode=collect dropDist=123
+[HUNT] t=7.50m carcass resource|gaia/fauna_deer at 276,615 mode=collect inTerr=false dropDist=123
+[HARNESS] t=8m pop=76/85 idle=2 starved=0 gatherers food=31 wood=36 stone=0 metal=0 houses=13 fields=10 town=0 techs=1/10 rates wood=72% grain=84% fruit=31% stone=- metal=- foodmix fruit=372 grain=403 meat=406 dist wood=32m grain=0m fruit=-m founds=5 failedSpots=0 fruitStock=0 enemyArmy=28 siege=0 enemyNear=553m army=4 woodline=undefined@398,726=10100 terr=- stock 11/40/300/200
+[THREAT] t=8.1m enemy army=33 siege=0 nearest=395m from home CC
+[HUNT] t=9.10m target gaia/fauna_deer collect at 297,598 dist=205
+[HARNESS] construct FAILED: structures/gaul/house at 549,638
+[HUNT] t=9.25m adopted carcass resource|gaia/fauna_deer at 300,588 mode=collect dropDist=108
+[HUNT] t=9.25m carcass resource|gaia/fauna_deer at 300,588 mode=collect inTerr=false dropDist=108
+[HARNESS] t=10m pop=114/120 idle=1 starved=0 gatherers food=30 wood=35 stone=5 metal=11 houses=20 fields=12 town=0 techs=1/10 rates wood=51% grain=88% fruit=- stone=82% metal=66% foodmix fruit=0 grain=1592 meat=247 dist wood=77m grain=6m fruit=-m founds=0 failedSpots=1 fruitStock=0 enemyArmy=43 siege=0 enemyNear=371m army=28 woodline=undefined@398,726=9873 terr=- stock 46/60/690/430
+[HARNESS] construct FAILED: structures/gaul/house at 490,677
+[HARNESS] construct FAILED: structures/gaul/house at 530,677
+[HUNT] t=10.72m target gaia/fauna_deer collect at 306,721 dist=215
+[HUNT] t=10.99m adopted carcass resource|gaia/fauna_deer at 322,740 mode=collect dropDist=103
+[HUNT] t=10.99m carcass resource|gaia/fauna_deer at 322,740 mode=collect inTerr=false dropDist=103
+[HARNESS] construct FAILED: structures/gaul/field at 551,679
+[HUNT] t=12.34m target gaia/fauna_deer collect at 286,586 dist=218
+[HARNESS] t=13m pop=165/165 idle=3 starved=0 gatherers food=41 wood=46 stone=5 metal=15 houses=29 fields=12 town=0 techs=1/10 rates wood=40% grain=92% fruit=- stone=81% metal=58% foodmix fruit=0 grain=2221 meat=160 dist wood=76m grain=6m fruit=-m founds=2 failedSpots=4 fruitStock=0 enemyArmy=63 siege=0 enemyNear=371m army=51 woodline=undefined@398,726=9286 terr=- stock 26/25/1500/880
+[HUNT] t=12.77m adopted carcass resource|gaia/fauna_deer at 250,527 mode=collect dropDist=181
+[HUNT] t=12.77m carcass resource|gaia/fauna_deer at 250,527 mode=collect inTerr=false dropDist=181
+[HARNESS] t=14.4m storehouse at 380,708 for woodline 394,730 (99 underserved)
+[HARNESS] t=14.5m rush-building storehouse at 380,708 (8 wood choppers)
+[HARNESS] t=14.6m storehouse at 540,560 between stone 518,586 and metal 542,602 (25 underserved)
+[HARNESS] t=14.6m farmstead at 587,617 for fields 576,636 (3 underserved)
+[HARNESS] t=15.0m farmstead at 422,580 for fields 432,560 (3 underserved)
+[HARNESS] t=15.0m farmstead at 456,701 for fields 432,696 (2 underserved)
+[HARNESS] t=15m pop=222/235 idle=3 starved=0 gatherers food=66 wood=77 stone=2 metal=9 houses=43 fields=15 town=0 techs=1/10 rates wood=31% grain=88% fruit=- stone=72% metal=61% foodmix fruit=0 grain=2799 meat=100 dist wood=39m grain=6m fruit=-m founds=5 failedSpots=3 fruitStock=0 enemyArmy=87 siege=0 enemyNear=272m army=60 woodline=undefined@398,726=8274 terr=- stock 407/189/2121/1360
+[HUNT] t=15.07m target gaia/fauna_deer collect at 738,359 dist=360
+[HARNESS] t=15.1m defense building barracks
+[HARNESS] t=15.4m defense building temple
+[HARNESS] t=15.5m research gather_farming_plows
+[HARNESS] t=15.7m research gather_farming_harvester
+[HUNT] t=15.74m adopted carcass resource|gaia/fauna_deer at 744,317 mode=collect dropDist=339
+[HUNT] t=15.74m carcass resource|gaia/fauna_deer at 744,317 mode=collect inTerr=false dropDist=339
+[HARNESS] t=15.7m research gather_lumbering_ironaxes
+[HARNESS] t=15.8m research gather_capacity_basket
+[HARNESS] t=16.0m building forge
+[HARNESS] t=16.1m tower at 500,592 for CC 500,628
+[HARNESS] t=16.1m research pop_house_01
+[HARNESS] t=16.2m tower at 481,663 for CC 500,628
+[HARNESS] t=16.2m research gather_farming_training
+[HARNESS] t=16.2m tower at 561,653 for CC 500,628
+[HARNESS] t=16.2m research gather_farming_training
+[HARNESS] t=16.2m research gather_farming_training
+[HARNESS] t=16.4m research pop_house_01
+[THREAT] t=16.6m enemy army=119 siege=0 nearest=244m from home CC
+[HARNESS] t=16.7m building market
+[HARNESS] t=16.7m building tavern
+[THREAT] t=16.7m enemy army=119 siege=0 nearest=138m from home CC
+[THREAT] t=16.8m enemy army=119 siege=0 nearest=78m from home CC
+[HARNESS] t=16.8m research gather_lumbering_strongeraxes
+[DEFENSE] t=16.9m engaging 8 enemies (siege=0) near CC 428,575 (army=59)
+[HARNESS] t=17.5m house placement FAILED (margin=-18)
+[HARNESS] t=18m pop=250/284 idle=3 starved=0 gatherers food=3 wood=53 stone=0 metal=2 houses=44 fields=22 town=2 techs=7/10 rates wood=49% grain=76% fruit=- stone=64% metal=70% foodmix fruit=0 grain=2863 meat=40 dist wood=32m grain=11m fruit=-m founds=3 failedSpots=0 fruitStock=0 enemyArmy=112 siege=0 enemyNear=45m army=56 woodline=undefined@398,726=3966 terr=- stock 41/924/2045/971
+[HARNESS] t=19.0m barter 500 wood -> metal
+[HARNESS] t=19.6m war stage on (city researched)
+[HARNESS] t=19.6m phase=phase_city_generic
+[HUNT] t=19.67m target gaia/fauna_deer collect at 736,364 dist=354
+[HARNESS] t=19.7m farmstead at 588,482 for next fruit patch 577,479 (stock 0)
+[HUNT] t=19.77m adopted carcass resource|gaia/fauna_deer at 731,381 mode=collect dropDist=175
+[HUNT] t=19.77m carcass resource|gaia/fauna_deer at 731,381 mode=collect inTerr=false dropDist=175
+[HARNESS] construct FAILED: structures/gaul/field at 415,543
+[HARNESS] t=19.9m research pop_house_02
+[HARNESS] t=20m pop=226/300 idle=0 starved=0 gatherers food=85 wood=44 stone=0 metal=12 houses=49 fields=23 town=4 techs=8/10 rates wood=41% grain=35% fruit=- stone=- metal=14% foodmix fruit=0 grain=2677 meat=60 dist wood=32m grain=14m fruit=-m founds=3 failedSpots=1 fruitStock=400 enemyArmy=86 siege=0 enemyNear=362m army=58 woodline=undefined@398,726=2111 terr=- stock 37/134/995/622
+[HARNESS] t=20.1m storehouse at 409,733 for woodline 401,749 (51 underserved)
+[HARNESS] t=20.1m rush-building storehouse at 409,733 (8 wood choppers)
+[HARNESS] t=20.3m research soldier_attack_melee_01
+[HARNESS] t=20.3m research soldier_attack_ranged_01
+[HARNESS] t=20.4m defense building barracks
+[HARNESS] t=20.5m farmstead at 407,550 for fields 433,539 (11 underserved)
+[HARNESS] t=20.6m research soldier_resistance_hack_01
+[HARNESS] t=20.7m defense building arsenal
+[HARNESS] t=20.8m research soldier_resistance_pierce_01
+[HARNESS] t=21.3m storehouse at 493,450 for woodline 492,440 (29 underserved)
+[HARNESS] t=21.4m rush-building storehouse at 493,450 (8 wood choppers)
+[DEFENSE] t=21.4m engaging 9 enemies (siege=0) near CC 439,544 (army=58)
+[HARNESS] t=21.6m storehouse destroyed at 409,733 (nearest supply 84 m)
+[HARNESS] t=22.0m farmstead at 533,472 for fruit 523,472 (3 underserved)
+[HUNT] t=22.10m target gaia/fauna_deer collect at 718,328 dist=371
+[HUNT] t=22.19m adopted carcass resource|gaia/fauna_deer at 715,319 mode=collect dropDist=207
+[HUNT] t=22.19m carcass resource|gaia/fauna_deer at 715,319 mode=collect inTerr=false dropDist=207
+[HARNESS] t=22.3m storehouse at 343,567 for mine 347,554 (16 underserved)
+[HARNESS] t=23m pop=239/300 idle=19 starved=0 gatherers food=20 wood=8 stone=0 metal=3 houses=49 fields=29 town=4 techs=9/10 rates wood=45% grain=89% fruit=48% stone=78% metal=102% foodmix fruit=372 grain=4552 meat=120 dist wood=25m grain=8m fruit=-m founds=2 failedSpots=1 fruitStock=0 enemyArmy=67 siege=0 enemyNear=54m army=59 woodline=undefined@493,442=17431 terr=- stock 305/494/1010/117
+[HARNESS] t=22.6m storehouse at 338,576 for mine 347,554 (12 underserved)
+[DEFENSE] t=22.6m engaging 8 enemies (siege=0) near CC 416,584 (army=58)
+[HUNT] t=24.64m target gaia/fauna_deer collect at 702,313 dist=374
+[DEFENSE] t=24.7m training a ram (1/6)
+[DEFENSE] t=24.7m engaging 8 enemies (siege=0) near CC 487,512 (army=92)
+[HUNT] t=24.77m adopted carcass resource|gaia/fauna_deer at 671,287 mode=collect dropDist=212
+[HUNT] t=24.77m carcass resource|gaia/fauna_deer at 671,287 mode=collect inTerr=false dropDist=212
+[HARNESS] t=24.9m expansion stage on (city researched, pop 300)
+[HARNESS] t=24.9m barter 500 stone -> wood
+[HARNESS] expansion candidates: 6 of 19 lattice anchors yield a buildable spot
+[HARNESS]   existing CC at 500,628
+[HARNESS]   existing CC at 268,140
+[HARNESS]   existing CC at 233,385
+[HARNESS] expansion plan: 4 CCs, sim coverage 44.8% of 6451 passable tiles (bar 70%)
+[HARNESS] t=24.9m population=300
+[HARNESS] t=24.9m corral at 542,707 for the tech tree
+[HARNESS] t=25m pop=297/300 idle=4 starved=0 gatherers food=62 wood=21 stone=0 metal=20 houses=49 fields=31 town=4 techs=9/10 rates wood=51% grain=60% fruit=- stone=93% metal=61% foodmix fruit=0 grain=6483 meat=80 dist wood=20m grain=8m fruit=-m founds=2 failedSpots=0 fruitStock=0 enemyArmy=84 siege=0 enemyNear=83m army=99 woodline=undefined@493,442=14336 terr=22%(1430/6451) stock 2935/152/525/133
+[HARNESS] construct FAILED: structures/gaul/corral at 542,707
+[DEFENSE] t=25.2m sortie against siege camp 495,473 (camp=53, army=104)
+[HARNESS] t=25.4m corral at 450,553 for the tech tree
+[HARNESS] construct FAILED: structures/gaul/corral at 450,553
+[HARNESS] t=26.4m storehouse at 529,436 for woodline 491,436 (47 underserved)
+[HARNESS] t=26.4m farmstead at 496,461 for fields 508,479 (8 underserved)
+[HARNESS] t=27.3m storehouse at 528,466 for woodline 491,436 (20 underserved)
+[HARNESS] expansion candidates: 6 of 19 lattice anchors yield a buildable spot
+[HARNESS]   existing CC at 500,628
+[HARNESS]   existing CC at 268,140
+[HARNESS]   existing CC at 233,385
+[HARNESS] expansion plan: 4 CCs, sim coverage 44.8% of 6451 passable tiles (bar 70%)
+[HARNESS] t=28m pop=285/300 idle=11 starved=0 gatherers food=48 wood=40 stone=18 metal=17 houses=49 fields=33 town=4 techs=9/10 rates wood=17% grain=88% fruit=- stone=68% metal=54% foodmix fruit=0 grain=4454 meat=40 dist wood=20m grain=8m fruit=-m founds=1 failedSpots=2 fruitStock=0 enemyArmy=76 siege=0 enemyNear=184m army=122 woodline=undefined@493,442=14064 terr=22%(1433/6451) stock 7508/47/705/344
+[HARNESS] t=27.6m research soldier_attack_melee_02
+[HARNESS] t=27.7m corral at 457,547 for the tech tree
+[DEFENSE] t=27.8m training a ram (2/6)
+[HARNESS] t=27.8m corral at 472,536 for the tech tree
+[HARNESS] t=27.8m storehouse at 486,473 for woodline 490,435 (17 underserved)
+[HARNESS] construct FAILED: structures/gaul/corral at 472,536
+[HARNESS] t=28.0m corral at 419,709 for the tech tree
+[HARNESS] construct FAILED: structures/gaul/corral at 419,709
+[HARNESS] t=28.2m research gather_mining_servants
+[HARNESS] t=28.2m research gather_mining_wedgemallet
+[HARNESS] t=28.3m research gather_capacity_wheelbarrow
+[DEFENSE] t=28.3m raiding enemy CC 233,385 (defenders=33, army=122, rams=2)
+[DEFENSE] t=28.3m training a ram (3/6)
+[HARNESS] t=28.3m storehouse at 493,492 for woodline 488,435 (5 underserved)
+[HARNESS] t=28.8m storehouse at 513,454 for woodline 484,435 (37 underserved)
+[HARNESS] t=28.9m research gather_mining_serfs
+[HARNESS] t=28.9m research gather_mining_shaftmining
+[DEFENSE] t=29.0m training a ram (4/6)
+[HARNESS] t=29.3m storehouse at 463,494 for woodline 481,435 (23 underserved)
+[HARNESS] t=29.4m research gather_capacity_carts
+[HARNESS] t=29.5m research trader_health
+[DEFENSE] t=29.7m training a ram (5/6)
+[HARNESS] t=29.8m storehouse at 524,492 for woodline 478,436 (20 underserved)
+[HARNESS] expansion candidates: 6 of 19 lattice anchors yield a buildable spot
+[HARNESS]   existing CC at 500,628
+[HARNESS]   existing CC at 268,140
+[HARNESS]   existing CC at 233,385
+[HARNESS] expansion plan: 4 CCs, sim coverage 44.8% of 6451 passable tiles (bar 70%)
+[HARNESS] t=30m pop=269/300 idle=0 starved=0 gatherers food=56 wood=56 stone=20 metal=20 houses=49 fields=33 town=4 techs=9/10 rates wood=43% grain=80% fruit=- stone=60% metal=60% foodmix fruit=0 grain=4691 meat=0 dist wood=36m grain=8m fruit=-m founds=1 failedSpots=4 fruitStock=0 enemyArmy=23 siege=2 enemyNear=251m army=79 woodline=undefined@493,442=8419 terr=22%(1433/6451) stock 7095/939/765/110
+[DEFENSE] t=30.3m razed enemy CC at 233,385
+[DEFENSE] t=30.3m raiding enemy CC 268,140 (defenders=33, army=78, rams=4)
+[HARNESS] t=30.3m research gather_mining_slaves
+[HARNESS] t=30.3m research gather_mining_silvermining
+[HARNESS] t=30.3m research gather_capacity_carts
+[DEFENSE] t=30.4m training a ram (5/6)
+[HARNESS] t=30.4m storehouse at 501,437 for woodline 475,437 (33 underserved)
+[DEFENSE] t=30.6m training a ram (5/6)
+[HARNESS] t=30.9m storehouse at 455,456 for woodline 473,437 (9 underserved)
+[DEFENSE] t=31.1m training a ram (6/6)
+[HARNESS] t=31.3m research trade_commercial_treaty
+[HARNESS] t=31.3m research gather_animals_stockbreeding
+[HARNESS] t=31.3m research health_civilians_01
+[HARNESS] t=31.4m storehouse at 443,465 for woodline 469,438 (9 underserved)
+[HARNESS] construct FAILED: structures/gaul/storehouse at 443,465
+[HARNESS] t=31.9m storehouse at 486,444 for woodline 466,438 (21 underserved)
+[HARNESS] t=31.9m research gather_farming_fertilizer
+[HARNESS] t=32.4m storehouse at 435,459 for woodline 465,439 (15 underserved)
+[HARNESS] t=32.4m research trade_gain_01
+[HARNESS] expansion candidates: 9 of 19 lattice anchors yield a buildable spot
+[HARNESS]   existing CC at 500,628
+[HARNESS]   existing CC at 268,140
+[HARNESS] expansion plan: 5 CCs, sim coverage 64.0% of 6451 passable tiles (bar 70%)
+[HARNESS] t=33m pop=300/300 idle=3 starved=0 gatherers food=56 wood=56 stone=20 metal=17 houses=49 fields=33 town=4 techs=9/10 rates wood=72% grain=92% fruit=- stone=60% metal=68% foodmix fruit=0 grain=4998 meat=0 dist wood=43m grain=8m fruit=-m founds=1 failedSpots=3 fruitStock=0 enemyArmy=0 siege=0 enemyNear=526m army=118 woodline=undefined@493,442=2422 terr=23%(1494/6451) stock 7738/2960/1500/230
+[HARNESS] t=32.5m CC order at 275,581 (1/5, slot 1/3)
+[HARNESS] t=32.5m CC order at 594,384 (1/5, slot 2/3)
+[HARNESS] t=32.5m CC order at 384,384 (1/5, slot 3/3)
+[HARNESS] t=32.9m storehouse at 450,474 for woodline 462,435 (15 underserved)
+[HARNESS] t=33.5m research soldier_attack_ranged_02
+[HARNESS] t=33.5m research gather_lumbering_sharpaxes
+[HARNESS] construct FAILED: structures/gaul/civil_centre at 594,384
+[HARNESS] t=33.6m CC order at 174,384 (1/5, slot 3/3)
+[HARNESS] construct FAILED: structures/gaul/civil_centre at 384,384
+[HARNESS] t=34.1m CC order at 678,190 (1/5, slot 3/3)
+[HARNESS] t=34.1m storehouse at 155,659 for mine 142,646 (5000 left)
+[HARNESS] t=34.1m market at 291,602 for the trade routes
+[HARNESS] t=34.2m farmstead at 239,713 for next fruit patch 261,715 (stock 542)
+[HARNESS] t=34.2m CC 1/5 completed at 275,581
+[HARNESS] t=34.2m CC spot 594,384 failed, skipping
+[HARNESS] t=34.2m CC spot 384,384 failed, skipping
+[HARNESS] t=34.7m trade route 284m (2 markets)
+[HARNESS] t=34.7m research soldier_resistance_hack_02
+[HARNESS] t=34.8m research soldier_resistance_pierce_02
+[HARNESS] expansion candidates: 4 of 19 lattice anchors yield a buildable spot
+[HARNESS]   existing CC at 500,628
+[HARNESS]   existing CC at 268,140
+[HARNESS]   existing CC at 174,384
+[HARNESS]   existing CC at 678,190
+[HARNESS]   existing CC at 275,581
+[HARNESS] expansion plan: 2 CCs, sim coverage 56.0% of 6451 passable tiles (bar 70%)
+[HARNESS] t=34.9m CC order at 602,384 (1/2, slot 3/3)
+[HARNESS] t=35m pop=296/300 idle=0 starved=0 gatherers food=56 wood=56 stone=20 metal=20 houses=49 fields=33 town=6 techs=10/10 rates wood=69% grain=84% fruit=- stone=46% metal=75% foodmix fruit=0 grain=5464 meat=0 dist wood=124m grain=8m fruit=79m founds=3 failedSpots=3 fruitStock=1705 enemyArmy=20 siege=0 enemyNear=522m army=106 woodline=store@338,576=5900 terr=40%(2637/6451) stock 10844/4699/1112/99
+[HARNESS] worker-efficiency player 1: gathered / theoretical / efficiency / tasked time; per-5min buckets
+[HARNESS] bucket minutes:   0m   5m  10m  15m  20m  25m  30m  35m
+[HARNESS] wood   gathered= 42233 theoretical=  67513.6 efficiency=  62.6% tasked=1452.5min buckets=[  84   68   46   60   61   56   77   20]%
+[HARNESS] stone  gathered=  5391 theoretical=   7262.0 efficiency=  74.2% tasked= 278.6min buckets=[   -   82   84   79   70   64   73   42]%
+[HARNESS] metal  gathered=  6816 theoretical=   8641.4 efficiency=  78.9% tasked= 380.4min buckets=[   -   70   73   74   68   85   85   85]%
+[HARNESS] field  gathered= 47267 theoretical=  48147.9 efficiency=  98.2% tasked=1459.4min buckets=[ 107  103  101   95   98   98   98  100]%
+[HARNESS] fruit  gathered=  2815 theoretical=   4588.6 efficiency=  61.3% tasked=  63.7min buckets=[  71   52    -    -   42    -   43  100]%
+[HARNESS] woodR  gathered=     0 tasked=   0.0min
+[HARNESS] stoneR gathered=     0 tasked=   0.0min
+[HARNESS] metalR gathered=     0 tasked=   0.0min
+[HARNESS] meat   gathered=  1849 tasked=  41.1min
+[HARNESS] utilization=59.7% (tasked 3634.6min of 6088.9min total worker-min)
+STATS player=1 sha256=e5a6ac2003916a3dfb28cb15ab7900e559b9f83d701c1944e1493c9735bdf94e
+STATS player=2 sha256=4b348c39c2bb1743af1020182cbb500a44e837092013f6fd4cd0a025bfbb39c8

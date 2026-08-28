@@ -13,6 +13,31 @@ MCP tools, the job-spec format, how to read results
 (`/var/lib/kiln/results/...`, `fetch-kiln-artifacts.sh`) and how to wait
 without polling.
 
+## Golden timelines (behavior-preservation gate)
+
+`golden.py` manages the canonical per-seed event timelines under
+`tools/golden/seed<N>.timeline` — every tagged bot/harness line
+(`[HARNESS] [DEFENSE] [HUNT] [THREAT] [HERDDONE] [KILN]`), any `ERROR`
+lines, and a sha256 of each player's raw statistics block, in order.
+A behavior-preserving refactor must reproduce all five timelines
+bit-for-bit.
+
+Validation set: seeds 1-5 (the goal-10/goal-11 validation batch), spec
+`random/mainland` 192, `generic/temperate`, `circle`,
+`conquest_civic_centers`, `brennus_gaul_generic_land_map` gaul vs Petra
+diff 3 aggressive rome, teams 1/2, `in_game_limit_min=45`,
+`wall_budget_s=1800`, seed=aiseed. Submit one batch per seed via the
+kiln MCP (docs/kiln.md), then:
+
+```sh
+# fetch each landed job, then diff fresh output against the goldens
+tools/golden.py fetch <seed> <batch_id> <job_id>
+tools/golden.py check 1 2 3 4 5     # exit 1 + unified diff on any mismatch
+```
+
+`update <seed>` rewrites a golden file — only for creating the initial
+baseline, never to silence an unexplained diff.
+
 ## Match harness
 
 ### run.sh — run headless matches
