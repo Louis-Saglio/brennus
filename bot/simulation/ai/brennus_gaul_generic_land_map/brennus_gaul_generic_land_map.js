@@ -1185,7 +1185,7 @@ BrennusBot.prototype.managePhaseUp = function()
 	// 9.1/9.5m, then starved). 300 strangled the house stream (agg5 s1: pop
 	// cap stalled at 120); 150 is one barracks at a time. Must be set before
 	// the early returns below so the money accumulates through every hold.
-	if (!this.warOn() && this.defenseBuildingsMissing)
+	if (!this.warOn() && this.arbiter.declared("defenseGap"))
 		this.arbiter.reserve("phaseBank", { "wood": 150 });
 	if (!tech || gameState.isResearching(tech) || gameState.isResearched(tech))
 		return;
@@ -1304,7 +1304,7 @@ BrennusBot.prototype.trainWorkers = function()
 
 	const reserveFood = this.arbiter.reserved("food");
 
-	const fertFloor = this.fertPending ? 300 : 0;
+	const fertFloor = this.arbiter.declaredAmount("fert", "food");
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const houseTraining = gameState.isResearched(this.houseTrainingTech);
 
@@ -1348,14 +1348,14 @@ BrennusBot.prototype.manageResearch = function()
 		return;
 
 	const fert = this.houseTrainingTech;
-	this.fertPending = false;
+	this.arbiter.declare("fert", null);
 	if (!gameState.isResearched(fert) && !gameState.isResearching(fert) &&
 		gameState.getTimeElapsed() >= 240000)
 	{
 		const affordable = resources.canAfford({ "food": 260, "wood": 110, "metal": 110 });
 		const facility = gameState.findResearchers(fert)?.toEntityArray()
 			.filter(ent => ent.foundationProgress() === undefined && (ent.trainingQueue()?.length || 0) <= 1)[0];
-		this.fertPending = !!facility && gameState.canResearch(fert) && !affordable;
+		this.arbiter.declare("fert", !!facility && gameState.canResearch(fert) && !affordable ? { "food": 300 } : null);
 		if (affordable && facility)
 		{
 			facility.research(fert);
@@ -1592,10 +1592,10 @@ BrennusBot.prototype.manageConstruction = function()
 
 	if (margin < 2 && houseFoundations < this.maxHouseFoundations &&
 		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
-		resources.wood >= houseCost + (this.fieldDemand ? 100 : 0))
+		resources.wood >= houseCost + this.arbiter.declaredAmount("field", "wood"))
 		return tryHouse();
 
-	this.techPendingWood = 0;
+	this.arbiter.declare("techWood", null);
 	for (const tech of ["gather_farming_plows", "gather_farming_training",
 		"gather_farming_harvester", "gather_lumbering_ironaxes"])
 	{
@@ -1604,7 +1604,7 @@ BrennusBot.prototype.manageConstruction = function()
 			continue;
 		const techWood = gameState.getTemplate(tech).cost().wood || 0;
 		if (resources.wood < techWood + 100)
-			this.techPendingWood = techWood;
+			this.arbiter.declare("techWood", techWood ? { "wood": techWood } : null);
 		break;
 	}
 
@@ -1628,14 +1628,14 @@ BrennusBot.prototype.manageConstruction = function()
 		gameState.getBuiltTemplate(f.templateName()).templateName() === fieldType).length;
 
 	// Bootstrap only: the first 2 fields outrank the house stream while served fruit is nearly out.
-	this.fieldDemand = (fields + fieldFoundations) < Math.min(2, desiredFields) &&
-		this.fruitStock < 800;
+	this.arbiter.declare("field", (fields + fieldFoundations) < Math.min(2, desiredFields) &&
+		this.fruitStock < 800 ? { "wood": 100 } : null);
 
 	this.fieldStallTurns = fields === this.lastFields ? (this.fieldStallTurns || 0) + 1 : 0;
 	this.lastFields = fields;
 	if (this.woodPoor && fields + fieldFoundations < desiredFields / 2 &&
 		this.fieldStallTurns > 100)
-		this.fieldDemand = true;
+		this.arbiter.declare("field", { "wood": 100 });
 
 	// On wood-poor biomes fields leave the town trio's wood untouched.
 	const fieldTrioWood = gameState.currentPhase() === 2 && this.woodPoor ?
@@ -1668,15 +1668,15 @@ BrennusBot.prototype.manageConstruction = function()
 		return;
 	}
 
-	if (this.fertPending)
+	if (this.arbiter.declared("fert"))
 		return;
 
 	const sprintCap = gameState.getTimeElapsed() > 600000 &&
 		gameState.getPopulationLimit() < gameState.getPopulationMax();
 	if ((margin < this.houseMargin || sprintCap) && houseFoundations < this.maxHouseFoundations &&
-		!this.techPendingWood &&
+		!this.arbiter.declared("techWood") &&
 		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
-		resources.wood >= (reserve.wood || 0) + this.nextTrioWood() + (this.dropsiteDemand ? 100 : 0) + (this.fieldDemand ? 100 : 0) + houseCost)
+		resources.wood >= (reserve.wood || 0) + this.nextTrioWood() + this.arbiter.declaredAmount("dropsite", "wood") + this.arbiter.declaredAmount("field", "wood") + houseCost)
 		return tryHouse();
 };
 
@@ -1730,7 +1730,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 
 	const woodFloor = 100 + (reserve.wood || 0);
 
-	this.dropsiteDemand = false;
+	this.arbiter.declare("dropsite", null);
 
 	const halfDiag = ent => {
 		const o = ent.get("Obstruction/Static");
@@ -1837,7 +1837,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 
 				(this.woodline?.kind === "store" && (this.woodline.total || 0) < 2000))))
 		{
-			this.dropsiteDemand = true;
+			this.arbiter.declare("dropsite", { "wood": 100 });
 			const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
 
 			const center = this.woodlineDropSpot() || centroid(clump);
@@ -1885,7 +1885,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		if (underserved.length >= (this.expansionOn() ? 5 : 2) &&
 			!(this.expansionOn() && this.turn - (this.lastMineStoreTurn || -1000) < 40))
 		{
-			this.dropsiteDemand = true;
+			this.arbiter.declare("dropsite", { "wood": 100 });
 			const sMine = this.mineId.stone !== undefined ?
 				gameState.getEntityById(this.mineId.stone) : undefined;
 			const mMine = this.mineId.metal !== undefined ?
@@ -1950,7 +1950,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			}
 		if (best)
 		{
-			this.dropsiteDemand = true;
+			this.arbiter.declare("dropsite", { "wood": 100 });
 			const planned = storeFoundations.some(p => Math.hypot(p[0] - best[0], p[1] - best[1]) < 45) ||
 				storePending(best);
 			if (!planned)
@@ -2036,7 +2036,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 	}
 	if (unservedFruit.length >= 3 && farmCount < 12)
 	{
-		this.dropsiteDemand = true;
+		this.arbiter.declare("dropsite", { "wood": 100 });
 		const cluster = unservedFruit.filter(p => Math.hypot(p[0] - worstFruit[0], p[1] - worstFruit[1]) < 25);
 		const center = centroid(cluster);
 		const planned = farmFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 25);
@@ -2074,7 +2074,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		}
 		if (best)
 		{
-			this.dropsiteDemand = true;
+			this.arbiter.declare("dropsite", { "wood": 100 });
 			const planned = farmFoundations.some(p => Math.hypot(p[0] - best[0], p[1] - best[1]) < 25);
 			const pos = !planned && this.tryConstruct(farmType, "dropsite", best);
 			if (pos)
@@ -3065,7 +3065,7 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 		if (have < want && !this.pendingBuilds.some(pb => pb.template === type))
 			missingAny = true;
 	}
-	this.defenseBuildingsMissing = missingAny;
+	this.arbiter.declare("defenseGap", missingAny);
 	for (const [type, want] of wants)
 	{
 		if (haveByType[type] >= want || this.pendingBuilds.some(pb => pb.template === type))
@@ -3221,7 +3221,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	const boom = this.warOn();
 	const milBatch = boom ? 5 : 1;
 	const floorF = boom ? 300 : 50;
-	const floorW = boom ? (this.defenseBuildingsMissing ? 400 : 300) : 50;
+	const floorW = boom ? (this.arbiter.declared("defenseGap") ? 400 : 300) : 50;
 	if (missing > 0 && res.food >= floorF && res.wood >= floorW)
 		for (const ent of trainers)
 		{
