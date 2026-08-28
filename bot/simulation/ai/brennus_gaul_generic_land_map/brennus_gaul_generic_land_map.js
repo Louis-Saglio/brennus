@@ -75,12 +75,12 @@ BrennusBot.prototype.currentShares = function(total)
 		const res = this.arbiter.books("shares");
 		const shares = { ...base };
 		let mining = 0;
-		if (res.stone < 400)
+		if (res.stone < this.arbiterParams.warChest.mineStone)
 		{
 			shares.stone = 0.06;
 			mining += 0.06;
 		}
-		if (res.metal < 800)
+		if (res.metal < this.arbiterParams.warChest.mineMetal)
 		{
 			shares.metal = 0.12;
 			mining += 0.12;
@@ -147,6 +147,63 @@ BrennusBot.prototype.ringServeDist = 40;
 
 /** Pinned stone and metal mines closer than this (m) share ONE storehouse. */
 BrennusBot.prototype.minePairDist = 55;
+
+/**
+ * The bot's resource equilibria, surfaced as named arbiter parameters
+ * (step 3 of the arbiter refactor — values are exactly the emergent ones
+ * the previously scattered logic produced; golden timelines must stay
+ * bit-identical).
+ *
+ * foodSplit — the early-game food equilibrium between the woman stream and
+ * the early muster: defense spends first in every block (the pipeline's
+ * first stage) and draws the muster in 1-unit batches at cost-level floors;
+ * the woman stream draws second, in batches, above the phase-bank reserves.
+ * Same 50-food head cost, same per-block cadence — that is what splits the
+ * flow roughly evenly instead of one side starving the other.
+ *
+ * popPartition — the 300-pop partition once the war stage is on:
+ * workerCap workers + armyTarget soldiers + healersWar + 6 rams (3 pop
+ * each) = 298. dismissFloor keeps a hysteresis gap under workerCap so a
+ * dismissed civilian is not immediately retrained; warPopHeadroom stops the
+ * women stream just below the cap so army refills never hit it. armyTarget
+ * is 120 because 100 was not enough to raid through a camped Petra (agg11
+ * s3: three raids at 60-63 bounced off 19-37 defenders + CC arrows).
+ *
+ * warChest — the war-chest floors: fundWood reserves the muster buildings'
+ * wood pre-war; mineStone/mineMetal keep war-phase mining shares alive
+ * until the chest is banked; the muster/ram/tech floors stop the war
+ * machine from spending the chest below working level.
+ */
+BrennusBot.prototype.arbiterParams = {
+	"foodSplit": {
+		"musterTarget": 60,
+		"musterBatch": 1,
+		"musterFloor": { "food": 50, "wood": 50 },
+		"womanCcBatch": 5,
+		"womanHouseBatch": 1
+	},
+	"popPartition": {
+		"workerCap": 150,
+		"dismissFloor": 145,
+		"armyTarget": 120,
+		"healersWar": 10,
+		"healersEarly": 4,
+		"rams": 6,
+		"warPopHeadroom": 5
+	},
+	"warChest": {
+		"fundWood": 150,
+		"mineStone": 400,
+		"mineMetal": 800,
+		"musterBatch": 5,
+		"musterFood": 300,
+		"musterWood": 300,
+		"musterWoodGap": 400,
+		"ramWood": 350,
+		"ramMetal": 200,
+		"techMetal": 150
+	}
+};
 
 /**
  * Resource arbiter: the single choke point for resource reads and spends.
@@ -1200,7 +1257,7 @@ BrennusBot.prototype.managePhaseUp = function()
 	// cap stalled at 120); 150 is one barracks at a time. Must be set before
 	// the early returns below so the money accumulates through every hold.
 	if (!this.warOn() && this.arbiter.declared("defenseGap"))
-		this.arbiter.reserve("phaseBank", { "wood": 150 });
+		this.arbiter.reserve("phaseBank", { "wood": this.arbiterParams.warChest.fundWood });
 	if (!tech || gameState.isResearching(tech) || gameState.isResearched(tech))
 		return;
 	if (!gameState.canResearch(tech))
@@ -1276,14 +1333,14 @@ BrennusBot.prototype.trainWorkers = function()
 	// target yo-yoed (army full → train to the cap → dismiss for the next
 	// batch → retrain…).
 	if (this.warOn() &&
-		gameState.getPopulation() >= gameState.getPopulationLimit() - 5)
+		gameState.getPopulation() >= gameState.getPopulationLimit() - this.arbiterParams.popPartition.warPopHeadroom)
 		return;
 
-	// War-stage pop discipline: hold workers at 150 and leave the rest of the
-	// 300 cap free for the army (120) + healers (10) + rams (6 × 3 pop) =
-	// 298 total. 175 workers pop-blocked the army at ~60 until dismissal
-	// kicked in 15 min after city (agg11 s3), and the war economy runs a
-	// 10k+ food surplus anyway.
+	// War-stage pop discipline: hold workers at the pop-partition cap and
+	// leave the rest of the 300 cap free for the army (120) + healers (10) +
+	// rams (6 × 3 pop) = 298 total. 175 workers pop-blocked the army at ~60
+	// until dismissal kicked in 15 min after city (agg11 s3), and the war
+	// economy runs a 10k+ food surplus anyway.
 	// Refilling army losses with women only to dismiss them on the next
 	// soldier batch is a pure food leak — def10-12 logged 400-900 dismissals
 	// per game (≈ 20-45k food).
@@ -1294,13 +1351,13 @@ BrennusBot.prototype.trainWorkers = function()
 			if (u.isGatherer() && !u.hasClass("Soldier") && !u.hasClass("Trader") &&
 				u.id() !== this.herderId)
 				workers++;
-		if (workers >= 150)
+		if (workers >= this.arbiterParams.popPartition.workerCap)
 			return;
 	}
 
-	// Pre-war (town phase): cap the woman stream at 150 — the early muster
-	// needs the food more than the boom needs a 150th worker (agg4 s1: the
-	// house stream drained food at cost level every block and the barracks
+	// Pre-war (town phase): cap the woman stream at the same cap — the early
+	// muster needs the food more than the boom needs a 150th worker (agg4 s1:
+	// the house stream drained food at cost level every block and the barracks
 	// starved; 8 infantry trained all game). But not lower: agg5's cap of
 	// 100 starved the boom techs and stalled city phase, and agg6's 130
 	// still meant city at 18.5-20.2m — city gates fanatics/rams/raids, so
@@ -1312,7 +1369,7 @@ BrennusBot.prototype.trainWorkers = function()
 			if (u.isGatherer() && !u.hasClass("Soldier") && !u.hasClass("Trader") &&
 				u.id() !== this.herderId)
 				workers++;
-		if (workers >= 150)
+		if (workers >= this.arbiterParams.popPartition.workerCap)
 			return;
 	}
 
@@ -1331,12 +1388,12 @@ BrennusBot.prototype.trainWorkers = function()
 			if (this.arbiter.held("phaseReady"))
 				continue;
 			type = gameState.applyCiv("units/{civ}/support_civilian");
-			batch = 5;
+			batch = this.arbiterParams.foodSplit.womanCcBatch;
 		}
 		else if (houseTraining && ent.hasClass("House") && ent.foundationProgress() === undefined)
 		{
 			type = gameState.applyCiv("units/{civ}/support_civilian_house");
-			batch = 1;
+			batch = this.arbiterParams.foodSplit.womanHouseBatch;
 		}
 		else
 			continue;
@@ -2522,8 +2579,8 @@ BrennusBot.prototype.nearEnemy = function(pos, structureDist, mobileDist)
 };
 
 // ---------------------------------------------------------------- defense
-/** War-stage standing army size. Pop math under the 300 cap: 150 workers + 10 healers + 6 rams (3 pop each) + 120 = 298. 100 was not enough to raid through a camped Petra (agg11 s3: three raids at 60-63 bounced off 19-37 defenders + CC arrows; the one raid that razed a CC had to wait for a quiet window). */
-BrennusBot.prototype.defenseArmyTarget = 120;
+// War-stage standing army size: popPartition.armyTarget in arbiterParams
+// (the pop math lives with the parameter).
 
 BrennusBot.prototype.armyCount = function()
 {
@@ -3183,7 +3240,7 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 				(ent.trainingQueue()?.length || 0) <= 1)[0];
 		if (!facility || !gameState.canResearch(tech))
 			return;
-		if (!res.canAfford(cost) || res.metal < (cost.metal || 0) + 150)
+		if (!res.canAfford(cost) || res.metal < (cost.metal || 0) + this.arbiterParams.warChest.techMetal)
 			return;
 		facility.research(tech);
 		this.arbiter.spend(res, "milTechs", cost, tech);
@@ -3218,7 +3275,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	// Early muster: 60 soldiers until the war stage (city) — Petra aggressive
 	// arrives at ~16 min with ~100 units, so 40 was still half a wave (agg3) —
 	// 100 after.
-	const target = this.warOn() ? this.defenseArmyTarget : 60;
+	const target = this.warOn() ? this.arbiterParams.popPartition.armyTarget : this.arbiterParams.foodSplit.musterTarget;
 	const missing = target - this.armyCount() - queued;
 	// Healers first: 10 of them halve the effective churn of the standing army.
 	let healerCount = 0;
@@ -3233,9 +3290,9 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	// temples/forge/arsenal are outstanding (def11-13: starving the
 	// construction budget froze the muster).
 	const boom = this.warOn();
-	const milBatch = boom ? 5 : 1;
-	const floorF = boom ? 300 : 50;
-	const floorW = boom ? (this.arbiter.declared("defenseGap") ? 400 : 300) : 50;
+	const milBatch = boom ? this.arbiterParams.warChest.musterBatch : this.arbiterParams.foodSplit.musterBatch;
+	const floorF = boom ? this.arbiterParams.warChest.musterFood : this.arbiterParams.foodSplit.musterFloor.food;
+	const floorW = boom ? (this.arbiter.declared("defenseGap") ? this.arbiterParams.warChest.musterWoodGap : this.arbiterParams.warChest.musterWood) : this.arbiterParams.foodSplit.musterFloor.wood;
 	if (missing > 0 && res.food >= floorF && res.wood >= floorW)
 		for (const ent of trainers)
 		{
@@ -3248,7 +3305,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 				this.arbiter.spend(res, "defenseTraining", { "food": 50 * milBatch, "wood": 50 * milBatch }, `infantry x${milBatch}`);
 				continue;
 			}
-			if (healerCount < (boom ? 10 : 4))
+			if (healerCount < (boom ? this.arbiterParams.popPartition.healersWar : this.arbiterParams.popPartition.healersEarly))
 			{
 				ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/support_healer_b"), boom ? 2 : 1, {});
 				this.arbiter.spend(res, "defenseTraining", boom ? { "food": 200, "metal": 60 } : { "food": 100, "metal": 30 }, `healer x${boom ? 2 : 1}`);
@@ -3277,16 +3334,16 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	}
 	for (const id in this.rams)
 		rams++;
-	if (this.armyCount() >= 40 && rams < 6 && arsenals.length &&
-		res.wood >= 350 && res.metal >= 200)
+	if (this.armyCount() >= 40 && rams < this.arbiterParams.popPartition.rams && arsenals.length &&
+		res.wood >= this.arbiterParams.warChest.ramWood && res.metal >= this.arbiterParams.warChest.ramMetal)
 		for (const arsenal of arsenals)
 		{
-			if (rams >= 6 || res.wood < 350 || res.metal < 200)
+			if (rams >= this.arbiterParams.popPartition.rams || res.wood < this.arbiterParams.warChest.ramWood || res.metal < this.arbiterParams.warChest.ramMetal)
 				break;
 			arsenal.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/siege_ram"), 1, {});
 			this.arbiter.spend(res, "defenseTraining", { "wood": 300, "metal": 150 }, "ram");
 			rams++;
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/6)\n`);
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/${this.arbiterParams.popPartition.rams})\n`);
 		}
 	// Pop room for a batch of 5: dismiss workers (idle first) until 5 slots are
 	// free, throttled and never below a floor that keeps the economy alive.
@@ -3311,7 +3368,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 			fallback = fallback || ent;
 		}
 		victim = victim || fallback;
-		if (victim && workers > 145)
+		if (victim && workers > this.arbiterParams.popPartition.dismissFloor)
 		{
 			this.nextDismissTurn = this.turn + 3;
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m dismissing a civilian for army pop room (workers=${workers})\n`);
