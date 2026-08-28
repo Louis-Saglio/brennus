@@ -338,8 +338,8 @@ BrennusBot.prototype.OnUpdate = function()
 		// expansion plan (def14: 7-20 dead spots).
 		this.failedSpots = this.failedSpots.filter(f => this.turn - (f[2] || 0) < 1500);
 
-		// Research + construct in the same block overdraw the pre-command resource snapshot: hold construction one block after any research order.
-		this.constructionHold = false;
+		// Research + construct in the same block overdraw the pre-command resource snapshot: a research order holds construction for the rest of the block.
+		this.arbiter.resetBlock();
 		this.updateWoodline();
 		this.assignGatherers();
 		this.manageHerding();
@@ -1172,7 +1172,6 @@ BrennusBot.prototype.managePhaseUp = function()
 	const gameState = this.gameState;
 	const tech = this.nextPhaseTech();
 	this.phaseReserve = null;
-	this.phaseReady = false;
 	this.banking = false;
 	// Goal-10 war fund: while the early-muster buildings (barracks, temple)
 	// are still missing, hold 150 wood out of the boom's reach — the house
@@ -1221,12 +1220,12 @@ BrennusBot.prototype.managePhaseUp = function()
 	if (!this.arbiter.check(this.arbiter.books("phaseUp"), "phaseUp", cost, tech))
 		return;
 
-	this.phaseReady = true;
+	this.arbiter.hold("phaseReady");
 	const cc = this.getCivicCentre();
 	if (cc && !cc.trainingQueue()?.length)
 	{
 		cc.research(tech);
-		this.constructionHold = true;
+		this.arbiter.hold("construction");
 	}
 	else if (cc && gameState.getPopulation() >= gameState.getPopulationLimit())
 
@@ -1307,7 +1306,7 @@ BrennusBot.prototype.trainWorkers = function()
 		if (ent.templateName() === ccType)
 		{
 
-			if (this.phaseReady)
+			if (this.arbiter.held("phaseReady"))
 				continue;
 			type = gameState.applyCiv("units/{civ}/support_civilian");
 			batch = 5;
@@ -1354,7 +1353,7 @@ BrennusBot.prototype.manageResearch = function()
 			facility.research(fert);
 			this.arbiter.spend(resources, "research", { "food": 250, "wood": 100, "metal": 100 }, fert);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${fert}\n`);
-			this.constructionHold = true;
+			this.arbiter.hold("construction");
 		}
 		return;
 	}
@@ -1394,7 +1393,7 @@ BrennusBot.prototype.manageResearch = function()
 			facility.research(tech);
 			this.arbiter.spend(resources, "research", cost, tech);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${tech}\n`);
-			this.constructionHold = true;
+			this.arbiter.hold("construction");
 		}
 		return;
 	}
@@ -1512,7 +1511,7 @@ BrennusBot.prototype.manageConstruction = function()
 		return true;
 	});
 
-	if (this.constructionHold)
+	if (this.arbiter.held("construction"))
 		return;
 
 	if (this.banking)
@@ -3025,7 +3024,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 /** Military buildings: 3 barracks + 5 home towers from the town phase on (the early-muster package — 5 towers because a garrisoned stone tower is 9 arrows, and the wave arrives before the war stage does); after the boom the full set — 4 barracks, temples, forge, arsenal + 4 towers per expansion CC. Stone is plentiful on mainland; towers are our cheapest defense. */
 BrennusBot.prototype.manageDefenseBuildings = function()
 {
-	if (!this.defenseOn() || this.constructionHold)
+	if (!this.defenseOn() || this.arbiter.held("construction"))
 		return;
 	const gameState = this.gameState;
 	const boom = this.warOn();
@@ -3071,7 +3070,7 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 			// exactly like the old anonymous getResources().subtract().
 			this.arbiter.spend(this.arbiter.books("defenseBuildings"), "defenseBuildings", { "wood": 300 }, type.split("/").pop());
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m defense building ${type.split("/").pop()}\n`);
-			this.constructionHold = true;
+			this.arbiter.hold("construction");
 		}
 		return;
 	}
@@ -3149,7 +3148,7 @@ BrennusBot.prototype.militaryTechs = [
 
 BrennusBot.prototype.manageMilitaryTechs = function()
 {
-	if (!this.warOn() || this.constructionHold)
+	if (!this.warOn() || this.arbiter.held("construction"))
 		return;
 	const gameState = this.gameState;
 	const res = this.arbiter.books("milTechs");
@@ -3167,7 +3166,7 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 		facility.research(tech);
 		this.arbiter.spend(res, "milTechs", cost, tech);
 		print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${tech}\n`);
-		this.constructionHold = true;
+		this.arbiter.hold("construction");
 		return;
 	}
 };
@@ -3865,7 +3864,7 @@ BrennusBot.prototype.manageExpansion = function()
 
 		}
 		else if (!this.pendingBuilds.some(pb => pb.template === wonderType) &&
-			!this.constructionHold)
+			!this.arbiter.held("construction"))
 		{
 			const res = this.arbiter.books("expansion");
 
@@ -3899,7 +3898,7 @@ BrennusBot.prototype.manageExpansion = function()
 			plan.marketsPlaced = this.expMarkets;
 		else if (!this.pendingBuilds.some(pb => pb.template === marketType &&
 				SquareDistance([pb.x, pb.z], base) > 150 * 150) &&
-			!this.constructionHold)
+			!this.arbiter.held("construction"))
 		{
 			const res = this.arbiter.books("expansion");
 			if (res.wood >= 600)
@@ -3935,7 +3934,7 @@ BrennusBot.prototype.manageExpansion = function()
 		if (built || gameState.isResearched("gather_animals_stockbreeding"))
 			plan.corralDone = true;
 		else if (!this.pendingBuilds.some(pb => pb.template === corralType) &&
-			!this.constructionHold && this.arbiter.books("expansion").wood >= 300)
+			!this.arbiter.held("construction") && this.arbiter.books("expansion").wood >= 300)
 		{
 			const spot = this.findBuildingPosition(corralType, this.getCivicCentre().position(), 12, 120, true, this.expansionRegion);
 			if (spot && this.placeOrder(corralType, spot))
@@ -4035,7 +4034,7 @@ BrennusBot.prototype.manageExpansion = function()
 			}
 			const res = this.arbiter.books("expansion");
 
-			if (this.constructionHold)
+			if (this.arbiter.held("construction"))
 				return;
 			// Frontier projects need escort conditions: while Petra masses an
 			// army we cannot cover, far CCs get captured rather than razed —
@@ -4205,7 +4204,7 @@ BrennusBot.prototype.manageExpansionTechs = function()
 			facility.research(tech);
 			this.arbiter.spend(resources, "expansionTechs", cost, tech);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${tech}\n`);
-			this.constructionHold = true;
+			this.arbiter.hold("construction");
 			return true;
 		}
 	}
