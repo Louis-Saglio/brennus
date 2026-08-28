@@ -267,6 +267,32 @@ ResourceArbiter.prototype.declaredAmount = function(name, resource)
 	return p ? p[resource] || 0 : 0;
 };
 
+/**
+ * The spending pipeline, in priority order. Each stage gets fresh books on
+ * the same frozen per-turn mirror and may declare reserves/holds/demands
+ * that bind the later stages. Defense runs BEFORE the economy spenders
+ * (research, women stream, construction): the early muster must draw from
+ * the resource flow, not from stockpiles the boom never leaves behind
+ * (agg1: floors of 250/250 never fired pre-boom — the boom spent everything
+ * first — and the army stayed at 4 while Petra's 90-unit wave arrived).
+ */
+ResourceArbiter.prototype.spenders = [
+	["defense", "manageDefense"],
+	["phaseUp", "managePhaseUp"],
+	["research", "manageResearch"],
+	["workers", "trainWorkers"],
+	["construction", "manageConstruction"],
+	["barter", "manageBarter"],
+	["expansion", "manageExpansion"],
+	["trade", "manageTrade"]
+];
+
+ResourceArbiter.prototype.runSpenders = function()
+{
+	for (const [stage, fn] of this.spenders)
+		this.bot[fn]();
+};
+
 BrennusBot.prototype.CustomInit = function(gameState)
 {
 	print(`[HARNESS] brennus: loaded for player ${this.player}\n`);
@@ -345,25 +371,13 @@ BrennusBot.prototype.OnUpdate = function()
 		// expansion plan (def14: 7-20 dead spots).
 		this.failedSpots = this.failedSpots.filter(f => this.turn - (f[2] || 0) < 1500);
 
-		// Research + construct in the same block overdraw the pre-command resource snapshot: a research order holds construction for the rest of the block.
+		// A research or defense-building order holds construction for the rest of the block: research + construct in the same block would overdraw the pre-command resource snapshot.
 		this.arbiter.resetBlock();
 		this.updateWoodline();
 		this.assignGatherers();
 		this.manageHerding();
 		this.sampleGatherRates();
-		// Defense runs BEFORE the economy spenders (research, women stream,
-		// construction): the early muster must draw from the resource flow, not
-		// from stockpiles the boom never leaves behind (agg1: floors of 250/250
-		// never fired pre-boom — the boom spent everything first — and the army
-		// stayed at 4 while Petra's 90-unit wave arrived).
-		this.manageDefense();
-		this.managePhaseUp();
-		this.manageResearch();
-		this.trainWorkers();
-		this.manageConstruction();
-		this.manageBarter();
-		this.manageExpansion();
-		this.manageTrade();
+		this.arbiter.runSpenders();
 	}
 	const phase = this.gameState.currentPhase();
 	if (phase !== this.lastPhase)
