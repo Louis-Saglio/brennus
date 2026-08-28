@@ -649,3 +649,40 @@
   siege at 28m, 198+ at 40m). A bot whose army masses ~1-2/min net
   (food-flow-bound) can turtle for 40-45 min with favorable kill ratios
   but can never assemble the 75-army + 2-ram raid package by ~30m.
+
+## 2026-08-28 (arbiter refactor: behavior-preserving by construction)
+
+- **`gameState.getResources()` returns a FRESH copy per call**
+  (common-api/gamestate.js:309 — `new ResourcesManager(
+  this.playerData.resourceCounts)`), and the resource mirror is frozen for
+  the whole AI turn. `subtract()` therefore only ever edited the calling
+  function's own copy: there was never any cross-manager resource
+  accounting within a block. All cross-manager coordination in the bot ran
+  through shared instance flags (phaseReserve/banking/constructionHold/
+  fertPending/...), and spending priority through the OnUpdate call order
+  plus the engine's command-processing order. Any "shared wallet" refactor
+  that makes later managers see earlier managers' spends is NOT
+  behavior-preserving.
+- **Golden timelines are a working bit-identity gate**: the tagged bot
+  lines ([HARNESS]/[DEFENSE]/[HUNT]/...) plus a sha256 of each player's
+  raw statistics block resubmit bit-identical on kiln (seed 1 rerun 4 days
+  after the baseline matched all 218 lines including both stats hashes;
+  goal-10's turn counts also reproduced exactly). tools/golden.py
+  fetch/check implements the gate; 6 refactor rounds × 5 seeds all passed.
+- **Places where "behavior-preserving" was subtle** (all caught before
+  submission, verified bit-identical after): `fieldDemand` was read
+  stale-by-one-block at the early house gate (assigned later in the same
+  call) — the arbiter declaration replacing it must be sticky across
+  blocks, not reset per block. `getResources().subtract()` on an anonymous
+  temporary (manageDefenseBuildings' 300-wood barracks accounting, the
+  expansion corral) was a complete no-op — the "accounting" evaporated with
+  the temp; preserved as a spend on a throwaway books object.
+  `canAfford()` skips cost keys that are undefined, so a partial cost
+  object never fails on unlisted resources — matters once local copies can
+  go negative from over-ordering. `techPendingWood = techWood` with a
+  0-wood tech stores a falsy 0; the arbiter declaration must map that to
+  "cleared", not to a truthy `{wood: 0}`.
+- **The arbiter journals grants/denials in memory only** — any printed
+  log line becomes part of the golden timeline, so an always-on decision
+  log is incompatible with the bit-identity gate (and hot-path prints
+  measurably slow the sim anyway).
