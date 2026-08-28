@@ -231,6 +231,13 @@ ResourceArbiter.prototype.reserved = function(resource)
 	return sum;
 };
 
+/** All four reserved amounts as a cost-shaped object (the old phaseReserve reads). */
+ResourceArbiter.prototype.reservedAll = function()
+{
+	return { "food": this.reserved("food"), "wood": this.reserved("wood"),
+		"stone": this.reserved("stone"), "metal": this.reserved("metal") };
+};
+
 /** Holds: named per-block latches (e.g. construction paused after a research order). */
 ResourceArbiter.prototype.hold = function(name)
 {
@@ -1171,8 +1178,6 @@ BrennusBot.prototype.managePhaseUp = function()
 {
 	const gameState = this.gameState;
 	const tech = this.nextPhaseTech();
-	this.phaseReserve = null;
-	this.banking = false;
 	// Goal-10 war fund: while the early-muster buildings (barracks, temple)
 	// are still missing, hold 150 wood out of the boom's reach — the house
 	// stream spends wood at cost level every block, so the 300-wood barracks
@@ -1181,7 +1186,7 @@ BrennusBot.prototype.managePhaseUp = function()
 	// cap stalled at 120); 150 is one barracks at a time. Must be set before
 	// the early returns below so the money accumulates through every hold.
 	if (!this.warOn() && this.defenseBuildingsMissing)
-		this.phaseReserve = { "wood": 150 };
+		this.arbiter.reserve("phaseBank", { "wood": 150 });
 	if (!tech || gameState.isResearching(tech) || gameState.isResearched(tech))
 		return;
 	if (!gameState.canResearch(tech))
@@ -1207,10 +1212,13 @@ BrennusBot.prototype.managePhaseUp = function()
 	}
 	const cost = this.phaseUpCost[tech];
 	if (tech === "phase_town_generic")
-		this.banking = true;
+	{
+		this.arbiter.hold("banking");
+		this.arbiter.reserve("phaseBank", { "food": 500, "wood": 500 });
+	}
 	else
-		this.phaseReserve = { ...cost,
-			"wood": (cost.wood || 0) + (this.phaseReserve?.wood || 0) };
+		this.arbiter.reserve("phaseBank", { ...cost,
+			"wood": (cost.wood || 0) + this.arbiter.reserved("wood") });
 
 	// City: the goal-8/9 boom held the research start until the grain-rate and
 	// house-cap techs were out (fallback 13:20). Goal 10 cannot wait: city
@@ -1294,7 +1302,7 @@ BrennusBot.prototype.trainWorkers = function()
 			return;
 	}
 
-	const reserveFood = this.banking ? 500 : (this.phaseReserve?.food || 0);
+	const reserveFood = this.arbiter.reserved("food");
 
 	const fertFloor = this.fertPending ? 300 : 0;
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
@@ -1335,8 +1343,8 @@ BrennusBot.prototype.manageResearch = function()
 {
 	const gameState = this.gameState;
 	const resources = this.arbiter.books("research");
-	const reserve = this.phaseReserve || {};
-	if (this.banking)
+	const reserve = this.arbiter.reservedAll();
+	if (this.arbiter.held("banking"))
 		return;
 
 	const fert = this.houseTrainingTech;
@@ -1514,12 +1522,12 @@ BrennusBot.prototype.manageConstruction = function()
 	if (this.arbiter.held("construction"))
 		return;
 
-	if (this.banking)
+	if (this.arbiter.held("banking"))
 		return;
 
 	const houseType = gameState.applyCiv("structures/{civ}/house");
 	const fieldType = gameState.applyCiv("structures/{civ}/field");
-	const reserve = this.phaseReserve || {};
+	const reserve = this.arbiter.reservedAll();
 
 	let queuedPop = 0;
 	for (const ent of gameState.getOwnStructures().values())
