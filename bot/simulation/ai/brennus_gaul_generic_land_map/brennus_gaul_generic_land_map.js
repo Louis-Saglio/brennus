@@ -38,7 +38,7 @@ BrennusBot.prototype.currentShares = function(total)
 		const shares = { ...base };
 		if (total)
 		{
-			const res = this.gameState.getResources();
+			const res = this.arbiter.books("shares");
 
 			const bankingDone = this.gameState.isResearching("phase_city_generic");
 
@@ -72,7 +72,7 @@ BrennusBot.prototype.currentShares = function(total)
 	// all eat metal/stone continuously; mine until a war chest is banked.
 	if (phase === 3 && this.warOn())
 	{
-		const res = this.gameState.getResources();
+		const res = this.arbiter.books("shares");
 		const shares = { ...base };
 		let mining = 0;
 		if (res.stone < 400)
@@ -148,9 +148,123 @@ BrennusBot.prototype.ringServeDist = 40;
 /** Pinned stone and metal mines closer than this (m) share ONE storehouse. */
 BrennusBot.prototype.minePairDist = 55;
 
+/**
+ * Resource arbiter: the single choke point for resource reads and spends.
+ *
+ * The engine mirrors player resources once per AI turn, so every
+ * gameState.getResources() call inside a block returns the same numbers and
+ * subtract() only ever edited that call's own copy — managers each spent
+ * against private copies of the same pot, and priority emerged from the
+ * OnUpdate call order plus ad-hoc flags (phaseReserve, banking,
+ * constructionHold, fertPending...). The arbiter keeps those exact
+ * semantics — books() hands out the same fresh per-call-site copies — but
+ * routes every read and spend through one place that journals each grant
+ * and denial. Behavior-preserving by construction: the golden timelines
+ * (tools/golden/) must stay bit-identical.
+ *
+ * The journal is in-memory only: printing it would change the tagged
+ * timeline (and hot-path prints measurably slow the sim). It exists to
+ * audit a golden diff: journal holds the current turn's records, totals the
+ * per-tag cumulative grant/deny counts.
+ */
+function ResourceArbiter(bot)
+{
+	this.bot = bot;
+	this.reserves = {};      // name -> {resource: amount}; reset every block
+	this.holds = {};         // name -> true; reset every block
+	this.declarations = {};  // name -> payload; sticky until re-declared (mirrors the old instance-flag lifetimes)
+	this.journal = [];
+	this.journalTurn = -1;
+	this.totals = {};
+}
+
+ResourceArbiter.prototype.resetBlock = function()
+{
+	this.reserves = {};
+	this.holds = {};
+};
+
+/** A fresh copy of the frozen per-turn resource mirror: the same object gameState.getResources() returns. */
+ResourceArbiter.prototype.books = function(tag)
+{
+	if (this.journalTurn !== this.bot.turn)
+	{
+		this.journalTurn = this.bot.turn;
+		this.journal = [];
+	}
+	return this.bot.gameState.getResources();
+};
+
+ResourceArbiter.prototype.record = function(tag, what, cost, granted)
+{
+	this.journal.push({ "tag": tag, "what": what, "cost": cost, "granted": granted });
+	const t = this.totals[tag] || (this.totals[tag] = { "grant": 0, "deny": 0 });
+	t[granted ? "grant" : "deny"]++;
+};
+
+/** Spend from a books object (the old subtract) + journal the grant. */
+ResourceArbiter.prototype.spend = function(books, tag, cost, what)
+{
+	books.subtract(cost);
+	this.record(tag, what, cost, true);
+};
+
+/** Affordability gate + journaled denial. */
+ResourceArbiter.prototype.check = function(books, tag, cost, what)
+{
+	const ok = books.canAfford(cost);
+	this.record(tag, what, cost, ok);
+	return ok;
+};
+
+/** Reserves: amounts later spenders must leave untouched. */
+ResourceArbiter.prototype.reserve = function(name, amounts)
+{
+	this.reserves[name] = amounts;
+};
+
+ResourceArbiter.prototype.reserved = function(resource)
+{
+	let sum = 0;
+	for (const r of Object.values(this.reserves))
+		sum += r[resource] || 0;
+	return sum;
+};
+
+/** Holds: named per-block latches (e.g. construction paused after a research order). */
+ResourceArbiter.prototype.hold = function(name)
+{
+	this.holds[name] = true;
+	this.record("hold", name, null, true);
+};
+
+ResourceArbiter.prototype.held = function(name)
+{
+	return !!this.holds[name];
+};
+
+/** Declarations: sticky coordination state (demands, gaps) with the same lifetime as the instance flags they replace. */
+ResourceArbiter.prototype.declare = function(name, payload)
+{
+	this.declarations[name] = payload;
+};
+
+ResourceArbiter.prototype.declared = function(name)
+{
+	return this.declarations[name];
+};
+
+ResourceArbiter.prototype.declaredAmount = function(name, resource)
+{
+	const p = this.declarations[name];
+	return p ? p[resource] || 0 : 0;
+};
+
 BrennusBot.prototype.CustomInit = function(gameState)
 {
 	print(`[HARNESS] brennus: loaded for player ${this.player}\n`);
+
+	this.arbiter = new ResourceArbiter(this);
 
 	this.ccAngle = undefined;
 
@@ -1104,7 +1218,7 @@ BrennusBot.prototype.managePhaseUp = function()
 	// unlocks fanatics/arsenal/rams and the 100-army war stage, and the war
 	// fund starves those very techs (agg5 s1: plows at 16.4m, city never —
 	// the bot died in town phase with 1000 stone and 1800 metal banked).
-	if (!gameState.getResources().canAfford(cost))
+	if (!this.arbiter.check(this.arbiter.books("phaseUp"), "phaseUp", cost, tech))
 		return;
 
 	this.phaseReady = true;
@@ -1134,7 +1248,7 @@ BrennusBot.prototype.getCivicCentre = function()
 BrennusBot.prototype.trainWorkers = function()
 {
 	const gameState = this.gameState;
-	const resources = gameState.getResources();
+	const resources = this.arbiter.books("workers");
 
 	// Leave pop room for the mustering army and its refills: stop the civilian
 	// stream at the cap once the war stage is on. Gating this on army <
@@ -1210,7 +1324,7 @@ BrennusBot.prototype.trainWorkers = function()
 		if (queue && !queue.length && resources.food >= reserveFood + fertFloor + 50 * batch)
 		{
 			ent.train(gameState.getPlayerCiv(), type, batch, {});
-			resources.subtract({ "food": 50 * batch });
+			this.arbiter.spend(resources, "workers", { "food": 50 * batch }, `women x${batch}`);
 		}
 	}
 };
@@ -1221,7 +1335,7 @@ BrennusBot.prototype.trainWorkers = function()
 BrennusBot.prototype.manageResearch = function()
 {
 	const gameState = this.gameState;
-	const resources = gameState.getResources();
+	const resources = this.arbiter.books("research");
 	const reserve = this.phaseReserve || {};
 	if (this.banking)
 		return;
@@ -1238,7 +1352,7 @@ BrennusBot.prototype.manageResearch = function()
 		if (affordable && facility)
 		{
 			facility.research(fert);
-			resources.subtract({ "food": 250, "wood": 100, "metal": 100 });
+			this.arbiter.spend(resources, "research", { "food": 250, "wood": 100, "metal": 100 }, fert);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${fert}\n`);
 			this.constructionHold = true;
 		}
@@ -1278,7 +1392,7 @@ BrennusBot.prototype.manageResearch = function()
 		if (facility)
 		{
 			facility.research(tech);
-			resources.subtract(cost);
+			this.arbiter.spend(resources, "research", cost, tech);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${tech}\n`);
 			this.constructionHold = true;
 		}
@@ -1314,7 +1428,7 @@ BrennusBot.prototype.trioTypes = function()
 BrennusBot.prototype.manageConstruction = function()
 {
 	const gameState = this.gameState;
-	const resources = gameState.getResources();
+	const resources = this.arbiter.books("construction");
 	const foundations = gameState.getOwnFoundations().toEntityArray();
 
 	// Sticky, non-overlapping builders per foundation (dropsites 4, houses 2-3, fields 2, CC 10, wonder 16); the herder is excluded.
@@ -1419,7 +1533,7 @@ BrennusBot.prototype.manageConstruction = function()
 	const houseCost = 75;
 	const tryHouse = () => {
 		if (this.tryConstruct(houseType, "house"))
-			resources.subtract({ "wood": houseCost });
+			this.arbiter.spend(resources, "construction", { "wood": houseCost }, "house");
 		else if (this.turn % 750 === 0)
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m house placement FAILED (margin=${margin})\n`);
 		return true;
@@ -1440,7 +1554,7 @@ BrennusBot.prototype.manageConstruction = function()
 			this.placeWoodStorehouse(type);
 		if (placed)
 		{
-			resources.subtract({ "wood": 100 });
+			this.arbiter.spend(resources, "construction", { "wood": 100 }, name);
 			return;
 		}
 	}
@@ -1458,7 +1572,7 @@ BrennusBot.prototype.manageConstruction = function()
 			{
 				if (this.tryConstruct(trioType, "civic"))
 				{
-					resources.subtract(cost);
+					this.arbiter.spend(resources, "construction", cost, trioType.split("/").pop());
 					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m building ${trioType.split("/").pop()}\n`);
 				}
 				return;
@@ -1602,7 +1716,7 @@ BrennusBot.prototype.placeFirstFarmstead = function(type)
 BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 {
 	const gameState = this.gameState;
-	const resources = gameState.getResources();
+	const resources = this.arbiter.books("dropsites");
 	const cc = this.getCivicCentre();
 	if (!cc)
 		return false;
@@ -1733,7 +1847,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			if (pos)
 			{
 				this.lastWoodStoreTurn = this.turn;
-				resources.subtract({ "wood": 100 });
+				this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/woodline");
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for woodline ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved)\n`);
 				return true;
 			}
@@ -1785,7 +1899,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 					if (spot && this.placeOrder(storeType, spot))
 					{
 						this.lastMineStoreTurn = this.turn;
-						resources.subtract({ "wood": 100 });
+						this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/mine-pair");
 						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} between stone ${sPos[0].toFixed(0)},${sPos[1].toFixed(0)} and metal ${mPos[0].toFixed(0)},${mPos[1].toFixed(0)} (${underserved.length} underserved)\n`);
 						return true;
 					}
@@ -1800,7 +1914,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			if (pos)
 			{
 				this.lastMineStoreTurn = this.turn;
-				resources.subtract({ "wood": 100 });
+				this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/mine");
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for mine ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved)\n`);
 				return true;
 			}
@@ -1838,7 +1952,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 				if (spot && this.placeOrder(storeType, spot))
 				{
 					this.lastMineStoreTurn = this.turn;
-					resources.subtract({ "wood": 100 });
+					this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/unserved-mine");
 					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} for mine ${best[0].toFixed(0)},${best[1].toFixed(0)} (${bestAmt} left)\n`);
 					return true;
 				}
@@ -1888,7 +2002,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			this.tryConstruct(farmType, "dropsite", center);
 		if (pos)
 		{
-			resources.subtract({ "wood": 100 });
+			this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "farmstead/fields");
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for fields ${center[0].toFixed(0)},${center[1].toFixed(0)} (${unservedFields.length} underserved)\n`);
 			return true;
 		}
@@ -1923,7 +2037,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			this.tryConstruct(farmType, "dropsite", center);
 		if (pos)
 		{
-			resources.subtract({ "wood": 100 });
+			this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "farmstead/fruit");
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for fruit ${center[0].toFixed(0)},${center[1].toFixed(0)} (${unservedFruit.length} underserved)\n`);
 			return true;
 		}
@@ -1958,7 +2072,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			const pos = !planned && this.tryConstruct(farmType, "dropsite", best);
 			if (pos)
 			{
-				resources.subtract({ "wood": 100 });
+				this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "farmstead/next-fruit");
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for next fruit patch ${best[0].toFixed(0)},${best[1].toFixed(0)} (stock ${Math.round(this.fruitStock)})\n`);
 				return true;
 			}
@@ -1978,7 +2092,7 @@ BrennusBot.prototype.manageBarter = function()
 		.find(ent => ent.hasClass("Market") && ent.foundationProgress() === undefined);
 	if (!market)
 		return;
-	const res = gameState.getResources();
+	const res = this.arbiter.books("barter");
 
 	// One deal per block; 500-unit deals drift prices ~8%, so alternate the sold resource.
 	if (!gameState.isResearched("phase_city_generic"))
@@ -2949,11 +3063,13 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 	{
 		if (haveByType[type] >= want || this.pendingBuilds.some(pb => pb.template === type))
 			continue;
-		if (gameState.getResources().wood < (boom ? 350 : 320))
+		if (this.arbiter.books("defenseBuildings").wood < (boom ? 350 : 320))
 			return;
 		if (this.tryConstruct(type, "military"))
 		{
-			gameState.getResources().subtract({ "wood": 300 });
+			// Per-call-site books: this spend accounts against a throwaway copy,
+			// exactly like the old anonymous getResources().subtract().
+			this.arbiter.spend(this.arbiter.books("defenseBuildings"), "defenseBuildings", { "wood": 300 }, type.split("/").pop());
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m defense building ${type.split("/").pop()}\n`);
 			this.constructionHold = true;
 		}
@@ -3006,7 +3122,7 @@ BrennusBot.prototype.placeTower = function(center, want)
 			near++;
 	if (near >= want)
 		return false;
-	const res = gameState.getResources();
+	const res = this.arbiter.books("towers");
 	if (res.wood < 300 || res.stone < 300)
 		return false;
 	const clearOfTowers = (x, z) => !towers.some(p => SquareDistance(p, [x, z]) < 65 * 65);
@@ -3014,7 +3130,7 @@ BrennusBot.prototype.placeTower = function(center, want)
 		this.accessibility.getAccessValue(center), clearOfTowers);
 	if (!spot || !this.placeOrder(towerType, spot))
 		return false;
-	res.subtract({ "wood": 100, "stone": 100 });
+	this.arbiter.spend(res, "towers", { "wood": 100, "stone": 100 }, "tower");
 	print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m tower at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} for CC ${center[0].toFixed(0)},${center[1].toFixed(0)}\n`);
 	return true;
 };
@@ -3036,7 +3152,7 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 	if (!this.warOn() || this.constructionHold)
 		return;
 	const gameState = this.gameState;
-	const res = gameState.getResources();
+	const res = this.arbiter.books("milTechs");
 	for (const [tech, cost] of this.militaryTechs)
 	{
 		if (gameState.isResearched(tech) || gameState.isResearching(tech))
@@ -3049,7 +3165,7 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 		if (!res.canAfford(cost) || res.metal < (cost.metal || 0) + 150)
 			return;
 		facility.research(tech);
-		res.subtract(cost);
+		this.arbiter.spend(res, "milTechs", cost, tech);
 		print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${tech}\n`);
 		this.constructionHold = true;
 		return;
@@ -3062,7 +3178,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	if (!this.defenseOn())
 		return;
 	const gameState = this.gameState;
-	const res = gameState.getResources();
+	const res = this.arbiter.books("defenseTraining");
 	const barracksType = gameState.applyCiv("structures/{civ}/barracks");
 	const templeType = gameState.applyCiv("structures/{civ}/temple");
 	let queued = 0;
@@ -3108,18 +3224,18 @@ BrennusBot.prototype.manageDefenseTraining = function()
 					"units/{civ}/infantry_spearman_b" : "units/{civ}/infantry_javelineer_b");
 				this.spearNext = !this.spearNext;
 				ent.train(gameState.getPlayerCiv(), type, milBatch, {});
-				res.subtract({ "food": 50 * milBatch, "wood": 50 * milBatch });
+				this.arbiter.spend(res, "defenseTraining", { "food": 50 * milBatch, "wood": 50 * milBatch }, `infantry x${milBatch}`);
 				continue;
 			}
 			if (healerCount < (boom ? 10 : 4))
 			{
 				ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/support_healer_b"), boom ? 2 : 1, {});
-				res.subtract(boom ? { "food": 200, "metal": 60 } : { "food": 100, "metal": 30 });
+				this.arbiter.spend(res, "defenseTraining", boom ? { "food": 200, "metal": 60 } : { "food": 100, "metal": 30 }, `healer x${boom ? 2 : 1}`);
 				healerCount += boom ? 2 : 1;
 				continue;
 			}
 			ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_fanatic"), 5, {});
-			res.subtract({ "food": 600, "wood": 500 });
+			this.arbiter.spend(res, "defenseTraining", { "food": 600, "wood": 500 }, "fanatics x5");
 		}
 	// Rams for the raid: keep 6, started early — they are slow and must be
 	// mustered before the army hits raid size or every raid goes in without
@@ -3147,7 +3263,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 			if (rams >= 6 || res.wood < 350 || res.metal < 200)
 				break;
 			arsenal.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/siege_ram"), 1, {});
-			res.subtract({ "wood": 300, "metal": 150 });
+			this.arbiter.spend(res, "defenseTraining", { "wood": 300, "metal": 150 }, "ram");
 			rams++;
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/6)\n`);
 		}
@@ -3214,7 +3330,7 @@ BrennusBot.prototype.logStatus = function()
 			town++;
 	}
 	const techs = this.boomTechs.filter(t => gameState.isResearched(t)).length;
-	const res = gameState.getResources();
+	const res = this.arbiter.books("status");
 
 	const rate = cls => {
 		const s = this.rateStats[cls];
@@ -3751,14 +3867,14 @@ BrennusBot.prototype.manageExpansion = function()
 		else if (!this.pendingBuilds.some(pb => pb.template === wonderType) &&
 			!this.constructionHold)
 		{
-			const res = gameState.getResources();
+			const res = this.arbiter.books("expansion");
 
 			if (res.canAfford({ "wood": 1100, "stone": 1550, "metal": 1100 }))
 			{
 				const spot = this.findWonderSpot(wonderType);
 				if (spot && this.placeOrder(wonderType, spot))
 				{
-					res.subtract({ "wood": 1000, "stone": 1500, "metal": 1000 });
+					this.arbiter.spend(res, "expansion", { "wood": 1000, "stone": 1500, "metal": 1000 }, "wonder");
 					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wonder order at ${spot[0].toFixed(0)},${spot[1].toFixed(0)}\n`);
 					return;
 				}
@@ -3785,7 +3901,7 @@ BrennusBot.prototype.manageExpansion = function()
 				SquareDistance([pb.x, pb.z], base) > 150 * 150) &&
 			!this.constructionHold)
 		{
-			const res = gameState.getResources();
+			const res = this.arbiter.books("expansion");
 			if (res.wood >= 600)
 			{
 
@@ -3800,7 +3916,7 @@ BrennusBot.prototype.manageExpansion = function()
 					const pos = this.findBuildingPosition(marketType, anchor.position(), 20, 80, true, this.expansionRegion);
 					if (pos && this.placeOrder(marketType, pos))
 					{
-						res.subtract({ "wood": 300 });
+						this.arbiter.spend(res, "expansion", { "wood": 300 }, "market");
 						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m market at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for the trade routes\n`);
 						return;
 					}
@@ -3819,12 +3935,12 @@ BrennusBot.prototype.manageExpansion = function()
 		if (built || gameState.isResearched("gather_animals_stockbreeding"))
 			plan.corralDone = true;
 		else if (!this.pendingBuilds.some(pb => pb.template === corralType) &&
-			!this.constructionHold && gameState.getResources().wood >= 300)
+			!this.constructionHold && this.arbiter.books("expansion").wood >= 300)
 		{
 			const spot = this.findBuildingPosition(corralType, this.getCivicCentre().position(), 12, 120, true, this.expansionRegion);
 			if (spot && this.placeOrder(corralType, spot))
 			{
-				gameState.getResources().subtract({ "wood": 100 });
+				this.arbiter.spend(this.arbiter.books("expansion"), "expansion", { "wood": 100 }, "corral");
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m corral at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} for the tech tree\n`);
 			}
 		}
@@ -3917,7 +4033,7 @@ BrennusBot.prototype.manageExpansion = function()
 					continue;
 				}
 			}
-			const res = gameState.getResources();
+			const res = this.arbiter.books("expansion");
 
 			if (this.constructionHold)
 				return;
@@ -3946,7 +4062,7 @@ BrennusBot.prototype.manageExpansion = function()
 				.filterNearest(spot, 6).toEntityArray();
 			for (const ent of party)
 				ent.construct(ccType, spot[0], spot[1], this.getPlacementAngle(), undefined);
-			res.subtract({ "wood": 300, "stone": 300, "metal": 250 });
+			this.arbiter.spend(res, "expansion", { "wood": 300, "stone": 300, "metal": 250 }, "CC");
 			slots--;
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC order at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} (${plan.next + 1}/${plan.spots.length}, slot ${ccConcurrency - slots}/${ccConcurrency})\n`);
 			// Ordered: rotate so the next call scans the remaining spots.
@@ -3973,7 +4089,7 @@ BrennusBot.prototype.manageTrade = function()
 			traders++;
 	if (traders < this.targetTraders)
 	{
-		const res = gameState.getResources();
+		const res = this.arbiter.books("trade");
 		if (res.food >= 40000 + 100 && res.metal >= 1200)
 		{
 			// Pop room for the trader — only when one is actually trained now;
@@ -3992,7 +4108,7 @@ BrennusBot.prototype.manageTrade = function()
 				if ((market.trainingQueue()?.length || 0) <= 1)
 				{
 					market.train(gameState.getPlayerCiv(), gameState.applyCiv(this.traderType), 1, {});
-					res.subtract({ "food": 100, "metal": 80 });
+					this.arbiter.spend(res, "trade", { "food": 100, "metal": 80 }, "trader");
 					break;
 				}
 		}
@@ -4058,7 +4174,7 @@ BrennusBot.prototype.manageExpansionTechs = function()
 	if (!this.expansionOn())
 		return false;
 	const gameState = this.gameState;
-	const resources = gameState.getResources();
+	const resources = this.arbiter.books("expansionTechs");
 
 	let researching = 0;
 	for (const tech of this.expansionTechs)
@@ -4087,7 +4203,7 @@ BrennusBot.prototype.manageExpansionTechs = function()
 		if (facility)
 		{
 			facility.research(tech);
-			resources.subtract(cost);
+			this.arbiter.spend(resources, "expansionTechs", cost, tech);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${tech}\n`);
 			this.constructionHold = true;
 			return true;
@@ -4101,7 +4217,7 @@ BrennusBot.prototype.manageExpansionTechs = function()
 BrennusBot.prototype.manageExpansionBarter = function(market)
 {
 	const gameState = this.gameState;
-	const res = gameState.getResources();
+	const res = this.arbiter.books("expansionBarter");
 	if (res.stone < this.expBarterTarget || res.metal < this.expBarterTarget)
 	{
 		const want = res.stone <= res.metal ? "stone" : "metal";
