@@ -206,21 +206,23 @@ BrennusBot.prototype.arbiterParams = {
 };
 
 /**
- * Resource arbiter: the single authority for resource spending.
+ * Resource arbiter: the single choke point for resource reads and spends.
  *
- * The engine mirrors player resources once per AI turn; that frozen mirror
- * seeds the arbiter's ONE shared running balance at the start of every
- * block (resetBlock). Every manager spends against that same balance
- * through books()/spend()/check(): earlier pipeline stages' spends are
- * visible to later stages, so the declared pipeline order is the real
- * priority order and an order is only issued when the predicted balance
- * actually covers it. The balance re-seeds from the fresh mirror next
- * block, so prediction errors cannot accumulate.
+ * The engine mirrors player resources once per AI turn, so every
+ * gameState.getResources() call inside a block returns the same numbers and
+ * subtract() only ever edited that call's own copy — managers each spent
+ * against private copies of the same pot, and priority emerged from the
+ * OnUpdate call order plus ad-hoc flags (phaseReserve, banking,
+ * constructionHold, fertPending...). The arbiter keeps those exact
+ * semantics — books() hands out the same fresh per-call-site copies — but
+ * routes every read and spend through one place that journals each grant
+ * and denial. Behavior-preserving by construction: the golden timelines
+ * (tools/golden/) must stay bit-identical.
  *
- * Every grant and denial is journaled (in-memory only: printing would
- * change the tagged timeline, and hot-path prints measurably slow the
- * sim). journal holds the current block's records, totals the per-tag
- * cumulative grant/deny counts — read them when auditing a golden diff.
+ * The journal is in-memory only: printing it would change the tagged
+ * timeline (and hot-path prints measurably slow the sim). It exists to
+ * audit a golden diff: journal holds the current turn's records, totals the
+ * per-tag cumulative grant/deny counts.
  */
 function ResourceArbiter(bot)
 {
@@ -228,8 +230,8 @@ function ResourceArbiter(bot)
 	this.reserves = {};      // name -> {resource: amount}; reset every block
 	this.holds = {};         // name -> true; reset every block
 	this.declarations = {};  // name -> payload; sticky until re-declared (mirrors the old instance-flag lifetimes)
-	this.balance = null;     // the shared per-block running balance
 	this.journal = [];
+	this.journalTurn = -1;
 	this.totals = {};
 }
 
@@ -237,26 +239,16 @@ ResourceArbiter.prototype.resetBlock = function()
 {
 	this.reserves = {};
 	this.holds = {};
-	this.balance = this.bot.gameState.getResources();
-	this.journal = [];
 };
 
-/**
- * The shared running balance for this block. All "books" are the same
- * object: a manager's reads see every earlier spend in the block. (Before
- * this step each call site got its own fresh mirror copy and overdraws were
- * left for the engine's command order to resolve.)
- */
+/** A fresh copy of the frozen per-turn resource mirror: the same object gameState.getResources() returns. */
 ResourceArbiter.prototype.books = function(tag)
 {
-	if (!this.balance)
-		this.balance = this.bot.gameState.getResources();
-	return this.balance;
-};
-
-/** The raw frozen mirror, for read-only reporting that must not see predicted spends (logStatus stock line). */
-ResourceArbiter.prototype.mirror = function()
-{
+	if (this.journalTurn !== this.bot.turn)
+	{
+		this.journalTurn = this.bot.turn;
+		this.journal = [];
+	}
 	return this.bot.gameState.getResources();
 };
 
@@ -267,11 +259,10 @@ ResourceArbiter.prototype.record = function(tag, what, cost, granted)
 	t[granted ? "grant" : "deny"]++;
 };
 
-/** Spend from the balance + journal the grant. Cost keys are zero-filled first: the engine's ResourcesManager.subtract turns missing keys into NaN (x -= undefined), and NaN poisons every later comparison on a shared balance (NaN < y is false, so canAfford would always pass). */
+/** Spend from a books object (the old subtract) + journal the grant. */
 ResourceArbiter.prototype.spend = function(books, tag, cost, what)
 {
-	books.subtract({ "food": cost.food || 0, "wood": cost.wood || 0,
-		"stone": cost.stone || 0, "metal": cost.metal || 0 });
+	books.subtract(cost);
 	this.record(tag, what, cost, true);
 };
 
@@ -281,15 +272,6 @@ ResourceArbiter.prototype.check = function(books, tag, cost, what)
 	const ok = books.canAfford(cost);
 	this.record(tag, what, cost, ok);
 	return ok;
-};
-
-/** A barter's sell side is a real engine-side deduction: record it as a spend so later stages see it gone. */
-ResourceArbiter.prototype.spendSell = function(tag, sell, amount, what)
-{
-	const cost = { "food": 0, "wood": 0, "stone": 0, "metal": 0 };
-	cost[sell] = amount;
-	this.balance.subtract(cost);
-	this.record(tag, what, cost, true);
 };
 
 /** Reserves: amounts later spenders must leave untouched. */
@@ -2213,14 +2195,12 @@ BrennusBot.prototype.manageBarter = function()
 			if (res[sell] >= 700)
 			{
 				market.barter(want, sell, 500);
-				this.arbiter.spendSell("barter", sell, 500, `barter ${sell}->${want}`);
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${sell} -> ${want}\n`);
 				return;
 			}
 			if (res[sell] >= 400)
 			{
 				market.barter(want, sell, 100);
-				this.arbiter.spendSell("barter", sell, 100, `barter ${sell}->${want}`);
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 100 ${sell} -> ${want}\n`);
 				return;
 			}
@@ -2231,7 +2211,6 @@ BrennusBot.prototype.manageBarter = function()
 		{
 			const want = res.wood < 250 ? "wood" : "food";
 			market.barter(want, excess, 500);
-			this.arbiter.spendSell("barter", excess, 500, `barter ${excess}->${want}`);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${excess} -> ${want}\n`);
 			return;
 		}
@@ -2247,7 +2226,6 @@ BrennusBot.prototype.manageBarter = function()
 			{
 				const want = res.wood < 250 ? "wood" : "food";
 				market.barter(want, excess, 500);
-				this.arbiter.spendSell("barter", excess, 500, `barter ${excess}->${want}`);
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${excess} -> ${want}\n`);
 			}
 		}
@@ -3179,6 +3157,8 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 			return;
 		if (this.tryConstruct(type, "military"))
 		{
+			// Per-call-site books: this spend accounts against a throwaway copy,
+			// exactly like the old anonymous getResources().subtract().
 			this.arbiter.spend(this.arbiter.books("defenseBuildings"), "defenseBuildings", { "wood": 300 }, type.split("/").pop());
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m defense building ${type.split("/").pop()}\n`);
 			this.arbiter.hold("construction");
@@ -3325,14 +3305,9 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	const milBatch = boom ? this.arbiterParams.warChest.musterBatch : this.arbiterParams.foodSplit.musterBatch;
 	const floorF = boom ? this.arbiterParams.warChest.musterFood : this.arbiterParams.foodSplit.musterFloor.food;
 	const floorW = boom ? (this.arbiter.declared("defenseGap") ? this.arbiterParams.warChest.musterWoodGap : this.arbiterParams.warChest.musterWood) : this.arbiterParams.foodSplit.musterFloor.wood;
-	// The shared balance is the allocator: re-check the floors before every
-	// trainer instead of issuing the whole round on one entry check — orders
-	// the balance cannot cover are denied here, not failed at the engine.
-	if (missing > 0)
+	if (missing > 0 && res.food >= floorF && res.wood >= floorW)
 		for (const ent of trainers)
 		{
-			if (res.food < floorF || res.wood < floorW)
-				break;
 			if (ent.templateName() === barracksType)
 			{
 				const type = gameState.applyCiv(this.spearNext ?
@@ -3445,7 +3420,7 @@ BrennusBot.prototype.logStatus = function()
 			town++;
 	}
 	const techs = this.boomTechs.filter(t => gameState.isResearched(t)).length;
-	const res = this.arbiter.mirror();
+	const res = this.arbiter.books("status");
 
 	const rate = cls => {
 		const s = this.rateStats[cls];
@@ -4346,7 +4321,6 @@ BrennusBot.prototype.manageExpansionBarter = function(market)
 		if (bestRatio >= 0.35 && res[sell] >= 47000 && this.turn % 15 === 0)
 		{
 			market.barter(want, sell, 500);
-			this.arbiter.spendSell("barter", sell, 500, `barter ${sell}->${want}`);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${sell} -> ${want} (ratio ${bestRatio.toFixed(2)})\n`);
 			return true;
 		}
