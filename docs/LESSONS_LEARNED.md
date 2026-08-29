@@ -3,6 +3,14 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-08-29 (siege-only threat centroid fix)
+
+- Fixed the threat-centroid bug from the findloss review below: `manageDefense`
+  now accumulates a siege centroid (gsx/gsz within 160 m) and uses it when
+  `n == 0`, instead of `sx/Math.max(n,1)` = (0,0). Smoke match (mainland s7)
+  ran clean: exit 0, no JS errors, all `[DEFENSE]` centroids on real CC
+  positions.
+
 ## 2026-08-29 (findloss 112-seed review)
 
 - The Gaul arsenal footprint is 29x29 (barracks 20x20, temple 22.5). Once the

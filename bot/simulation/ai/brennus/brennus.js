@@ -2598,15 +2598,22 @@ BrennusBot.prototype.manageDefense = function()
 			sx += p[0];
 			sz += p[1];
 		}
-		let siegeN = 0;
+		let siegeN = 0, gsx = 0, gsz = 0;
 		for (const p of milSiege)
 			if (SquareDistance(p, cp) < 160 * 160)
+			{
 				siegeN++;
+				gsx += p[0];
+				gsz += p[1];
+			}
 		if (!n && !siegeN)
 			continue;
 		const score = homePos ? SquareDistance(cp, homePos) : -(n + siegeN);
 		if (!threat || score < threat.score)
-			threat = { "x": sx / Math.max(n, 1), "z": sz / Math.max(n, 1), "n": n, "siegeN": siegeN, "score": score, "ccx": cp[0], "ccz": cp[1], "ccId": ent.id() };
+			// n == 0 happens on a siege-only threat: fall back to the siege
+			// centroid, or sx/Math.max(n,1) = (0,0) sends the army to the
+			// top-left map corner (rams killing a CC while the army walked away).
+			threat = { "x": n ? sx / n : gsx / siegeN, "z": n ? sz / n : gsz / siegeN, "n": n, "siegeN": siegeN, "score": score, "ccx": cp[0], "ccz": cp[1], "ccId": ent.id() };
 	}
 
 	const armyEnts = [];
