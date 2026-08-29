@@ -18,5 +18,7 @@ Data file: `simulation/data/technologies/pair_unlock_cult_ptol.json`.
 Note: a **pair tech** — not a researchable technology itself but a UI
 grouping: the Researcher returns it as a `{pair, top, bottom}` object, so
 the Temple of Isis presents the two cults ("Pharaonic Cult" and "Serapis
-Cult") side by side in one slot. Each cult is researched normally from
-that pair; both are City-phase, civ-ptol gated.
+Cult") side by side in one slot. The choice is **mutually exclusive,
+engine-enforced**: once either cult is researched the pair definition is
+auto-marked researched and the other half can never be researched. Both
+cults are City-phase, civ-ptol gated.

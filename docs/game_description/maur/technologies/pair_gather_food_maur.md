@@ -18,5 +18,7 @@ Data file: `simulation/data/technologies/pair_gather_food_maur.json`.
 Note: a **pair tech** — a UI grouping, not a researchable technology:
 the farmstead's Researcher returns it as a `{pair, top, bottom}` object,
 so the two Mauryan food techs ("Wicker Baskets" and "Ahimsa") are
-presented side by side in one slot. The pair imposes no exclusivity —
-both can be researched.
+presented side by side in one slot. The choice is **mutually exclusive,
+engine-enforced**: once either tech is researched the pair definition is
+auto-marked researched and the other half can never be researched (see
+`mechanics/technologies_and_modifiers.md` "Tech pairs").

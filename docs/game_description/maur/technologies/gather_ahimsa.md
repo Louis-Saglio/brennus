@@ -26,5 +26,6 @@ gathering for **all units** (not just workers; citizen-soldiers' fruit
 rates double too), in exchange for −80% meat and fish gathering. Take it
 on maps with abundant berry bushes and little hunt; it pairs with the
 fruit-focused "Wicker Baskets" tech, which the pair slot presents
-alongside it (both can be researched — the pair is a UI grouping, not an
-exclusive choice).
+alongside it. The choice is **mutually exclusive** — researching one half
+locks the other out (the pair definition is auto-researched once either
+completes).

@@ -62,7 +62,9 @@ All data was extracted from the game files, not from memory: `/home/ubuntu/0ad-r
 | [phase_village](phase_village.md) | 15 | auto |
 | [pop_house_01](pop_house_01.md) | 15 | researchable |
 | [pop_house_02](pop_house_02.md) | 15 | researchable |
+| [ship_capture_resistance](ship_capture_resistance.md) | 0 | researchable (unreachable — no researcher) |
 | [ship_health](ship_health.md) | 3 | researchable |
+| [ship_movement_speed](ship_movement_speed.md) | 2 | researchable |
 | [ship_vision](ship_vision.md) | 15 | researchable |
 | [siege_attack](siege_attack.md) | 15 | researchable |
 | [siege_bolt_accuracy](siege_bolt_accuracy.md) | 6 | researchable |

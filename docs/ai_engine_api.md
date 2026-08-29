@@ -681,6 +681,19 @@ Resource-amount container with one numeric field per resource code plus
 player's current amounts via `gameState.getResources()`
 (`gamestate.js:309-312`).
 
+- `gameState.getResources()` builds a **fresh `ResourcesManager` each call**
+  (`new ResourcesManager(this.playerData.resourceCounts)`, `gamestate.js:309`),
+  over a snapshot frozen for the whole AI turn. `add()`/`subtract()` therefore only
+  edit that call's own copy — there is no shared wallet across calls, and any
+  cross-manager "spending" must be coordinated through explicit flags, not resource
+  arithmetic.
+- `add()`/`subtract()` loop over **every** resource code and compute
+  `this[key] ± that[key]` (`resources.js:25-37`); a cost object with a missing key
+  (`that[key] === undefined`) NaN-poisons that slot. `canAfford()` loops over every
+  code too and `this[key] < undefined` is false, so a poisoned copy passes every
+  check — and a *partial* cost object never fails on its unlisted resources
+  (`resources.js:18-23`). Zero-fill cost keys before subtracting.
+
 ### 8.3 `Technology` (`public/simulation/ai/common-api/technology.js`)
 
 Wrapper around a tech template from the `TechnologyTemplates` cache
@@ -806,6 +819,11 @@ the source is given inline.
   `foundationProgress() === undefined` (§4.4 `:639`); a fresh foundation
   reports progress `0`, so a falsy `!foundationProgress()` test lets it
   through.
+- **A foundation's `templateName()` is `foundation|…`**, not the built
+  template's name (§4.4 `:45`). Any "do we already have building X" check that
+  compares `templateName()` against the built template misses foundations and
+  spams duplicate orders; resolve a foundation to its built template via
+  `gameState.getBuiltTemplate(f.templateName()).templateName()` (§4.3 `:155-164`).
 - **`getEnemyEntities()` includes gaia** — gaia is a diplomatic enemy, so
   every tree/bush matches (§4.3 `:510-551`). Filter `ent.owner() === 0` out;
   keep gaia animals with an `Attack` component (they kill gatherers).
@@ -826,6 +844,13 @@ the source is given inline.
 - **`entity.construct(...)` posts `autorepair: false`** (§4.4 `:957`): the
   foundation is created instantly at command processing but NO builder is
   sent — order `repair(foundation)` separately the next cycle.
+- **Walls cannot be built through the AI scripting API in 0.28.0.** There is no
+  `constructWall`/`startWall` binding, and a plain
+  `entity.construct("structures/palisades_long", x, z, …)` order is accepted
+  silently but no foundation ever appears (verified headless: order logged, nothing
+  standing 200 turns later, no engine error). Wall placement needs the engine's
+  WallSet chaining, which the AI layer does not expose — Petra itself never builds
+  walls. Don't plan wall-based defenses from bot code.
 - **The `construct` command is validated at processing time** against
   BuildRestrictions + entity limits + tech requirements + the REAL stock cost
   (§5). A rejection is **silent** — the AI only learns via its own
@@ -860,6 +885,22 @@ headless game cleanly.
 - `cmpTrigger.DoAfterDelay(ms, "MethodName", {})` schedules a call to
   `Trigger.prototype.MethodName` after `ms` of simulation time
   (`public/simulation/components/Trigger.js:287`); one turn = 200 ms.
+- **`Engine.ReadJSONFile` in a trigger script is restricted to `simulation/` VFS
+  paths** (the same `PathRestrictionMet` guard as §2): a trigger reading a mod file
+  outside `simulation/` aborts with
+  `Restricted access to <file>. This part of the engine may only read from
+  "simulation/"!` (`source/source/ps/scripting/JSInterface_VFS.cpp`). Files a
+  trigger reads must live at `simulation/...` in the mod's VFS.
+- `RegisterTrigger("OnInterval", name, {enabled: true, delay, interval})` runs
+  periodic trigger code **deterministically** — implemented with `cmpTimer.SetInterval`,
+  so it rides the deterministic sim timer (`public/simulation/components/Trigger.js:97`,
+  `176`, `OnInterval` at `:18`, `:153`). Same timer `DoAfterDelay` uses.
+- `Engine.GetAIs()` is available in the GUI/trigger realm and returns the
+  **registered** AI descriptors — every `simulation/ai/**/*.json` in the VFS as
+  `{ id, data }` (`source/source/simulation2/scripting/JSInterface_Simulation.cpp:216-231`,
+  `source/source/simulation2/components/ICmpAIManager.cpp:98-100`) — not a
+  player→AI mapping of the running game. It cannot tell a trigger which AI is driving
+  a given player.
 - To end a match from a trigger:
   `EndGameManager.MarkPlayersAsWon([1], victoryString, defeatString)`
   (`public/simulation/components/EndGameManager.js:85`). The engine exits 0

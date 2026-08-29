@@ -120,9 +120,9 @@ Parsed in JS (`autostart/cmd_line_args.js:65-191`), enabled by `-autostart` in C
 | `-autostart-aiseed=AISEED` | AI RNG seed (default 0; `-1` = random) **[src]** |
 | `-autostart-ai=PLAYER:AI` | Set AI bot for player N, e.g. `2:petra`; repeatable **[run]** |
 | `-autostart-aidiff=PLAYER:DIFF` | AI difficulty 0–5 (0 sandbox, 3 default, 5 very hard) **[src]** |
-| `-autostart-aibehavior=PLAYER:BEHAVIOR` | AI behavior (default `balanced`) **[src]** |
+| `-autostart-aibehavior=PLAYER:BEHAVIOR` | AI behavior (default `balanced`); values `random` / `balanced` / `defensive` / `aggressive` **[src]** |
 | `-autostart-civ=PLAYER:CIV` | Civ per player (`random` allowed; skirmish/random only) **[src]** |
-| `-autostart-team=PLAYER:TEAM` | Team per player **[src]** |
+| `-autostart-team=PLAYER:TEAM` | Team per player, **1-based** — the engine subtracts 1 internally (`cmd_line_args.js`); `-1` corrupts the team index and can make both players win instantly at turn 0. Omit the flag for "no team" **[src]** |
 | `-autostart-player=NUMBER` | Local player ID (default 1; `-1` = observer) **[run]** |
 | `-autostart-ceasefire=NUM` | Ceasefire minutes (default 0) **[src]** |
 | `-autostart-victory=SCRIPTNAME` | Victory condition script(s) from `simulation/data/settings/victory_conditions/`; `endless` = none; repeatable |
@@ -226,8 +226,10 @@ HOME=$PWD/tmp/smoke-home timeout 150 /usr/games/pyrogenesis \
 
 - Nonvisual mode executes **one turn per main-loop iteration as fast as the CPU allows**
   (`main.cpp:493-511`: `Update(DEFAULT_TURN_LENGTH, 1)` with a constant 200 ms step,
-  `DEFAULT_TURN_LENGTH` at `source/source/simulation2/system/TurnManager.h:62`). Observed ~113 turns/s on
-  this machine (i.e. ~22× real time). `-autostart-speed` has **no effect** here.
+  `DEFAULT_TURN_LENGTH` at `source/source/simulation2/system/TurnManager.h:62`). The observed rate depends heavily on the opponent — ~113 turns/s against a
+  sandbox, but only ~32 turns/s against a medium-difficulty Petra (a real opponent
+  runs its own AI every turn), i.e. ~22× real time in the sandbox case. `-autostart-speed`
+  has **no effect** here; size long batches around the *opponent* rate, not the sandbox rate.
 - Turns are logged to stdout: `Turn <n> (200)...` **[run]**.
 - **Exit behavior:** the process exits by itself with `EXIT_SUCCESS` only when the game is
   *finished* (victory conditions met — `main.cpp:509-510`: `if (g_Game->IsGameFinished())
@@ -277,6 +279,12 @@ Alternatively `-writableRoot` on a writable dev checkout **[src]**.
   the mods recorded in the replay, re-simulates every turn, prints `# Final state: <hash>`
   and exits 0 **[run]**. Pass a *file*, not the directory (`main.cpp:592-604`). Use the
   host's `commands.txt` for multiplayer games (`source/source/ps/Game.cpp:161`).
+- **The `-replay` path skips `InitVfs`**, so `psLogDir()` stays empty and the engine
+  writes `profile.txt` / `crashlog.txt` / `profile2.jsonp` *relative to the process CWD*
+  (the replay branch creates the VFS and mounts `cache/` directly). A non-writable CWD
+  (e.g. `/` under systemd) aborts the replay with EACCES before it prints
+  `# Final state:`. Always spawn replays with a writable CWD (kiln sets `current_dir`
+  to the job HOME). **[run]**
 - **OOS debugging:** `-replay ... -ooslog` (per-turn state dumps under
   `<logs>/oos_logs/`), `-serializationtest`, `-rejointest=N`, `-hashtest-quick=true`
   (`main.cpp:647-655`). In live multiplayer, OOS errors auto-dump `oos_dump.txt`/`.dat`
@@ -309,8 +317,15 @@ Alternatively `-writableRoot` on a writable dev checkout **[src]**.
     (`GameSetup.cpp:167-197`).
 - Dev mod: drop a plain directory like `~/.local/share/0ad/mods/mybot/` containing
   `mod.json` (e.g. `{"name":"mybot","version":"0.1","label":"My Bot","description":"…",
-  "dependencies":["public-0.28.0"]}`) plus your files mirroring the VFS layout
+  "dependencies":["0ad=0.28.0"]}`) plus your files mirroring the VFS layout
   (`simulation/ai/...`, `autostart/...`, etc.). No archive build needed for loose
   directories **[run]**.
+- **The `public` mod's real `mod.json` name is `0ad`, not `public`** — dependencies
+  match on that name: `"dependencies": ["0ad=0.28.0"]` is correct, while
+  `"public-0.28.0"` is flagged as an incompatible mod. **[run]**
 - In nonvisual mode, incompatible/missing mods are a hard startup error
-  (`GameSetup.cpp:578-584`) **[src]**.
+  (`GameSetup.cpp:578-584`) **[src]**. The message is misleading: a *missing* mod
+  (not present under `<HOME>/.local/share/0ad/mods/<name>`) is reported as
+  `ERROR: Trying to start with incompatible mods: <name>.` — "incompatible", not
+  "not found" (`Mod::CheckForIncompatibleMods` pushes unavailable mods onto the
+  same list). **[run]**
