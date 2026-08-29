@@ -142,6 +142,15 @@ BrennusBot.prototype.herdKillDist = 25;
 /** Wood a dropsite's ring must still serve before a new wood storehouse is allowed (rule 1). */
 BrennusBot.prototype.ringGateWood = 250;
 
+/** Mean lumberjack-to-dropsite distance (m) above which logStatus fires a [WARNING]: wood walk distance is the biggest gatherer-efficiency factor, and a storehouse costs wood — a stalling wood supply must be fixed before anything else. */
+BrennusBot.prototype.woodDistWarn = 40;
+
+/** Hysteresis for the warning latch (m). */
+BrennusBot.prototype.woodDistWarnClear = 30;
+
+/** Edge distance (m) from the active woodline's chopping centroid to the nearest wood dropsite beyond which its storehouse is ordered at once, ahead of the reserves. */
+BrennusBot.prototype.woodServeDist = 25;
+
 /** Distance (m) a dropsite serves wood within. */
 BrennusBot.prototype.ringServeDist = 40;
 
@@ -1935,6 +1944,35 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		}
 	}
 
+	// Wood dropsite coverage, first principles: the lumberjack mass works the
+	// active woodline. When its chopping centroid sits beyond woodServeDist
+	// (edge) from every wood dropsite and the zone can pay its storehouse
+	// back many times over, build it NOW at the centroid — flat 100 wood,
+	// ahead of the reserves: the storehouse is what fixes a stalling wood
+	// supply (2026-08-29 branch s3: 8-15m spent chopping 75-85m out while
+	// the ring gate (scraps ≥ 250 near the old store) and the war fund
+	// (wood ≥ 250) both blocked the storehouse that pays for itself).
+	const woodSpot = this.woodlineDropSpot();
+	if (woodSpot && storeCount < (this.expansionOn() ? 40 : 18) &&
+		(this.woodline.total || 0) >= 800 &&
+		minEdgeDist(woodSpot, woodSites) > this.woodServeDist &&
+		!storeFoundations.some(p => Math.hypot(p[0] - woodSpot[0], p[1] - woodSpot[1]) < 60) &&
+		!storePending(woodSpot) &&
+		resources.wood >= 100)
+	{
+		const pos = this.expansionOn() ?
+			this.findExpansionWoodStorehouse(storeType, woodSpot) :
+			this.tryConstruct(storeType, "dropsite", woodSpot, true);
+		if (pos)
+		{
+			this.lastWoodStoreTurn = this.turn;
+			this.arbiter.declare("dropsite", { "wood": 100 });
+			this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/woodline");
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for woodline ${woodSpot[0].toFixed(0)},${woodSpot[1].toFixed(0)} (centroid ${minEdgeDist(woodSpot, woodSites).toFixed(0)}m out)\n`);
+			return true;
+		}
+	}
+
 	let servedWood = 0;
 	const ringSites = [cc.position(), ...storePositions];
 	const r2 = this.ringServeDist * this.ringServeDist;
@@ -3530,6 +3568,22 @@ BrennusBot.prototype.logStatus = function()
 			"=" + Math.round(this.woodline.total) : "none"} ` +
 		`terr=${terr ? terr.pct + "%(" + terr.own + "/" + terr.total + ")" : "-"} ` +
 		`stock ${Math.floor(res.food)}/${Math.floor(res.wood)}/${Math.floor(res.stone)}/${Math.floor(res.metal)}\n`);
+
+	// Storehouse-coverage alarm: wood walk distance is the biggest single
+	// gatherer-efficiency factor, and a storehouse costs wood — a stalling
+	// wood supply must be fixed before anything else can be. Latched per
+	// episode (warn at 40m, clear at 30m) so a failing coverage prints once.
+	const wd = dropsiteDist.wood;
+	if (wd !== "-" && wd > this.woodDistWarn)
+	{
+		if (!this.woodDistWarned)
+		{
+			this.woodDistWarned = true;
+			print(`[WARNING] t=${Math.round(gameState.getTimeElapsed() / 60000)}m lumberjacks work at mean ${wd}m from the nearest dropsite (>${this.woodDistWarn}m) — wood storehouse coverage is failing\n`);
+		}
+	}
+	else if (wd === "-" || wd < this.woodDistWarnClear)
+		this.woodDistWarned = false;
 };
 
 BrennusBot.prototype.meanDropsiteDistances = function()

@@ -34,7 +34,7 @@ GOLDEN_DIR = os.path.join(REPO, "tools", "golden")
 RUNS_DIR = os.path.join(REPO, "tmp", "golden")
 RESULTS = "/var/lib/kiln/results/kimi-agent"
 
-TAGGED = re.compile(r"^\[(HARNESS|DEFENSE|HUNT|THREAT|HERDDONE|KILN)\]")
+TAGGED = re.compile(r"^\[(HARNESS|DEFENSE|HUNT|THREAT|HERDDONE|KILN|WARNING)\]")
 ERROR = re.compile(r"^ERROR")
 
 
