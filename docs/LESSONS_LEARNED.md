@@ -719,15 +719,42 @@
 ## 2026-08-29 (behavior-changing series: outcome and where it stands)
 
 - **The series (real allocator, fresh demands, flow-share dial, siege
-  plan) is implemented on branch `arbiter-behavior` and reverted on
-  main** (main is byte-identical to the verified d55517a state). Every
-  variant won seeds 2/4 but flipped seeds 1/3's first-wave fight (six
+  plan) flipped seeds 1/3's first-wave fight on every calibration** (six
   5-seed rounds: 2 trigger-ends → 2 defeats at musterShare 0.3 → 0/5 at
   musterTarget 75 → 3 wins + 2 survivals at goal-10 calibration). The
-  residual failure is fight/war timing — s1 gets pinned by a home camp
-  and its lone ram keeps dying; s3's city lands 13 min late — i.e.
-  tuning, not money logic. Deliberately left for the tuning session
-  rather than knob-searched to a new knife-edge point.
+  residual failure was fight/war timing, not money logic. **Merged to
+  main on 2026-08-29 by Louis's call** (88bbb0d) with s1/s3 as known-open
+  problems; see the woodfix entry below for the s3 half.
+
+## 2026-08-29 (seed-3 wood starvation: diagnosis, fix, and the git trap)
+
+- **Louis's seed-3 diagnosis, verified in the log**: 8-15m was spent
+  chopping 75-85m out (dist wood 80-85m at 10-15m) because the first
+  storehouse for the new woodline landed at 14.9m — the ring gate
+  (servedWood ≥ 250 scraps near the dead storehouse) and the war-fund
+  floor (wood ≥ 250) both blocked the storehouse that pays for itself.
+  Fixed from first principles: an unserved active woodline (centroid
+  > 25 m edge from any wood dropsite, ≥ 800 wood in the zone) gets its
+  storehouse at once, rush-built, at flat 100 wood ahead of all reserves.
+  Probe: storehouse at 7.5m, dist wood ≤ 38m through the boom, city at
+  15.8m (was 32.7m). New [WARNING] (latched, mean lumberjack distance
+  > 40m) catches coverage failures in the golden timeline; it fires on
+  every mid-game expansion, i.e. it works.
+- **The storehouse fix alone does not close seed 3**: no arsenal order is
+  ever printed from ~16m on (no rams, no raids, trigger-end). The goal-12
+  home-ring placement exemption (nearEnemyForBuild) was ported, probed,
+  and did NOT produce a single arsenal attempt — the wants loop goes
+  silent for a reason not yet identified (next session: instrument
+  manageDefenseBuildings' per-want have/pending state; suspects are
+  pendingBuilds dedup poisoning and wave-razed barracks foundations).
+- **git: rebasing a branch whose commit was reverted upstream silently
+  DROPS the commit** (patch-id matching treats it as already applied —
+  the woodfix survived but the whole allocator series vanished from the
+  rebased branch; caught by content-diffing the tip). Correct sequence:
+  `git revert <the-revert>` on main first (resolve mechanically to the
+  original commit's file), THEN rebase the branch — it replays cleanly
+  and ff-merges. Always verify a rebase by diffing tree content against
+  the pre-rebase tip, not by reading the commit list.
 - **Knife-edge sensitivity means "same constants, better structure" does
   not survive contact**: the goal-10 configuration is a tuned point in a
   chaotic landscape; any mechanism change (even strictly-stricter
