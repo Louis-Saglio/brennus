@@ -179,12 +179,6 @@ BrennusBot.prototype.arbiterParams = {
 		"musterTarget": 60,
 		"musterBatch": 1,
 		"musterFloor": { "food": 50, "wood": 50 },
-		// The early muster's first claim on the food flow: while it is still
-		// drawing, the women stream leaves musterShare × the arbiter's
-		// estimated per-block food income unspent. 0 = no forward reserve:
-		// the muster's claim is its pipeline position alone. Higher values
-		// taxed the women stream measurably (1.0 stalled the boom).
-		"musterShare": 0.0,
 		"womanCcBatch": 5,
 		"womanHouseBatch": 1
 	},
@@ -237,33 +231,13 @@ function ResourceArbiter(bot)
 	this.balance = null;     // the shared per-block running balance
 	this.journal = [];
 	this.totals = {};
-	// Per-block income estimate (EMA of gross inflow: mirror delta + what the
-	// arbiter granted last block — engine deductions land within a turn of the
-	// grant). Feeds the foodSplit.musterShare dial.
-	this.income = { "food": 0, "wood": 0, "stone": 0, "metal": 0 };
-	this.prevMirror = null;
 }
 
 ResourceArbiter.prototype.resetBlock = function()
 {
-	const mirror = this.bot.gameState.getResources();
-	if (this.prevMirror)
-	{
-		const spent = { "food": 0, "wood": 0, "stone": 0, "metal": 0 };
-		for (const j of this.journal)
-			if (j.granted && j.cost)
-				for (const res in spent)
-					spent[res] += j.cost[res] || 0;
-		for (const res of ["food", "wood", "stone", "metal"])
-		{
-			const gross = mirror[res] - this.prevMirror[res] + spent[res];
-			this.income[res] = 0.7 * this.income[res] + 0.3 * gross;
-		}
-	}
-	this.prevMirror = { "food": mirror.food, "wood": mirror.wood, "stone": mirror.stone, "metal": mirror.metal };
 	this.reserves = {};
 	this.holds = {};
-	this.balance = mirror;
+	this.balance = this.bot.gameState.getResources();
 	this.journal = [];
 };
 
@@ -365,17 +339,12 @@ ResourceArbiter.prototype.declared = function(name)
 /** Sticky state survives save/load; per-block state (reserves, holds, journal) does not. */
 ResourceArbiter.prototype.serialize = function()
 {
-	return { "declarations": this.declarations,
-		"income": this.income, "prevMirror": this.prevMirror };
+	return { "declarations": this.declarations };
 };
 
 ResourceArbiter.prototype.deserialize = function(data)
 {
 	this.declarations = data?.declarations || {};
-	if (data?.income)
-		this.income = data.income;
-	if (data?.prevMirror)
-		this.prevMirror = data.prevMirror;
 };
 
 ResourceArbiter.prototype.declaredAmount = function(name, resource)
@@ -1437,12 +1406,6 @@ BrennusBot.prototype.trainWorkers = function()
 	const reserveFood = this.arbiter.reserved("food");
 
 	const fertFloor = this.arbiter.declaredAmount("fert", "food");
-	// The early muster has first claim on musterShare × the estimated food
-	// flow: the women stream spends only the surplus above it (the old
-	// emergent race — muster first at cost-level floors, women the
-	// remainder — made an explicit parameter).
-	const flowFloor = this.arbiter.declared("musterActive") ?
-		Math.round(this.arbiterParams.foodSplit.musterShare * this.arbiter.income.food) : 0;
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const houseTraining = gameState.isResearched(this.houseTrainingTech);
 
@@ -1466,7 +1429,7 @@ BrennusBot.prototype.trainWorkers = function()
 			continue;
 
 		const queue = ent.trainingQueue();
-		if (queue && !queue.length && resources.food >= reserveFood + fertFloor + flowFloor + 50 * batch)
+		if (queue && !queue.length && resources.food >= reserveFood + fertFloor + 50 * batch)
 		{
 			ent.train(gameState.getPlayerCiv(), type, batch, {});
 			this.arbiter.spend(resources, "workers", { "food": 50 * batch }, `women x${batch}`);
@@ -3345,52 +3308,11 @@ BrennusBot.prototype.manageDefenseTraining = function()
 		if ((ent.trainingQueue()?.length || 0) <= 1)
 			trainers.push(ent);
 	}
-	// Early muster: musterTarget (60) soldiers until the war stage (city) —
-	// Petra aggressive arrives at ~16 min with ~100 units, so 40 was still
-	// half a wave (agg3); 75 slowed the boom without flipping the wave fight
-	// (rebal75: 0/5 conquest wins).
+	// Early muster: 60 soldiers until the war stage (city) — Petra aggressive
+	// arrives at ~16 min with ~100 units, so 40 was still half a wave (agg3) —
+	// 100 after.
 	const target = this.warOn() ? this.arbiterParams.popPartition.armyTarget : this.arbiterParams.foodSplit.musterTarget;
 	const missing = target - this.armyCount() - queued;
-	// While the early muster is still drawing, the women stream leaves
-	// musterShare × the estimated food flow unspent (trainWorkers). Declared
-	// — and cleared — every block, so the claim dies with the early window.
-	this.arbiter.declare("musterActive", !this.warOn() && missing > 0 ? true : null);
-	// Siege plan, first-class: rams are the kill clock — basic infantry cannot
-	// raze a garrisoned CC before Petra reinforces (goal-10). While a ram is
-	// missing, one ram's cost is reserved from the later pipeline stages and
-	// rams train BEFORE the infantry/fanatic batches, so the war muster's
-	// wood never crowds out the raid's siege. Rams are slow: muster them
-	// before the army hits raid size or every raid goes in without them (4
-	// made for 3-7-minute kills in agg6 — first razed CC at 40.2m, too slow).
-	const arsenalType = gameState.applyCiv("structures/{civ}/arsenal");
-	let rams = 0;
-	const arsenals = [];
-	for (const ent of gameState.getOwnStructures().values())
-	{
-		if (ent.templateName() !== arsenalType || ent.foundationProgress() !== undefined)
-			continue;
-		this.arsenalBuilt = true;
-		for (const item of ent.trainingQueue() || [])
-			rams += item.count;
-		if ((ent.trainingQueue()?.length || 0) <= 1)
-			arsenals.push(ent);
-	}
-	for (const id in this.rams)
-		rams++;
-	const ramPending = this.armyCount() >= 40 && rams < this.arbiterParams.popPartition.rams && arsenals.length;
-	if (ramPending)
-		this.arbiter.reserve("siege", { "wood": 300, "metal": 150 });
-	if (ramPending &&
-		res.wood >= this.arbiterParams.warChest.ramWood && res.metal >= this.arbiterParams.warChest.ramMetal)
-		for (const arsenal of arsenals)
-		{
-			if (rams >= this.arbiterParams.popPartition.rams || res.wood < this.arbiterParams.warChest.ramWood || res.metal < this.arbiterParams.warChest.ramMetal)
-				break;
-			arsenal.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/siege_ram"), 1, {});
-			this.arbiter.spend(res, "defenseTraining", { "wood": 300, "metal": 150 }, "ram");
-			rams++;
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/${this.arbiterParams.popPartition.rams})\n`);
-		}
 	// Healers first: 10 of them halve the effective churn of the standing army.
 	let healerCount = 0;
 	for (const id in this.healers)
@@ -3433,6 +3355,36 @@ BrennusBot.prototype.manageDefenseTraining = function()
 			}
 			ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_fanatic"), 5, {});
 			this.arbiter.spend(res, "defenseTraining", { "food": 600, "wood": 500 }, "fanatics x5");
+		}
+	// Rams for the raid: keep 6, started early — they are slow and must be
+	// mustered before the army hits raid size or every raid goes in without
+	// them. Rams are the only thing that razes CCs fast enough; 4 made for
+	// 3-7-minute kills in agg6 (first razed CC at 40.2m on s2 — too slow).
+	const arsenalType = gameState.applyCiv("structures/{civ}/arsenal");
+	let rams = 0;
+	const arsenals = [];
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		if (ent.templateName() !== arsenalType || ent.foundationProgress() !== undefined)
+			continue;
+		this.arsenalBuilt = true;
+		for (const item of ent.trainingQueue() || [])
+			rams += item.count;
+		if ((ent.trainingQueue()?.length || 0) <= 1)
+			arsenals.push(ent);
+	}
+	for (const id in this.rams)
+		rams++;
+	if (this.armyCount() >= 40 && rams < this.arbiterParams.popPartition.rams && arsenals.length &&
+		res.wood >= this.arbiterParams.warChest.ramWood && res.metal >= this.arbiterParams.warChest.ramMetal)
+		for (const arsenal of arsenals)
+		{
+			if (rams >= this.arbiterParams.popPartition.rams || res.wood < this.arbiterParams.warChest.ramWood || res.metal < this.arbiterParams.warChest.ramMetal)
+				break;
+			arsenal.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/siege_ram"), 1, {});
+			this.arbiter.spend(res, "defenseTraining", { "wood": 300, "metal": 150 }, "ram");
+			rams++;
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/${this.arbiterParams.popPartition.rams})\n`);
 		}
 	// Pop room for a batch of 5: dismiss workers (idle first) until 5 slots are
 	// free, throttled and never below a floor that keeps the economy alive.
