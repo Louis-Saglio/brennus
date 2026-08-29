@@ -1691,9 +1691,28 @@ BrennusBot.prototype.manageConstruction = function()
 	if (this.manageDropSites(foundations, reserve))
 		return;
 
-	// Field demand is computed fresh every block, BEFORE both house gates
-	// read it (until step C the early gate below read the previous block's
-	// declaration — an accident of statement order, not a policy).
+	if (margin < 2 && houseFoundations < this.maxHouseFoundations &&
+		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
+		resources.wood >= houseCost + this.arbiter.declaredAmount("field", "wood"))
+		return tryHouse();
+
+	this.arbiter.declare("techWood", null);
+	for (const tech of ["gather_farming_plows", "gather_farming_training",
+		"gather_farming_harvester", "gather_lumbering_ironaxes"])
+	{
+		if (gameState.isResearched(tech) || gameState.isResearching(tech) ||
+			!gameState.canResearch(tech))
+			continue;
+		const techWood = gameState.getTemplate(tech).cost().wood || 0;
+		if (resources.wood < techWood + 100)
+			this.arbiter.declare("techWood", techWood ? { "wood": techWood } : null);
+		break;
+	}
+
+	const cc = this.getCivicCentre();
+	if (!cc)
+		return;
+	const ccPos = cc.position();
 	let foodGatherers = 0;
 	for (const res of Object.values(this.assignments))
 		if (res === "food")
@@ -1718,29 +1737,6 @@ BrennusBot.prototype.manageConstruction = function()
 	if (this.woodPoor && fields + fieldFoundations < desiredFields / 2 &&
 		this.fieldStallTurns > 100)
 		this.arbiter.declare("field", { "wood": 100 });
-
-	if (margin < 2 && houseFoundations < this.maxHouseFoundations &&
-		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
-		resources.wood >= houseCost + this.arbiter.declaredAmount("field", "wood"))
-		return tryHouse();
-
-	this.arbiter.declare("techWood", null);
-	for (const tech of ["gather_farming_plows", "gather_farming_training",
-		"gather_farming_harvester", "gather_lumbering_ironaxes"])
-	{
-		if (gameState.isResearched(tech) || gameState.isResearching(tech) ||
-			!gameState.canResearch(tech))
-			continue;
-		const techWood = gameState.getTemplate(tech).cost().wood || 0;
-		if (resources.wood < techWood + 100)
-			this.arbiter.declare("techWood", techWood ? { "wood": techWood } : null);
-		break;
-	}
-
-	const cc = this.getCivicCentre();
-	if (!cc)
-		return;
-	const ccPos = cc.position();
 
 	// On wood-poor biomes fields leave the town trio's wood untouched.
 	const fieldTrioWood = gameState.currentPhase() === 2 && this.woodPoor ?
