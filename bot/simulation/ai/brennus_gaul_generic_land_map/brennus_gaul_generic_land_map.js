@@ -179,6 +179,12 @@ BrennusBot.prototype.arbiterParams = {
 		"musterTarget": 60,
 		"musterBatch": 1,
 		"musterFloor": { "food": 50, "wood": 50 },
+		// The early muster's first claim on the food flow: while it is still
+		// drawing, the women stream leaves musterShare × the arbiter's
+		// estimated per-block food income unspent. 0 = no forward reserve:
+		// the muster's claim is its pipeline position alone. Higher values
+		// taxed the women stream measurably (1.0 stalled the boom).
+		"musterShare": 0.0,
 		"womanCcBatch": 5,
 		"womanHouseBatch": 1
 	},
@@ -206,23 +212,21 @@ BrennusBot.prototype.arbiterParams = {
 };
 
 /**
- * Resource arbiter: the single choke point for resource reads and spends.
+ * Resource arbiter: the single authority for resource spending.
  *
- * The engine mirrors player resources once per AI turn, so every
- * gameState.getResources() call inside a block returns the same numbers and
- * subtract() only ever edited that call's own copy — managers each spent
- * against private copies of the same pot, and priority emerged from the
- * OnUpdate call order plus ad-hoc flags (phaseReserve, banking,
- * constructionHold, fertPending...). The arbiter keeps those exact
- * semantics — books() hands out the same fresh per-call-site copies — but
- * routes every read and spend through one place that journals each grant
- * and denial. Behavior-preserving by construction: the golden timelines
- * (tools/golden/) must stay bit-identical.
+ * The engine mirrors player resources once per AI turn; that frozen mirror
+ * seeds the arbiter's ONE shared running balance at the start of every
+ * block (resetBlock). Every manager spends against that same balance
+ * through books()/spend()/check(): earlier pipeline stages' spends are
+ * visible to later stages, so the declared pipeline order is the real
+ * priority order and an order is only issued when the predicted balance
+ * actually covers it. The balance re-seeds from the fresh mirror next
+ * block, so prediction errors cannot accumulate.
  *
- * The journal is in-memory only: printing it would change the tagged
- * timeline (and hot-path prints measurably slow the sim). It exists to
- * audit a golden diff: journal holds the current turn's records, totals the
- * per-tag cumulative grant/deny counts.
+ * Every grant and denial is journaled (in-memory only: printing would
+ * change the tagged timeline, and hot-path prints measurably slow the
+ * sim). journal holds the current block's records, totals the per-tag
+ * cumulative grant/deny counts — read them when auditing a golden diff.
  */
 function ResourceArbiter(bot)
 {
@@ -230,25 +234,55 @@ function ResourceArbiter(bot)
 	this.reserves = {};      // name -> {resource: amount}; reset every block
 	this.holds = {};         // name -> true; reset every block
 	this.declarations = {};  // name -> payload; sticky until re-declared (mirrors the old instance-flag lifetimes)
+	this.balance = null;     // the shared per-block running balance
 	this.journal = [];
-	this.journalTurn = -1;
 	this.totals = {};
+	// Per-block income estimate (EMA of gross inflow: mirror delta + what the
+	// arbiter granted last block — engine deductions land within a turn of the
+	// grant). Feeds the foodSplit.musterShare dial.
+	this.income = { "food": 0, "wood": 0, "stone": 0, "metal": 0 };
+	this.prevMirror = null;
 }
 
 ResourceArbiter.prototype.resetBlock = function()
 {
+	const mirror = this.bot.gameState.getResources();
+	if (this.prevMirror)
+	{
+		const spent = { "food": 0, "wood": 0, "stone": 0, "metal": 0 };
+		for (const j of this.journal)
+			if (j.granted && j.cost)
+				for (const res in spent)
+					spent[res] += j.cost[res] || 0;
+		for (const res of ["food", "wood", "stone", "metal"])
+		{
+			const gross = mirror[res] - this.prevMirror[res] + spent[res];
+			this.income[res] = 0.7 * this.income[res] + 0.3 * gross;
+		}
+	}
+	this.prevMirror = { "food": mirror.food, "wood": mirror.wood, "stone": mirror.stone, "metal": mirror.metal };
 	this.reserves = {};
 	this.holds = {};
+	this.balance = mirror;
+	this.journal = [];
 };
 
-/** A fresh copy of the frozen per-turn resource mirror: the same object gameState.getResources() returns. */
+/**
+ * The shared running balance for this block. All "books" are the same
+ * object: a manager's reads see every earlier spend in the block. (Before
+ * this step each call site got its own fresh mirror copy and overdraws were
+ * left for the engine's command order to resolve.)
+ */
 ResourceArbiter.prototype.books = function(tag)
 {
-	if (this.journalTurn !== this.bot.turn)
-	{
-		this.journalTurn = this.bot.turn;
-		this.journal = [];
-	}
+	if (!this.balance)
+		this.balance = this.bot.gameState.getResources();
+	return this.balance;
+};
+
+/** The raw frozen mirror, for read-only reporting that must not see predicted spends (logStatus stock line). */
+ResourceArbiter.prototype.mirror = function()
+{
 	return this.bot.gameState.getResources();
 };
 
@@ -259,10 +293,11 @@ ResourceArbiter.prototype.record = function(tag, what, cost, granted)
 	t[granted ? "grant" : "deny"]++;
 };
 
-/** Spend from a books object (the old subtract) + journal the grant. */
+/** Spend from the balance + journal the grant. Cost keys are zero-filled first: the engine's ResourcesManager.subtract turns missing keys into NaN (x -= undefined), and NaN poisons every later comparison on a shared balance (NaN < y is false, so canAfford would always pass). */
 ResourceArbiter.prototype.spend = function(books, tag, cost, what)
 {
-	books.subtract(cost);
+	books.subtract({ "food": cost.food || 0, "wood": cost.wood || 0,
+		"stone": cost.stone || 0, "metal": cost.metal || 0 });
 	this.record(tag, what, cost, true);
 };
 
@@ -272,6 +307,15 @@ ResourceArbiter.prototype.check = function(books, tag, cost, what)
 	const ok = books.canAfford(cost);
 	this.record(tag, what, cost, ok);
 	return ok;
+};
+
+/** A barter's sell side is a real engine-side deduction: record it as a spend so later stages see it gone. */
+ResourceArbiter.prototype.spendSell = function(tag, sell, amount, what)
+{
+	const cost = { "food": 0, "wood": 0, "stone": 0, "metal": 0 };
+	cost[sell] = amount;
+	this.balance.subtract(cost);
+	this.record(tag, what, cost, true);
 };
 
 /** Reserves: amounts later spenders must leave untouched. */
@@ -321,12 +365,17 @@ ResourceArbiter.prototype.declared = function(name)
 /** Sticky state survives save/load; per-block state (reserves, holds, journal) does not. */
 ResourceArbiter.prototype.serialize = function()
 {
-	return { "declarations": this.declarations };
+	return { "declarations": this.declarations,
+		"income": this.income, "prevMirror": this.prevMirror };
 };
 
 ResourceArbiter.prototype.deserialize = function(data)
 {
 	this.declarations = data?.declarations || {};
+	if (data?.income)
+		this.income = data.income;
+	if (data?.prevMirror)
+		this.prevMirror = data.prevMirror;
 };
 
 ResourceArbiter.prototype.declaredAmount = function(name, resource)
@@ -1388,6 +1437,12 @@ BrennusBot.prototype.trainWorkers = function()
 	const reserveFood = this.arbiter.reserved("food");
 
 	const fertFloor = this.arbiter.declaredAmount("fert", "food");
+	// The early muster has first claim on musterShare × the estimated food
+	// flow: the women stream spends only the surplus above it (the old
+	// emergent race — muster first at cost-level floors, women the
+	// remainder — made an explicit parameter).
+	const flowFloor = this.arbiter.declared("musterActive") ?
+		Math.round(this.arbiterParams.foodSplit.musterShare * this.arbiter.income.food) : 0;
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const houseTraining = gameState.isResearched(this.houseTrainingTech);
 
@@ -1411,7 +1466,7 @@ BrennusBot.prototype.trainWorkers = function()
 			continue;
 
 		const queue = ent.trainingQueue();
-		if (queue && !queue.length && resources.food >= reserveFood + fertFloor + 50 * batch)
+		if (queue && !queue.length && resources.food >= reserveFood + fertFloor + flowFloor + 50 * batch)
 		{
 			ent.train(gameState.getPlayerCiv(), type, batch, {});
 			this.arbiter.spend(resources, "workers", { "food": 50 * batch }, `women x${batch}`);
@@ -1673,28 +1728,9 @@ BrennusBot.prototype.manageConstruction = function()
 	if (this.manageDropSites(foundations, reserve))
 		return;
 
-	if (margin < 2 && houseFoundations < this.maxHouseFoundations &&
-		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
-		resources.wood >= houseCost + this.arbiter.declaredAmount("field", "wood"))
-		return tryHouse();
-
-	this.arbiter.declare("techWood", null);
-	for (const tech of ["gather_farming_plows", "gather_farming_training",
-		"gather_farming_harvester", "gather_lumbering_ironaxes"])
-	{
-		if (gameState.isResearched(tech) || gameState.isResearching(tech) ||
-			!gameState.canResearch(tech))
-			continue;
-		const techWood = gameState.getTemplate(tech).cost().wood || 0;
-		if (resources.wood < techWood + 100)
-			this.arbiter.declare("techWood", techWood ? { "wood": techWood } : null);
-		break;
-	}
-
-	const cc = this.getCivicCentre();
-	if (!cc)
-		return;
-	const ccPos = cc.position();
+	// Field demand is computed fresh every block, BEFORE both house gates
+	// read it (until step C the early gate below read the previous block's
+	// declaration — an accident of statement order, not a policy).
 	let foodGatherers = 0;
 	for (const res of Object.values(this.assignments))
 		if (res === "food")
@@ -1719,6 +1755,29 @@ BrennusBot.prototype.manageConstruction = function()
 	if (this.woodPoor && fields + fieldFoundations < desiredFields / 2 &&
 		this.fieldStallTurns > 100)
 		this.arbiter.declare("field", { "wood": 100 });
+
+	if (margin < 2 && houseFoundations < this.maxHouseFoundations &&
+		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
+		resources.wood >= houseCost + this.arbiter.declaredAmount("field", "wood"))
+		return tryHouse();
+
+	this.arbiter.declare("techWood", null);
+	for (const tech of ["gather_farming_plows", "gather_farming_training",
+		"gather_farming_harvester", "gather_lumbering_ironaxes"])
+	{
+		if (gameState.isResearched(tech) || gameState.isResearching(tech) ||
+			!gameState.canResearch(tech))
+			continue;
+		const techWood = gameState.getTemplate(tech).cost().wood || 0;
+		if (resources.wood < techWood + 100)
+			this.arbiter.declare("techWood", techWood ? { "wood": techWood } : null);
+		break;
+	}
+
+	const cc = this.getCivicCentre();
+	if (!cc)
+		return;
+	const ccPos = cc.position();
 
 	// On wood-poor biomes fields leave the town trio's wood untouched.
 	const fieldTrioWood = gameState.currentPhase() === 2 && this.woodPoor ?
@@ -2195,12 +2254,14 @@ BrennusBot.prototype.manageBarter = function()
 			if (res[sell] >= 700)
 			{
 				market.barter(want, sell, 500);
+				this.arbiter.spendSell("barter", sell, 500, `barter ${sell}->${want}`);
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${sell} -> ${want}\n`);
 				return;
 			}
 			if (res[sell] >= 400)
 			{
 				market.barter(want, sell, 100);
+				this.arbiter.spendSell("barter", sell, 100, `barter ${sell}->${want}`);
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 100 ${sell} -> ${want}\n`);
 				return;
 			}
@@ -2211,6 +2272,7 @@ BrennusBot.prototype.manageBarter = function()
 		{
 			const want = res.wood < 250 ? "wood" : "food";
 			market.barter(want, excess, 500);
+			this.arbiter.spendSell("barter", excess, 500, `barter ${excess}->${want}`);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${excess} -> ${want}\n`);
 			return;
 		}
@@ -2226,6 +2288,7 @@ BrennusBot.prototype.manageBarter = function()
 			{
 				const want = res.wood < 250 ? "wood" : "food";
 				market.barter(want, excess, 500);
+				this.arbiter.spendSell("barter", excess, 500, `barter ${excess}->${want}`);
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${excess} -> ${want}\n`);
 			}
 		}
@@ -3157,8 +3220,6 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 			return;
 		if (this.tryConstruct(type, "military"))
 		{
-			// Per-call-site books: this spend accounts against a throwaway copy,
-			// exactly like the old anonymous getResources().subtract().
 			this.arbiter.spend(this.arbiter.books("defenseBuildings"), "defenseBuildings", { "wood": 300 }, type.split("/").pop());
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m defense building ${type.split("/").pop()}\n`);
 			this.arbiter.hold("construction");
@@ -3284,11 +3345,52 @@ BrennusBot.prototype.manageDefenseTraining = function()
 		if ((ent.trainingQueue()?.length || 0) <= 1)
 			trainers.push(ent);
 	}
-	// Early muster: 60 soldiers until the war stage (city) — Petra aggressive
-	// arrives at ~16 min with ~100 units, so 40 was still half a wave (agg3) —
-	// 100 after.
+	// Early muster: musterTarget (60) soldiers until the war stage (city) —
+	// Petra aggressive arrives at ~16 min with ~100 units, so 40 was still
+	// half a wave (agg3); 75 slowed the boom without flipping the wave fight
+	// (rebal75: 0/5 conquest wins).
 	const target = this.warOn() ? this.arbiterParams.popPartition.armyTarget : this.arbiterParams.foodSplit.musterTarget;
 	const missing = target - this.armyCount() - queued;
+	// While the early muster is still drawing, the women stream leaves
+	// musterShare × the estimated food flow unspent (trainWorkers). Declared
+	// — and cleared — every block, so the claim dies with the early window.
+	this.arbiter.declare("musterActive", !this.warOn() && missing > 0 ? true : null);
+	// Siege plan, first-class: rams are the kill clock — basic infantry cannot
+	// raze a garrisoned CC before Petra reinforces (goal-10). While a ram is
+	// missing, one ram's cost is reserved from the later pipeline stages and
+	// rams train BEFORE the infantry/fanatic batches, so the war muster's
+	// wood never crowds out the raid's siege. Rams are slow: muster them
+	// before the army hits raid size or every raid goes in without them (4
+	// made for 3-7-minute kills in agg6 — first razed CC at 40.2m, too slow).
+	const arsenalType = gameState.applyCiv("structures/{civ}/arsenal");
+	let rams = 0;
+	const arsenals = [];
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		if (ent.templateName() !== arsenalType || ent.foundationProgress() !== undefined)
+			continue;
+		this.arsenalBuilt = true;
+		for (const item of ent.trainingQueue() || [])
+			rams += item.count;
+		if ((ent.trainingQueue()?.length || 0) <= 1)
+			arsenals.push(ent);
+	}
+	for (const id in this.rams)
+		rams++;
+	const ramPending = this.armyCount() >= 40 && rams < this.arbiterParams.popPartition.rams && arsenals.length;
+	if (ramPending)
+		this.arbiter.reserve("siege", { "wood": 300, "metal": 150 });
+	if (ramPending &&
+		res.wood >= this.arbiterParams.warChest.ramWood && res.metal >= this.arbiterParams.warChest.ramMetal)
+		for (const arsenal of arsenals)
+		{
+			if (rams >= this.arbiterParams.popPartition.rams || res.wood < this.arbiterParams.warChest.ramWood || res.metal < this.arbiterParams.warChest.ramMetal)
+				break;
+			arsenal.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/siege_ram"), 1, {});
+			this.arbiter.spend(res, "defenseTraining", { "wood": 300, "metal": 150 }, "ram");
+			rams++;
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/${this.arbiterParams.popPartition.rams})\n`);
+		}
 	// Healers first: 10 of them halve the effective churn of the standing army.
 	let healerCount = 0;
 	for (const id in this.healers)
@@ -3305,9 +3407,14 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	const milBatch = boom ? this.arbiterParams.warChest.musterBatch : this.arbiterParams.foodSplit.musterBatch;
 	const floorF = boom ? this.arbiterParams.warChest.musterFood : this.arbiterParams.foodSplit.musterFloor.food;
 	const floorW = boom ? (this.arbiter.declared("defenseGap") ? this.arbiterParams.warChest.musterWoodGap : this.arbiterParams.warChest.musterWood) : this.arbiterParams.foodSplit.musterFloor.wood;
-	if (missing > 0 && res.food >= floorF && res.wood >= floorW)
+	// The shared balance is the allocator: re-check the floors before every
+	// trainer instead of issuing the whole round on one entry check — orders
+	// the balance cannot cover are denied here, not failed at the engine.
+	if (missing > 0)
 		for (const ent of trainers)
 		{
+			if (res.food < floorF || res.wood < floorW)
+				break;
 			if (ent.templateName() === barracksType)
 			{
 				const type = gameState.applyCiv(this.spearNext ?
@@ -3326,36 +3433,6 @@ BrennusBot.prototype.manageDefenseTraining = function()
 			}
 			ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_fanatic"), 5, {});
 			this.arbiter.spend(res, "defenseTraining", { "food": 600, "wood": 500 }, "fanatics x5");
-		}
-	// Rams for the raid: keep 6, started early — they are slow and must be
-	// mustered before the army hits raid size or every raid goes in without
-	// them. Rams are the only thing that razes CCs fast enough; 4 made for
-	// 3-7-minute kills in agg6 (first razed CC at 40.2m on s2 — too slow).
-	const arsenalType = gameState.applyCiv("structures/{civ}/arsenal");
-	let rams = 0;
-	const arsenals = [];
-	for (const ent of gameState.getOwnStructures().values())
-	{
-		if (ent.templateName() !== arsenalType || ent.foundationProgress() !== undefined)
-			continue;
-		this.arsenalBuilt = true;
-		for (const item of ent.trainingQueue() || [])
-			rams += item.count;
-		if ((ent.trainingQueue()?.length || 0) <= 1)
-			arsenals.push(ent);
-	}
-	for (const id in this.rams)
-		rams++;
-	if (this.armyCount() >= 40 && rams < this.arbiterParams.popPartition.rams && arsenals.length &&
-		res.wood >= this.arbiterParams.warChest.ramWood && res.metal >= this.arbiterParams.warChest.ramMetal)
-		for (const arsenal of arsenals)
-		{
-			if (rams >= this.arbiterParams.popPartition.rams || res.wood < this.arbiterParams.warChest.ramWood || res.metal < this.arbiterParams.warChest.ramMetal)
-				break;
-			arsenal.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/siege_ram"), 1, {});
-			this.arbiter.spend(res, "defenseTraining", { "wood": 300, "metal": 150 }, "ram");
-			rams++;
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/${this.arbiterParams.popPartition.rams})\n`);
 		}
 	// Pop room for a batch of 5: dismiss workers (idle first) until 5 slots are
 	// free, throttled and never below a floor that keeps the economy alive.
@@ -3420,7 +3497,7 @@ BrennusBot.prototype.logStatus = function()
 			town++;
 	}
 	const techs = this.boomTechs.filter(t => gameState.isResearched(t)).length;
-	const res = this.arbiter.books("status");
+	const res = this.arbiter.mirror();
 
 	const rate = cls => {
 		const s = this.rateStats[cls];
@@ -4321,6 +4398,7 @@ BrennusBot.prototype.manageExpansionBarter = function(market)
 		if (bestRatio >= 0.35 && res[sell] >= 47000 && this.turn % 15 === 0)
 		{
 			market.barter(want, sell, 500);
+			this.arbiter.spendSell("barter", sell, 500, `barter ${sell}->${want}`);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${sell} -> ${want} (ratio ${bestRatio.toFixed(2)})\n`);
 			return true;
 		}
