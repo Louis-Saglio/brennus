@@ -68,6 +68,18 @@ on this VPS** (full matches are too heavy here; kiln runners are
 fallback if kiln is unavailable. See `docs/kiln.md` for the how-to: MCP
 tools, job-spec format, reading results, waiting without polling.
 
+## Standard settings
+
+The standard match for all experiments and validation — Brennus (Gauls) vs
+Petra (Rome):
+
+- map `random/mainland`, size `192`, biome `generic/temperate`,
+  placement `circle`, victory `conquest_civic_centers`
+- Brennus: `gaul`, diff `3`, behavior `aggressive`, team `1`
+- Petra: `rome`, diff `3` (medium), behavior `aggressive`, team `2`
+- observer (`player: -1`), `in_game_limit_min: 45`, `wall_budget_s: 1800`
+- `seed = aiseed`, both pinned
+
 ## Iterating
 
 - **Vary the probe seed while iterating**: tuning against a single
