@@ -1,7 +1,0 @@
-{
-	"name": "Brennus — Gaul boom and expand",
-	"description": "Gaul boom bot for generic land maps that then expands: boom first (City Phase + 300 population), then territory spread and stockpile maximisation.",
-	"constructor": "BrennusBot",
-	"filename": "brennus_gaul_boom_and_expand_generic_land_map.js",
-	"useShared": true
-}

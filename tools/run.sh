@@ -10,7 +10,7 @@
 # <outdir>/<tag>/home/.local/state/0ad/.
 #
 # Options:
-#   -a AI    AI script to play (default brennus_gaul_boom_and_expand_generic_land_map)
+#   -a AI    AI script to play (default brennus)
 #   -t SEC   wall-clock timeout per match (default 300)
 #   -p N     parallel matches (default: number of CPU cores)
 #   -m MAP   autostart map (default random/mainland)
@@ -22,14 +22,14 @@
 #            autostart default "balanced"; flag omitted)
 #
 # Examples:
-#   run.sh bot tmp/goal9 seed1=1 seed2=2 ... seed5=5 seed1-rerun=1
-#   run.sh -a brennus_gaul_boom_generic_land_map -t 60 bot tmp/goal9 probe=1
+#   run.sh bot tmp/run seed1=1 seed2=2 ... seed5=5 seed1-rerun=1
+#   run.sh -a brennus -t 60 bot tmp/run probe=1
 #   run.sh -b generic/steppe -l 30 bot tmp/steppe s1=1 s2=2
-#   run.sh -a brennus_gaul_defend_boom_and_expand_generic_land_map \
-#     -d 3 -v defensive bot tmp/goal9 s1=1
+#   run.sh -a brennus \
+#     -d 3 -v defensive bot tmp/run s1=1
 set -u
 
-AI=brennus_gaul_boom_and_expand_generic_land_map
+AI=brennus
 TIMEOUT=300
 JOBS=${JOBS:-$(nproc)}
 MAP=random/mainland

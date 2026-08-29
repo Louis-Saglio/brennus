@@ -6,7 +6,7 @@ Generic stats resolved from the shared template `simulation/templates/template_u
 
 ## Guide
 
-The ram is a dedicated anti-building unit: its 150 crush melee attack is restricted against Field and Organic targets, so it can only damage structures, which it prefers. Train it at the arsenal when the goal is to destroy enemy buildings (civic centres included) faster than citizen-soldiers can, noting its high 35 pierce armor against fort and tower fire. It is slow and costs 300 wood / 150 metal and 3 population, so the metal makes it a premium investment that is harder to mass. It cannot defend itself against units, so escort it.
+The ram is a dedicated anti-building unit: its 150 crush melee attack is restricted against Field and Organic targets, so it can only damage structures, which it prefers. Train it at the arsenal when the aim is to destroy enemy buildings (civic centres included) faster than citizen-soldiers can, noting its high 35 pierce armor against fort and tower fire. It is slow and costs 300 wood / 150 metal and 3 population, so the metal makes it a premium investment that is harder to mass. It cannot defend itself against units, so escort it.
 
 ## Basic stats
 

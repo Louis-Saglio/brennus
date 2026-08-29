@@ -1,16 +1,16 @@
 /**
  * Brennus override of the public ConquestCivicCentres.js (kept intact
- * below the divider) plus the goal-11 worker-efficiency telemetry.
+ * below the divider) plus worker-efficiency telemetry.
  *
  * Why this file: the brennus mod cannot put game-end hooks in
  * NonVisualTrigger.js — kiln mounts its harness mod LAST (-mod=kiln), so
  * its own NonVisualTrigger.js always shadows ours. This file is also part
  * of the autostart trigger set (scripts/ConquestCivicCentres.js), the
- * kiln harness mod does not ship a copy, and the goal's victory condition
- * is fixed at conquest_civic_centers — so the telemetry runs in every
- * goal match, kiln or local.
+ * kiln harness mod does not ship a copy, and the victory condition is
+ * fixed at conquest_civic_centers — so the telemetry runs in every match,
+ * kiln or local.
  *
- * Goal 11 telemetry (see docs/goals/goal-11/goal.md for the definition):
+ * Worker-efficiency telemetry:
  * every 200 ms of simulation time, player 1's gather-capable units are
  * sampled and, per resource class (wood, stone, metal, field, fruit):
  *   - gathered: units picked up,
@@ -50,10 +50,10 @@
  */
 
 // ---------------------------------------------------------------------------
-// Goal 11 worker-efficiency telemetry.
+// Worker-efficiency telemetry.
 // ---------------------------------------------------------------------------
 
-// The five classes the goal bars apply to, plus diagnostic classes:
+// The five tracked classes, plus diagnostic classes:
 // ruins and meat are counted (to reconcile with the end-of-game
 // statistics, which merge subtypes per generic resource) but part of no
 // bar.
@@ -266,7 +266,7 @@ Trigger.prototype.PrintEfficiency = function()
 {
 	const cmpTrigger = Engine.QueryInterface(SYSTEM_ENTITY, IID_Trigger);
 
-	// Goal 11 worker-efficiency telemetry: sample every 200 ms of sim time
+	// Worker-efficiency telemetry: sample every 200 ms of sim time
 	// (pick-ups and drop-offs must not straddle one window — see the file
 	// header).
 	cmpTrigger.RegisterTrigger("OnInterval", "EfficiencySample", { "enabled": true, "delay": 200, "interval": 200 });

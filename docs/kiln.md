@@ -1,6 +1,6 @@
 # Running matches on kiln
 
-Kiln is the remote 0 A.D. match-running farm. Full goal matches are too
+Kiln is the remote 0 A.D. match-running farm. Full matches are too
 heavy for this VPS (Louis's rule: **never run test games here — always
 use kiln**), and kiln runners are faster anyway: `pc` benchmarks at
 ~210 turns/s with 14 slots, `vps` at ~142 turns/s with 2 slots. A 45-min
@@ -26,7 +26,7 @@ match takes 2-4 wall minutes on `pc`.
 ```jsonc
 // mcp__kiln__submit_batch
 {
-  "batch_name": "goal11-tel-s1",          // optional, but name it: <goal>-<iteration>-s<seed>
+  "batch_name": "tel-s1",                 // optional; name it <label>-<iteration>-s<seed>
   "mod_dir": "/home/ubuntu/brennus/bot",  // ABSOLUTE path; packaged as-is
   "spec": {
     "map": "random/mainland",
@@ -37,7 +37,7 @@ match takes 2-4 wall minutes on `pc`.
     "size": 192,
     "victory": ["conquest_civic_centers"],
     "players": [
-      { "ai": "brennus_gaul_generic_land_map", "civ": "gaul", "diff": 3, "behavior": "aggressive", "team": 1 },
+      { "ai": "brennus", "civ": "gaul", "diff": 3, "behavior": "aggressive", "team": 1 },
       { "ai": "petra", "civ": "rome", "diff": 3, "behavior": "aggressive", "team": 2 }
     ],
     "player": -1,               // observer
@@ -89,9 +89,8 @@ instead of silently ignored by the engine):
 
 Practical habits:
 
-- **One batch per seed.** Batches are the unit of naming and waiting;
-  `goal11-tel-s1` beats a 5-job anonymous batch when you grep results
-  later.
+- **One batch per seed.** Batches are the unit of naming and waiting; a
+  named batch beats a 5-job anonymous batch when you grep results later.
 - **Syntax-check the mod before submitting** — a broken JS file wastes a
   full match slot before you see the error:
   `node --experimental-default-type=module --check bot/simulation/ai/<bot>/<bot>.js`

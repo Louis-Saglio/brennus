@@ -5,14 +5,10 @@ implementation), shipped as a 0 A.D. mod and developed against **0.28.0 only**.
 
 ## Layout
 
-- `bot/` — the mod: `mod.json` + one `simulation/ai/<bot>/` per bot
-  (data.json + JS). Names encode civ, specialty and map class.
+- `bot/` — the mod: `mod.json` + `simulation/ai/brennus/` (data.json + JS).
 - `tools/` — reusable experiment harness: headless match runner, run
   analyzers, paired A/B comparison, game-data↔docs verification (see
   `tools/README.md`).
-- `docs/goals/` — one directory per goal: `goal.md` (target, target bot,
-  settings) + `experiment.md` once attempted. Work on goal n+1 only after
-  goal n passes.
 - `docs/game_description/` — game mechanics and entity data reference, all
   grounded in the pinned game copy. Consult before writing bot logic.
 - `docs/ai_engine_api.md` — reference of the AI scripting API the bot uses.
@@ -67,12 +63,12 @@ without the logging enabled.
 ## Running a game
 
 Use kiln through its MCP to run games headless — **never run test games
-on this VPS** (full goal matches are too heavy here; kiln runners are
+on this VPS** (full matches are too heavy here; kiln runners are
 ~5-10× faster). The local harness (`tools/run.sh`) remains only as a
 fallback if kiln is unavailable. See `docs/kiln.md` for the how-to: MCP
 tools, job-spec format, reading results, waiting without polling.
 
-## Iterating on goals
+## Iterating
 
 - **Vary the probe seed while iterating**: tuning against a single
   seed overfits behavior to that map (e.g. seed 1 mainland is unusually
@@ -87,7 +83,7 @@ tools, job-spec format, reading results, waiting without polling.
 ## Sharing progress
 
 - **Commit and push** to `main` on GitHub (Louis-Saglio/brennus) every time
-  significant progress is made — a passing goal, progress on a goal, a working feature, a doc
+  significant progress is made — a working feature, a behaviour improvement, or a doc
   update worth keeping. Don't batch unrelated changes.
 - **After each non pure doc commit, publish the mod as a zip on the file server** so Louis
   can try it. Build it with `mod.json` at the archive root and publish a stable `brennus.zip`.

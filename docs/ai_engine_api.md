@@ -916,7 +916,7 @@ headless game cleanly.
   `timeElapsed` in ms), and it is **pretty-printed** (`"playerState": "won"`
   with a space) — account for both when grepping.
 - The replay `metadata.json` `playerStates[]` carries `phase` (usable to
-  verify phase goals), but `researchedTechs` is always `{}` — do not use it to
+  verify which phase was reached), but `researchedTechs` is always `{}` — do not use it to
   verify researched techs; count them from the bot's own logs.
 - The stats JSON's `unitsLost.total` can be `0` while the per-class breakdown
   is nonzero — read the breakdown.

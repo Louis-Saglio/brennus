@@ -1,7 +1,0 @@
-{
-	"name": "Brennus — Gaul defend, boom and expand",
-	"description": "Gaul boom bot for generic land maps that then expands, facing a real opponent (Petra, medium difficulty, defensive behaviour): boom first (City Phase + 300 population), then territory spread and stockpile maximisation by 45 in-game minutes.",
-	"constructor": "BrennusBot",
-	"filename": "brennus_gaul_defend_boom_and_expand_generic_land_map.js",
-	"useShared": true
-}

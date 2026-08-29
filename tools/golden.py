@@ -10,7 +10,7 @@ change must reproduce the golden file bit-for-bit.
 Matches run on kiln only (never locally — docs/kiln.md). Workflow:
 
   # 1. submit one batch per seed with the spec in tools/README.md
-  #    (validation seeds 1-5, goal-10/11 settings) via the kiln MCP
+  #    (validation seeds 1-5) via the kiln MCP
   # 2. fetch artifacts once the jobs land:
   tools/golden.py fetch <seed> <batch_id> <job_id>     # -> tmp/golden/seed<N>/
   # 3. create (baseline only!) or check the golden:

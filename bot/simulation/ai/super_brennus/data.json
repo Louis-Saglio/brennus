@@ -1,7 +1,0 @@
-{
-	"name": "Super Brennus — Gaul",
-	"description": "Gaul bot that defeats very hard aggressive Petra (rome) under conquest_civic_centers in under 45 in-game minutes on generic land maps. Copy of brennus_gaul_boom_generic_land_map as the starting point.",
-	"constructor": "BrennusBot",
-	"filename": "super_brennus.js",
-	"useShared": true
-}

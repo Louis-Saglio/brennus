@@ -50,9 +50,8 @@ Trigger.prototype.TimeLimitReached = function()
 	cmpTrigger.RegisterTrigger("OnPlayerDefeated", "EndGameAction", { "enabled": true });
 	cmpTrigger.once = true;
 
-	// Goal 9: the match must end at the 45 in-game-minute mark so the
-	// end-of-game statistics snapshot the 45-minute state. (Goal 8 reruns
-	// must pass -l 30 to tools/run.sh to restore the 30-minute limit.)
+	// The match must end at the 45 in-game-minute mark so the
+	// end-of-game statistics snapshot the 45-minute state.
 	cmpTrigger.timeLimitMinutes = 45;
 	cmpTrigger.DoAfterDelay(cmpTrigger.timeLimitMinutes * 60 * 1000, "TimeLimitReached", {});
 }

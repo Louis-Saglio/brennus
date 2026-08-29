@@ -7,7 +7,7 @@ scratch scripts in `tmp/`.
 
 ## Remote matches: kiln
 
-`run.sh` runs matches on this machine. For anything heavy (full goal
+`run.sh` runs matches on this machine. For anything heavy (full
 matches), use the kiln runner farm instead — see **`docs/kiln.md`** for the
 MCP tools, the job-spec format, how to read results
 (`/var/lib/kiln/results/...`, `fetch-kiln-artifacts.sh`) and how to wait
@@ -22,9 +22,9 @@ lines, and a sha256 of each player's raw statistics block, in order.
 A behavior-preserving refactor must reproduce all five timelines
 bit-for-bit.
 
-Validation set: seeds 1-5 (the goal-10/goal-11 validation batch), spec
+Validation set: seeds 1-5, spec
 `random/mainland` 192, `generic/temperate`, `circle`,
-`conquest_civic_centers`, `brennus_gaul_generic_land_map` gaul vs Petra
+`conquest_civic_centers`, `brennus` gaul vs Petra
 diff 3 aggressive rome, teams 1/2, `in_game_limit_min=45`,
 `wall_budget_s=1800`, seed=aiseed. Submit one batch per seed via the
 kiln MCP (docs/kiln.md), then:
@@ -52,7 +52,7 @@ under `<outdir>/<tag>`, stdout to `<outdir>/<tag>/stdout.log`. Pairs run in
 parallel, one per CPU core (override with `JOBS=` or `-p`).
 
 Options: `-a AI` bot to play (default
-`brennus_gaul_boom_and_expand_generic_land_map`), `-t SEC` wall timeout
+`brennus`), `-t SEC` wall timeout
 (default 300), `-m MAP` (default `random/mainland`), `-b BIOME` (default
 `generic/temperate`), `-l MIN` override the mod's time-limit trigger
 minutes, `-d DIFF` opponent Petra difficulty 0-5 (default 0 = sandbox),
@@ -60,11 +60,11 @@ minutes, `-d DIFF` opponent Petra difficulty 0-5 (default 0 = sandbox),
 so the engine autostart default `balanced` applies).
 
 ```sh
-# standard goal check: 5 seeds + seed-1 determinism rerun
-tools/run.sh bot tmp/goalN seed1=1 seed2=2 seed3=3 seed4=4 seed5=5 seed1-rerun=1
+# standard check: 5 seeds + seed-1 determinism rerun
+tools/run.sh bot tmp/run seed1=1 seed2=2 seed3=3 seed4=4 seed5=5 seed1-rerun=1
 
-# quick single probe on seed 1, boom bot
-tools/run.sh -a brennus_gaul_boom_generic_land_map -t 60 bot tmp/goalN probe=1
+# quick single probe on seed 1
+tools/run.sh -a brennus -t 60 bot tmp/run probe=1
 
 # A/B: same seeds under two mods, then compare with compare.py
 tools/run.sh bot         tmp/ab base-seed1=1 ... base-seed5=5
@@ -73,9 +73,9 @@ tools/run.sh bot-tweaked tmp/ab tweak-seed1=1 ... tweak-seed5=5
 # steppe biome with a 30-minute time limit
 tools/run.sh -b generic/steppe -l 30 bot tmp/steppe s1=1 s2=2
 
-# goal 9: defend bot vs medium defensive Petra
-tools/run.sh -a brennus_gaul_defend_boom_and_expand_generic_land_map \
-    -d 3 -v defensive bot tmp/goal9 s1=1
+# defend vs medium defensive Petra
+tools/run.sh -a brennus \
+    -d 3 -v defensive bot tmp/run s1=1
 ```
 
 ### analyze.py — per-run report
@@ -91,8 +91,8 @@ tags `seed1..seed5 seed1-rerun`, default determinism pair
 `seed1 vs seed1-rerun`; `--harness` also dumps the `[HARNESS]` lines.
 
 ```sh
-tools/analyze.py tmp/goalN
-tools/analyze.py tmp/goalN seed2 seed3
+tools/analyze.py tmp/run
+tools/analyze.py tmp/run seed2 seed3
 ```
 
 ### compare.py — paired A/B comparison
