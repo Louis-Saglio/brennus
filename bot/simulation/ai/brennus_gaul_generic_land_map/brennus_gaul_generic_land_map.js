@@ -318,6 +318,17 @@ ResourceArbiter.prototype.declared = function(name)
 	return this.declarations[name];
 };
 
+/** Sticky state survives save/load; per-block state (reserves, holds, journal) does not. */
+ResourceArbiter.prototype.serialize = function()
+{
+	return { "declarations": this.declarations };
+};
+
+ResourceArbiter.prototype.deserialize = function(data)
+{
+	this.declarations = data?.declarations || {};
+};
+
 ResourceArbiter.prototype.declaredAmount = function(name, resource)
 {
 	const p = this.declarations[name];
@@ -355,6 +366,7 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	print(`[HARNESS] brennus: loaded for player ${this.player}\n`);
 
 	this.arbiter = new ResourceArbiter(this);
+	this.arbiter.deserialize(this.savedState?.arbiter);
 
 	this.ccAngle = undefined;
 
@@ -4379,6 +4391,7 @@ BrennusBot.prototype.Serialize = function()
 		"expPlan": this.expPlan,
 		"expOn": this.expOn,
 		"army": this.army,
+		"arbiter": this.arbiter.serialize(),
 		"rams": this.rams,
 		"healers": this.healers
 	};
