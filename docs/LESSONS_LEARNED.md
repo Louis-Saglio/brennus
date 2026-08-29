@@ -686,3 +686,32 @@
   log line becomes part of the golden timeline, so an always-on decision
   log is incompatible with the bit-identity gate (and hot-path prints
   measurably slow the sim anyway).
+
+## 2026-08-29 (behavior-changing arbiter series: real allocator)
+
+- **`ResourcesManager.subtract()` NaN-poisons missing cost keys**
+  (`this[key] -= that[key]` with `that.wood` undefined → `wood = NaN`),
+  and **`NaN < y` is false, so `canAfford()` on a poisoned copy passes
+  everything**. With per-call-site copies the poison died with the copy
+  (it only ever flipped one latent quirk: a healer trained in the same
+  block NaN-ed `res.wood` and silently blocked that block's rams). A
+  shared running balance propagates the poison to every later check —
+  the bot ordered forges it could not afford every block (foundations
+  never placed, construct FAILED loops). Any shared-balance allocator
+  must zero-fill cost keys before subtracting. Found by a golden diff,
+  proven by an instrumented kiln probe (`bal=14/NaN/NaN/NaN` at the grant
+  site) — the NaN was invisible in unit reasoning because every field
+  read looked correct in isolation.
+- **The old bot's economy was tuned (by goal-10's iterations) on top of
+  an accidental subsidy**: over-ordered train commands got funded by
+  income landing between the frozen mirror and command processing. A
+  strict snapshot allocator removes that subsidy; the women stream lost
+  ~18 workers by 25m on seed 1. When making an allocator real, expect the
+  emergent equilibria to shift even when every gate's arithmetic is
+  unchanged.
+- **The 16-17m wave fight is a knife-edge chaotic amplifier**: identical
+  economies through 10m diverge into "army survived at 58" vs "army
+  melted to 21" from butterfly-level differences (a failed house order
+  more or less at 9m). Two of five seeds flipped on it with no systematic
+  money bug left — treat fight flips differently from economic
+  regressions when reading golden diffs.
