@@ -715,3 +715,30 @@
   more or less at 9m). Two of five seeds flipped on it with no systematic
   money bug left — treat fight flips differently from economic
   regressions when reading golden diffs.
+
+## 2026-08-29 (behavior-changing series: outcome and where it stands)
+
+- **The series (real allocator, fresh demands, flow-share dial, siege
+  plan) is implemented on branch `arbiter-behavior` and reverted on
+  main** (main is byte-identical to the verified d55517a state). Every
+  variant won seeds 2/4 but flipped seeds 1/3's first-wave fight (six
+  5-seed rounds: 2 trigger-ends → 2 defeats at musterShare 0.3 → 0/5 at
+  musterTarget 75 → 3 wins + 2 survivals at goal-10 calibration). The
+  residual failure is fight/war timing — s1 gets pinned by a home camp
+  and its lone ram keeps dying; s3's city lands 13 min late — i.e.
+  tuning, not money logic. Deliberately left for the tuning session
+  rather than knob-searched to a new knife-edge point.
+- **Knife-edge sensitivity means "same constants, better structure" does
+  not survive contact**: the goal-10 configuration is a tuned point in a
+  chaotic landscape; any mechanism change (even strictly-stricter
+  accounting) shifts the early-game race enough to flip fights. A
+  behavior-changing refactor of this bot needs either a tolerance for
+  re-tuning built into its plan, or to be delivered with its rebalance in
+  the same session.
+- **Process: behavior-changing work on this bot belongs on a branch** —
+  the golden-gate discipline assumes main always passes; a WIP series
+  that regresses seeds must not sit on main between rounds.
+- **musterShare 1.0 taxes the women stream ~25%** (s1: 94 pop at 13m vs
+  108); 0.3 did not visibly restore it (93). The early-muster food claim
+  is already guaranteed by pipeline order — the dial's value is
+  documenting that, not throttling women.
