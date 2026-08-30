@@ -3,6 +3,30 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-08-30 (border purge: the army clears forward enemy structures)
+
+- New `managePurge` in the defense chain (after the raid and the
+  minor-threat swat, before the sortie/rally): war-stage only, army >= 60,
+  1.5x local superiority, abort at army < 40 or 3 min. Targets enemy
+  `Tower`/`Fortress`/`ArmyCamp` (any build state) and `CivCentre`
+  foundations within 150 m of an own structure or 130 m of a planned
+  expansion spot. Infantry attacks with `allowCapture=true` (its damage
+  bounces off structure armor: stone tower hack 29); rams tag along but are
+  not required. Pre-war, forward towers still get no army response.
+- Class facts from the pinned templates: all towers (sentry/stone/bolt/
+  artillery) inherit the `Tower` class; wall towers do NOT (`WallTower`
+  under the wall parent). Rome's army_camp is class `ArmyCamp` (not
+  `Fortress`), builds in neutral/enemy territory and does not decay there
+  (`TerritoryDecay disable`) — it is the structure that farms our border.
+- A captured purge target flips owner to us mid-purge; `owner() === self`
+  must count as success or the army keeps attacking its own new structure.
+- Validated on 8 seeds (probes 9/11/13, validation 2/4/6/8/10): 58 purges
+  started, 0 aborted, 6 genuine wins, 2 timeouts, no JS errors, turn rate
+  unchanged (65-123 t/s). Petra rebuilds forward towers on the razed spot;
+  the purge re-razes them every time (s9: the same tower 5x). s9's timeout
+  is the known arsenal-footprint failure (0 rams all game, no raids), not
+  the purge.
+
 ## 2026-08-29 (siege-only threat centroid fix)
 
 - Fixed the threat-centroid bug from the findloss review below: `manageDefense`

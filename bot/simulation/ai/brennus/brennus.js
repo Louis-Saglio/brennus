@@ -2634,10 +2634,11 @@ BrennusBot.prototype.manageDefense = function()
 	const serious = threat && (threat.n >= 8 || threat.siegeN > 0);
 	if (serious)
 	{
-		// Defense takes precedence over any raid.
-		if (this.offense)
+		// Defense takes precedence over any raid or purge.
+		if (this.offense || this.purge)
 		{
 			this.offense = undefined;
+			this.purge = undefined;
 			for (const ent of armyEnts)
 				ent.setStance("defensive");
 			if (homePos)
@@ -2747,6 +2748,10 @@ BrennusBot.prototype.manageDefense = function()
 			for (const ent of healerEnts)
 				ent.move(threat.x, threat.z);
 		}
+	}
+	else if (this.managePurge(gameState, armyEnts, healerEnts, mil, homePos))
+	{
+		// purge in progress, commands issued there
 	}
 	else if (homePos)
 	{
@@ -2991,6 +2996,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			return false;
 		const bp = best.position();
 		this.offense = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn };
+		this.purge = undefined;	// the raid takes precedence over any purge
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${Math.floor(bestScore / 10000)}, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 		for (const ent of armyEnts)
 			ent.setStance("aggressive");
@@ -3025,6 +3031,144 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 	}
 	for (const ent of healerEnts)
 		ent.move(this.offense.x, this.offense.z);
+	return true;
+};
+
+/**
+ * Purge: with no raid on, raze the enemy military structures sitting at our
+ * border — forward towers, fortresses, army camps (Rome builds those in OUR
+ * territory; they train units and rams at our doorstep) and CC foundations.
+ * They shrink our territory, stale the expansion spots (the planner only
+ * avoids them) and farm the nearby economy, and outside a CC raid the army
+ * otherwise never touches a structure (s109: lone forward towers stood all
+ * game). "Border" means within 150 m of an own structure or 130 m of a
+ * planned expansion spot. Infantry attacks with capture allowed — its damage
+ * bounces off structure armor (towers: hack 29); rams raze. War-stage only,
+ * like the sortie: pre-war the muster IS the defense. Gates sit below the
+ * raid's (60 not 75, no ram floor) but the donation rule stands: 1.5x local
+ * superiority or stay home. Returns true while a purge is commanded.
+ */
+BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil, homePos)
+{
+	if (!this.warOn() || !armyEnts.length || !homePos)
+		return false;
+
+	const ramEnts = [];
+	for (const id in this.rams)
+	{
+		const ent = gameState.getEntityById(+id);
+		if (ent?.position())
+			ramEnts.push(ent);
+	}
+	const standDown = () => {
+		this.purge = undefined;
+		this.armyCmdTurn = 0;	// rally home next block
+		for (const ent of armyEnts)
+			ent.setStance("defensive");
+		for (const ram of ramEnts)
+			ram.move(homePos[0], homePos[1]);
+		for (const ent of healerEnts)
+			ent.move(homePos[0], homePos[1]);
+	};
+
+	if (this.purge)
+	{
+		const target = gameState.getEntityById(this.purge.id);
+		// owner() === us: a captured structure flips mid-purge — that is a win,
+		// not a reason to keep attacking it.
+		if (!target || !target.position() || target.owner() === this.player)
+		{
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purged enemy structure at ${this.purge.x.toFixed(0)},${this.purge.z.toFixed(0)}\n`);
+			standDown();
+			return false;
+		}
+		if (this.armyCount() < 40 || this.turn - this.purge.turn > 900)
+		{
+			// Purge targets sit near home by construction, so 3 min (not the
+			// raid's 6) caps a stalled one.
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purge aborted at ${this.purge.x.toFixed(0)},${this.purge.z.toFixed(0)} (age=${((this.turn - this.purge.turn) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
+			standDown();
+			return false;
+		}
+	}
+	if (!this.purge)
+	{
+		if (this.armyCount() < 60)
+			return false;
+		// Their main force loitering near home pins the army: the camp sortie
+		// and the rally own it then, not a march to the border.
+		let campN = 0;
+		for (const p of mil)
+			if (SquareDistance(p, homePos) < 220 * 220)
+				campN++;
+		if (campN >= 15)
+			return false;
+		const spots = this.expPlan?.spots || [];
+		let best, bestScore, bestDef;
+		for (const ent of gameState.getEnemyStructures().values())
+		{
+			const pos = ent.position();
+			if (!pos)
+				continue;
+			const foundation = ent.foundationProgress() !== undefined;
+			if (!ent.hasClass("Tower") && !ent.hasClass("Fortress") && !ent.hasClass("ArmyCamp") &&
+				!(foundation && ent.hasClass("CivCentre")))
+				continue;
+			let near = false;
+			for (const own of gameState.getOwnStructures().values())
+				if (own.position() && SquareDistance(own.position(), pos) < 150 * 150)
+				{
+					near = true;
+					break;
+				}
+			if (!near)
+				for (const spot of spots)
+					if (SquareDistance(spot, pos) < 130 * 130)
+					{
+						near = true;
+						break;
+					}
+			if (!near)
+				continue;
+			let defenders = 0;
+			for (const p of mil)
+				if (SquareDistance(p, pos) < 100 * 100)
+					defenders++;
+			const score = defenders * 10000 + SquareDistance(pos, homePos);
+			if (best === undefined || score < bestScore)
+			{
+				best = ent;
+				bestScore = score;
+				bestDef = defenders;
+			}
+		}
+		if (!best || this.armyCount() < bestDef * 1.5)
+			return false;
+		const bp = best.position();
+		this.purge = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn };
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purging enemy ${best.templateName()} ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${bestDef}, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+		for (const ent of armyEnts)
+			ent.setStance("aggressive");
+	}
+	if (this.turn < this.armyCmdTurn)
+		return true;
+	this.armyCmdTurn = this.turn + 10;
+	for (const ent of armyEnts)
+	{
+		if (SquareDistance(ent.position(), [this.purge.x, this.purge.z]) < 60 * 60)
+			ent.attack(this.purge.id, true);
+		else
+			ent.attackMove(this.purge.x, this.purge.z, "Unit", false);
+	}
+	for (const ram of ramEnts)
+	{
+		if (SquareDistance(ram.position(), [this.purge.x, this.purge.z]) < 50 * 50)
+			ram.attack(this.purge.id, false);
+		else
+			ram.attackMove(this.purge.x, this.purge.z, "Structure", false);
+	}
+	for (const ent of healerEnts)
+		ent.move(this.purge.x, this.purge.z);
 	return true;
 };
 
