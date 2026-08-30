@@ -3,3 +3,5 @@ tmp/
 
 # Python bytecode
 __pycache__/
+
+tools/golden
