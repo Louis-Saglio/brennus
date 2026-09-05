@@ -3,6 +3,31 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-05 (frontier storehouse: anticipate saturation, don't wait for stranding)
+
+- The wood storehouse trigger no longer waits for stranded choppers:
+  `assignGatherers` records every drifted chopper's tree in `woodFrontier`
+  and the block's free served-tree slots in `woodFreeSlots`; when slots run
+  below `woodSlotMargin` (4) and no chopper is stranded, `manageDropSites`
+  builds at the drift frontier. The wood branch also ignores the reserve
+  (`wood >= 100` flat): holding the 150 fundWood reserve against a wood
+  storehouse deadlocked s90 (income collapsed → never 250 in stock → never
+  a storehouse → income never recovers).
+- Validated on all 15 losing seeds + 5 winning seeds, 0 JS errors: 5
+  defeats → genuine wins (22, 30, 45, 63, 90), 4 → timeouts (7, 47, 74,
+  77), 6 still lose (21, 39, 55, 57, 70, 81).
+- Second storehouses land at 2.1-6.0 min (were 5:18-9:18); barracks come
+  1-4 min earlier (s21: 13.4→9.4; s45's army at the wave: 28→60).
+- Side effects to watch: storehouse volume up (15-44/game at 100 wood
+  each). s81 got worse (wood 17.6k→9.1k, one barracks all game) — frontier
+  storehouses there spent wood that never paid back. s3/s4 went genuine
+  win → timeout (bigger mid-game armies, slower kill; chaotic, not
+  understood). Levers if tightening is needed: min frontier size >= 2,
+  per-clump wood-mass scoring.
+- Turn rate: no bookkeeping regression (s1 timeout pair 62→77 t/s); s3/s4
+  slower per turn but those games ran to the cap with more entities on the
+  map — confounded, not attributed to the change.
+
 ## 2026-09-05 (15-seed loss review, all reproduced on kiln)
 
 Re-ran the 15 losing seeds of the 1-100 sweep (standard settings) on the

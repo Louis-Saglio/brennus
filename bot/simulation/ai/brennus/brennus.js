@@ -150,6 +150,9 @@ BrennusBot.prototype.woodDistWarnClear = 30;
 /** Max gatherers on a tree before it counts as full ("slot"): past this, diminishing returns make another chopper pay less than the walk to a freer tree. Tune against the `rates wood=` telemetry. */
 BrennusBot.prototype.treeMaxGatherers = 4;
 
+/** Free slots on served trees below which the woodline counts as saturating: the next storehouse is ordered at the drift frontier before choppers actually strand — stranding-first ordering starves the wood flow for the whole build time (loss review: second storehouses landed at 5:18-9:18). */
+BrennusBot.prototype.woodSlotMargin = 4;
+
 /** A far tree must still hold this much wood to trigger a storehouse: a straggler finishing a nearly-dead tree must not spend 100 wood on a building that outlives its forest. */
 BrennusBot.prototype.storehouseMinTreeWood = 100;
 
@@ -568,10 +571,14 @@ BrennusBot.prototype.assignGatherers = function()
 		// The engine's gather autocontinue drifts choppers past their dropsite's
 		// reach: pull empty-handed lumberjacks on an unserved tree back to a
 		// served tree with a free slot. Those with nowhere to go are underserved
-		// — manageDropSites builds their storehouse.
+		// — manageDropSites builds their storehouse. Every drift (pulled back or
+		// not) is also recorded in woodFrontier with the block's remaining free
+		// slots, so manageDropSites can extend coverage BEFORE the woodline
+		// saturates instead of waiting for the first stranded chopper.
 		const sites = this.woodDropsitePositions();
 		const r2 = this.woodServeDist * this.woodServeDist;
 		this.woodUnderserved = [];
+		this.woodFrontier = [];
 		let served; // scanned once per block, only if some chopper drifted
 		const slots = new Map();
 		for (const ent of this.gameState.getOwnUnits().values())
@@ -621,13 +628,24 @@ BrennusBot.prototype.assignGatherers = function()
 					best = s;
 				}
 			}
+			const demand = { "pos": anchor, "wood": tree.resourceSupplyAmount() || 0 };
 			if (best)
 			{
 				slots.set(best.id(), (slots.get(best.id()) || 0) + 1);
 				ent.gather(best);
 			}
 			else
-				this.woodUnderserved.push({ "pos": anchor, "wood": tree.resourceSupplyAmount() || 0 });
+				this.woodUnderserved.push(demand);
+			this.woodFrontier.push(demand);
+		}
+		// Meaningful only when a drift happened this block: Infinity reads as
+		// "no pressure information" and never triggers the frontier storehouse.
+		this.woodFreeSlots = Infinity;
+		if (served !== undefined)
+		{
+			this.woodFreeSlots = 0;
+			for (const s of served)
+				this.woodFreeSlots += Math.max(0, this.treeMaxGatherers - (slots.get(s.id()) || 0));
 		}
 	}
 
@@ -1870,16 +1888,25 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 	const storePending = center => this.pendingBuilds.some(pb =>
 		pb.template === storeType && Math.hypot(pb.x - center[0], pb.z - center[1]) < 30);
 
-	// Wood storehouse: choppers stuck on an unserved tree (the pull-back in
-	// assignGatherers found no served tree with a free slot) need coverage
-	// where they work. A nearly-dead tree never justifies a 100-wood building,
-	// so a straggler finishing one is ignored.
+	// Wood storehouse demand has two signals. Stranded choppers (the pull-back
+	// in assignGatherers found no served tree with a free slot) need coverage
+	// where they work. And before anyone strands: when free slots on served
+	// trees run below woodSlotMargin, the unserved trees choppers drifted onto
+	// this block mark the frontier to cover. A nearly-dead tree never
+	// justifies a 100-wood building, so a straggler finishing one is ignored.
+	// No reserve is held against a wood storehouse: it is the investment that
+	// produces wood — reserving wood against it deadlocks the economy once
+	// income has collapsed (s90 never passed the 250-wood effective floor).
 	const underserved = (this.woodUnderserved || []).filter(u => u.wood >= this.storehouseMinTreeWood);
-	if (underserved.length && storeCount < (this.expansionOn() ? 40 : 18) &&
-		resources.wood >= woodFloor)
+	const frontier = (this.woodFrontier || []).filter(u => u.wood >= this.storehouseMinTreeWood);
+	let demand = underserved;
+	if (!demand.length && (this.woodFreeSlots ?? Infinity) < this.woodSlotMargin)
+		demand = frontier;
+	if (demand.length && storeCount < (this.expansionOn() ? 40 : 18) &&
+		resources.wood >= 100)
 	{
-		let worst = underserved[0].pos, worstD = -Infinity;
-		for (const u of underserved)
+		let worst = demand[0].pos, worstD = -Infinity;
+		for (const u of demand)
 		{
 			const d = minEdgeDist(u.pos, woodSites);
 			if (d > worstD)
@@ -1888,7 +1915,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 				worst = u.pos;
 			}
 		}
-		const clump = underserved.filter(u => Math.hypot(u.pos[0] - worst[0], u.pos[1] - worst[1]) < 25)
+		const clump = demand.filter(u => Math.hypot(u.pos[0] - worst[0], u.pos[1] - worst[1]) < 25)
 			.map(u => u.pos);
 		const center = centroid(clump);
 		if (!storePending(center))
@@ -1900,7 +1927,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			if (pos)
 			{
 				this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/wood");
-				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for wood ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved)\n`);
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for wood ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved + ${frontier.length} frontier)\n`);
 				return true;
 			}
 		}
