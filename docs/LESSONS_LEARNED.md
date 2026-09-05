@@ -3,6 +3,43 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-05 (15-seed loss review, all reproduced on kiln)
+
+Re-ran the 15 losing seeds of the 1-100 sweep (standard settings) on the
+current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
+
+- Petra's first big wave is 44-105 soldiers arriving 11:18-16:36 — the
+  "15-17 min wave" assumption near brennus.js:2516 is optimistic; it can
+  land at 11:20. 13/15 losses die to this wave with army 0-59.
+- Wood gather deficit vs Petra splits the losses cleanly: the
+  storehouse-cluster seeds gathered 2.2-4.2x less wood; the
+  military-cluster seeds (s45/s63/s77) were at parity (1.0-1.3x) — the
+  defense chain loses games even with a healthy economy and 4 towers.
+- The t=0 reactive storehouse fires in 14/15 seeds (initial trees are
+  already >30 m from the CC). The failure is the SECOND storehouse: it
+  waits for slot saturation, landing at 5:18-9:18 (s22: 9:18, s30: 8:54,
+  s47: 9:00) while the distance warning fires from t=5.
+- s90: first storehouse at 13:36 with NO placement failure and NO
+  underserved burst before it — the 250-wood effective gate (100 + 150
+  reserve while muster buildings are missing) plus failing income is a
+  chicken-and-egg loop: no storehouse → no wood → can't afford the
+  storehouse → no barracks ever (5.6k wood gathered all game).
+- `construct FAILED` on storehouse foundations hit 6/15 losses (s30, s39,
+  s55, s63, s74, s81): 100 declared wood + 5-min poisoned spot + coverage
+  gap each time.
+- A "storehouse for 1-2 underserved choppers" log line is the straggler
+  signature (s21: 11 wood storehouses by 12:36, barracks delayed to 13:24;
+  s70: 12 by 15:30).
+- Zero `barter -> wood` lines in all 15 — the missing wood-buy path is
+  systemic, not situational.
+- s63 logged `[DEFENSE] engaging ... (army=0)`: `armyEnts` excludes
+  garrisoned soldiers while `armyCount()` includes them — superiority was
+  decided on paper and zero units actually attacked.
+- s57: after repelling the wave the army rebuilt to 33 but worker
+  utilization fell to 52% and wood efficiency hit 0% in the 25-m bucket —
+  permanent army membership leaves a third of the population idle while
+  the economy starves.
+
 ## 2026-08-30 (border purge: the army clears forward enemy structures)
 
 - New `managePurge` in the defense chain (after the raid and the
