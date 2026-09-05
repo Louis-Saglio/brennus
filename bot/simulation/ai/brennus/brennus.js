@@ -211,6 +211,13 @@ BrennusBot.prototype.arbiterParams = {
 		"rams": 6,
 		"warPopHeadroom": 5
 	},
+	// surge — the pre-city retraining surge: when the enemy's standing army
+	// exceeds musterTarget, muster toward their number (cap) in bigger
+	// batches (batch) instead of re-fielding half a wave.
+	"surge": {
+		"cap": 100,
+		"batch": 3
+	},
 	"warChest": {
 		"fundWood": 150,
 		"mineStone": 400,
@@ -3426,8 +3433,19 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	// Early muster: musterTarget (60) soldiers until the war stage (city) —
 	// Petra aggressive arrives at ~16 min with ~100 units, so 40 was still
 	// half a wave (agg3); 75 slowed the boom without flipping the wave fight
-	// (rebal75: 0/5 conquest wins).
-	const target = this.warOn() ? this.arbiterParams.popPartition.armyTarget : this.arbiterParams.foodSplit.musterTarget;
+	// (rebal75: 0/5 conquest wins). Except when the enemy plainly fields more:
+	// then muster toward their number (capped — pre-city pop room cannot feed
+	// a full army AND the boom). Mustering back to 60 after a 100+ wave
+	// re-fields half a wave every time (loss review: s55 met 120 with 60;
+	// s70/s81 sat at army~20 for 15 min after the first wave).
+	const baseTarget = this.warOn() ? this.arbiterParams.popPartition.armyTarget : this.arbiterParams.foodSplit.musterTarget;
+	const surging = !this.warOn() && (this.enemyArmy || 0) > baseTarget;
+	const target = surging ? Math.min(this.enemyArmy, this.arbiterParams.surge.cap) : baseTarget;
+	if (surging && !this.surgeLogged)
+	{
+		this.surgeLogged = true;
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m retraining surge on: muster toward ${target} (enemy army=${this.enemyArmy})\n`);
+	}
 	const missing = target - this.armyCount() - queued;
 	// While the early muster is still drawing, the women stream leaves
 	// musterShare × the estimated food flow unspent (trainWorkers). Declared
@@ -3482,7 +3500,8 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	// temples/forge/arsenal are outstanding (def11-13: starving the
 	// construction budget froze the muster).
 	const boom = this.warOn();
-	const milBatch = boom ? this.arbiterParams.warChest.musterBatch : this.arbiterParams.foodSplit.musterBatch;
+	const milBatch = boom ? this.arbiterParams.warChest.musterBatch :
+		surging ? this.arbiterParams.surge.batch : this.arbiterParams.foodSplit.musterBatch;
 	const floorF = boom ? this.arbiterParams.warChest.musterFood : this.arbiterParams.foodSplit.musterFloor.food;
 	const floorW = boom ? (this.arbiter.declared("defenseGap") ? this.arbiterParams.warChest.musterWoodGap : this.arbiterParams.warChest.musterWood) : this.arbiterParams.foodSplit.musterFloor.wood;
 	// The shared balance is the allocator: re-check the floors before every

@@ -3,6 +3,32 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-05 (retraining surge: muster toward the observed enemy army)
+
+- Pre-city, when the enemy's standing army exceeds `musterTarget`, the
+  muster target becomes `min(enemyArmy, surge.cap=100)` (batch 3 instead of
+  1). Re-fielding 60 against a 100+ wave lost every time (s55 met 120 with
+  60; s70/s81 sat at army~20 for 15 min after the first wave). War stage
+  (city) unchanged: armyTarget 120.
+- The stuck-at-20 army on s57/s70/s81 was NOT a floor/tuning problem: the
+  pre-war floors are already cost-level (50/50) — food stock sat at 0-40
+  for 15 min because the raid kills the food economy and it never
+  restarts (idle soldiers don't gather: that's the demobilization item).
+  Batch size is queue depth, not throughput: 3 barracks cap at ~15
+  soldiers/min from train time alone.
+- Validation (20 seeds): 12 wins on the losing set (was 11 post-#3; 57,
+  70, 81 flipped to wins; 21, 63 churned to losses on near-neutral target
+  changes — 62/63 vs 60 — pure butterfly), 4/5 watch. s55 still loses but
+  fields 100 by 25m (was 60): the final blow was a 145+6-siege deathball
+  razing the home CC while our 68-strong army purged fortresses across the
+  map — positioning/response, not retraining.
+- Two reserve-deadlock sightings for a future defense-readiness fix:
+  towers need wood>=300 in stock to place (cost 100) — s57 built ZERO
+  towers with stone at 1400; barracks need wood>=320 — s21's three
+  barracks landed at 12.7m although town phase came ~6m earlier. Both are
+  the s90-storehouse pattern (a rigid stock floor starving the very
+  investment that matters during a war).
+
 ## 2026-09-05 (wood-mass gate: no storehouses on straggler clumps)
 
 - The wood storehouse trigger now ranks demand points farthest-first and
