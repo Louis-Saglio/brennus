@@ -494,11 +494,15 @@ BrennusBot.prototype.OnUpdate = function()
 	{
 		this.updateEnemyPositions();
 
-		// Failed build spots expire after 1500 turns (5 min): most failures are
-		// war damage (a raided storehouse, a razed CC foundation), and the spot
-		// is fine once the frontier moves — permanent poisoning starved the
-		// expansion plan (def14: 7-20 dead spots).
-		this.failedSpots = this.failedSpots.filter(f => this.turn - (f[2] || 0) < 1500);
+		// Failed build spots expire after 1500 turns (5 min) — storehouses after
+		// 300: their failures are mostly silent engine rejections from the
+		// territory/passability grid lag at the frontier (storehouses require
+		// OWN territory), and the clump's best ring spot must not stay
+		// poisoned while the woodline keeps receding. Other failures are
+		// mostly war damage, and the spot is fine once the frontier moves
+		// (def14: 7-20 dead spots).
+		this.failedSpots = this.failedSpots.filter(f =>
+			this.turn - (f[2] || 0) < (f[3] && f[3].indexOf("storehouse") !== -1 ? 300 : 1500));
 
 		// A research or defense-building order holds construction for the rest of the block: research + construct in the same block would overdraw the pre-command resource snapshot.
 		this.arbiter.resetBlock();
@@ -1631,16 +1635,23 @@ BrennusBot.prototype.manageConstruction = function()
 		if (foundations.some(nearSpot) ||
 			gameState.getOwnStructures().toEntityArray().some(nearSpot))
 			return false;
+		// The engine creates the foundation instantly when it processes the
+		// construct command, or silently rejects it (BuildRestrictions —
+		// storehouses require OWN territory and the frontier grid lags the
+		// engine's — entity limits, tech, real stock). A non-CC order with
+		// no foundation 10 turns (2 blocks) later was rejected: drop it fast
+		// so the demand re-orders on a neighboring ring spot instead of
+		// waiting 50 turns and poisoning the clump's best spot for 5 min.
 		// CC timeout must cover builder travel: at ~1.8 m per turn a distant
 		// frontier spot needs minutes, and a premature timeout poisoned the
 		// spot while the party was still walking (def15 s5: the same far spot
 		// failed and re-poisoned itself every recompute cycle).
 		const home = this.getCivicCentre()?.position() || [384, 384];
 		const ccTimeout = 150 + Math.ceil(Math.hypot(pb.x - home[0], pb.z - home[1]) / 1.5);
-		if (this.turn - pb.turn > (pb.template.indexOf("civil_centre") !== -1 ? ccTimeout : 50))
+		if (this.turn - pb.turn > (pb.template.indexOf("civil_centre") !== -1 ? ccTimeout : 10))
 		{
-			print(`[HARNESS] construct FAILED: ${pb.template} at ${pb.x.toFixed(0)},${pb.z.toFixed(0)}\n`);
-			this.failedSpots.push([pb.x, pb.z, this.turn]);
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m construct FAILED: ${pb.template} at ${pb.x.toFixed(0)},${pb.z.toFixed(0)} ${this.diagnoseFailedSpot(pb)}\n`);
+			this.failedSpots.push([pb.x, pb.z, this.turn, pb.template]);
 			return false;
 		}
 		return true;
@@ -2468,6 +2479,21 @@ BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mas
 			if ((terr.data[i + j * terr.width] & 0x1F) !== this.player)
 				return false;
 	return true;
+};
+
+/** Rejection forensics for the construct FAILED log (engine rejections are silent): whether the spot still passes our placement check, and who owns its territory cell now. */
+BrennusBot.prototype.diagnoseFailedSpot = function(pb)
+{
+	const template = this.gameState.getTemplate(pb.template);
+	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
+	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
+	const ok = this.placementOK(pb.x, pb.z, halfW, halfD, this.getPlacementAngle(),
+		this.gameState.getPassabilityMap(), this.gameState.getPassabilityClassMask("building-land"),
+		this.territoryMap);
+	const terr = this.territoryMap;
+	const cell = terr.cellSize;
+	const owner = terr.data[Math.floor(pb.x / cell) + Math.floor(pb.z / cell) * terr.width] & 0x1F;
+	return `(placementOK=${ok} terrOwner=${owner})`;
 };
 
 // ---------------------------------------------------------------- threats

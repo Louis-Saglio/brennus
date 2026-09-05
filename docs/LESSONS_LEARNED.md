@@ -3,6 +3,33 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-05 (fast rejection detection + short storehouse spot poison)
+
+- Engine fact (Commands.js:1101 `TryConstructBuilding`): a construct
+  command creates the foundation INSTANTLY at processing, or is silently
+  rejected (BuildRestrictions — storehouses inherit `Territory own` —
+  entity limits, tech, real stock; a rejection charges no resources). The
+  "builders still walking" model behind the 50-turn pendingBuilds timeout
+  was wrong: the wait only delayed the re-order.
+- pendingBuilds: non-CC timeout 50 → 10 turns (2 blocks; no foundation by
+  then = rejected). The FAILED print gains `t=` and `(placementOK,
+  terrOwner)` forensics; failedSpots entries carry the template; storehouse
+  spot poison 1500 → 300 turns so a transient rejection doesn't block the
+  clump's best ring spot for 5 min.
+- Validation on the 15 losing seeds vs the frontier-storehouse-only mod:
+  no seed newly loses; the 4 genuine wins hold (22, 45, 63, 90); s30 went
+  genuine → timeout through chaotic divergence in the CC *expansion* orders
+  (games identical until t=23.4), not the storehouse path. Seeds with zero
+  FAILEDs (39, 55, 57, 70, 81) produced identical economies — the change
+  only acts on failures. Fast retry visible in s30: corral rejected at
+  23.7/23.8/24.4, succeeded on the 4th spot in the same minute.
+- The forensics split failures into placementOK=true/terrOwner=1
+  (transient: stock race or grid lag — most storehouse failures) and
+  placementOK=false (persistent spot invalidity). Corrals fail
+  DETERMINISTICALLY with placementOK=true (s1 6x, s3 3x, s30 3x) — a
+  separate unexplained subsystem (likely a same-block stock race or a grid
+  disagreement our check can't see); not storehouses.
+
 ## 2026-09-05 (frontier storehouse: anticipate saturation, don't wait for stranding)
 
 - The wood storehouse trigger no longer waits for stranded choppers:
