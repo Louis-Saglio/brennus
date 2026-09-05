@@ -156,6 +156,9 @@ BrennusBot.prototype.woodSlotMargin = 4;
 /** A far tree must still hold this much wood to trigger a storehouse: a straggler finishing a nearly-dead tree must not spend 100 wood on a building that outlives its forest. */
 BrennusBot.prototype.storehouseMinTreeWood = 100;
 
+/** Total wood within woodServeDist of a storehouse spot below which the building cannot pay its 100 wood back: lone stragglers and pairs top out at 400 (200/tree on temperate), the home groves that must stay covered start at ~700 — 500 sits between the two measured clusters (s21/s70/s81 bled their economy on straggler storehouses; gating at 1000 delayed the home grove on s2/s45 and cost both games). */
+BrennusBot.prototype.storehouseMinWoodMass = 500;
+
 /** Pinned stone and metal mines closer than this (m) share ONE storehouse. */
 BrennusBot.prototype.minePairDist = 55;
 
@@ -1903,8 +1906,10 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 	// in assignGatherers found no served tree with a free slot) need coverage
 	// where they work. And before anyone strands: when free slots on served
 	// trees run below woodSlotMargin, the unserved trees choppers drifted onto
-	// this block mark the frontier to cover. A nearly-dead tree never
-	// justifies a 100-wood building, so a straggler finishing one is ignored.
+	// this block mark the frontier to cover. Two gates keep a bad spend out:
+	// a nearly-dead tree never justifies a 100-wood building (per-tree wood),
+	// and a clump whose whole neighborhood is stragglers cannot pay the
+	// building back either (mass gate in the placement loop below).
 	// No reserve is held against a wood storehouse: it is the investment that
 	// produces wood — reserving wood against it deadlocks the economy once
 	// income has collapsed (s90 never passed the 250-wood effective floor).
@@ -1916,31 +1921,54 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 	if (demand.length && storeCount < (this.expansionOn() ? 40 : 18) &&
 		resources.wood >= 100)
 	{
-		let worst = demand[0].pos, worstD = -Infinity;
-		for (const u of demand)
-		{
-			const d = minEdgeDist(u.pos, woodSites);
-			if (d > worstD)
+		// The richest-looking clump is not always worth serving: gate each
+		// candidate on the wood mass within serve reach of its center and walk
+		// down the distance ranking until one pays for itself.
+		const massNear = center => {
+			let mass = 0;
+			const r2 = this.woodServeDist * this.woodServeDist;
+			for (const s of gameState.getResourceSupplies("wood").values())
 			{
-				worstD = d;
-				worst = u.pos;
+				const sp = s.position();
+				if (sp && s.resourceSupplyAmount() && SquareDistance(sp, center) < r2)
+					mass += s.resourceSupplyAmount();
 			}
-		}
-		const clump = demand.filter(u => Math.hypot(u.pos[0] - worst[0], u.pos[1] - worst[1]) < 25)
-			.map(u => u.pos);
-		const center = centroid(clump);
-		if (!storePending(center))
+			return mass;
+		};
+		const ranked = demand.map(u => [minEdgeDist(u.pos, woodSites), u.pos])
+			.sort((a, b) => b[0] - a[0]);
+		const tried = [];
+		for (const [, pos] of ranked)
 		{
+			if (tried.some(p => SquareDistance(p, pos) < 25 * 25))
+				continue;
+			const center = centroid(demand.filter(u => Math.hypot(u.pos[0] - pos[0], u.pos[1] - pos[1]) < 25)
+				.map(u => u.pos));
+			tried.push(center);
+			const mass = massNear(center);
+			if (mass < this.storehouseMinWoodMass)
+			{
+				if (!(this.gatedWoodSpots || []).some(p => SquareDistance(p, center) < 30 * 30))
+				{
+					(this.gatedWoodSpots = this.gatedWoodSpots || []).push(center);
+					const ccp = cc.position();
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wood storehouse gated at ${center[0].toFixed(0)},${center[1].toFixed(0)} (mass ${mass}, ccDist ${Math.hypot(center[0] - ccp[0], center[1] - ccp[1]).toFixed(0)}m)\n`);
+				}
+				continue;
+			}
+			if (storePending(center))
+				continue;
 			this.arbiter.declare("dropsite", { "wood": 100 });
-			const pos = this.expansionOn() ?
+			const placed = this.expansionOn() ?
 				this.findExpansionWoodStorehouse(storeType, center) :
 				this.tryConstruct(storeType, "dropsite", center, true);
-			if (pos)
+			if (placed)
 			{
 				this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/wood");
-				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for wood ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved + ${frontier.length} frontier)\n`);
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${placed[0].toFixed(0)},${placed[1].toFixed(0)} for wood ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved + ${frontier.length} frontier, mass ${mass})\n`);
 				return true;
 			}
+			break;
 		}
 	}
 

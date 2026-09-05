@@ -3,6 +3,32 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-05 (wood-mass gate: no storehouses on straggler clumps)
+
+- The wood storehouse trigger now ranks demand points farthest-first and
+  walks clumps until one passes a mass gate: total remaining wood of trees
+  within `woodServeDist` (30 m) of the clump centroid must be >=
+  `storehouseMinWoodMass` (500). Thin clumps are skipped without spending;
+  each gated spot is logged once (30 m dedup) with mass and ccDist.
+- Measured on temperate (200 wood/tree): straggler traps are single trees
+  or pairs, mass 140-400 (s21 alone had 24 gated demands <=200); the home
+  groves that must stay covered start at ~700. The first cut at 1000
+  blocked the home grove on s2 (714, 44 m from CC; first storehouse
+  1.7m->9.3m) and s45 (800, 33 m; 0.0m->5.9m) and both games were lost —
+  the early home-grove storehouse is load-bearing even when its grove is
+  thin. 500 splits the two clusters with margin on both sides.
+- A storehouse's payback is the wood it serves, not the demand point that
+  triggered it: the per-tree gate (`storehouseMinTreeWood`) is not enough
+  — a demand point on one 200-wood straggler passes it while the whole
+  neighborhood holds nothing.
+- Validation @500 (15 losing seeds + watch 1-5): 11 wins on the losing set
+  (7, 21, 22, 30, 39, 45, 47, 63, 74, 77, 90; was 9 pre-#3), 4/5 watch.
+  Every remaining loss (2, 55, 57, 70, 81) is the same military death —
+  Petra's 100+ mid-game army meeting no defensive answer — with the
+  economy healthy (s2 pop 180 @20m; s55 pop 187/266, town=4; s81 wood
+  9.1k->21.9k). The economy bucket of the loss review is closed; what
+  remains is the military chain.
+
 ## 2026-09-05 (fast rejection detection + short storehouse spot poison)
 
 - Engine fact (Commands.js:1101 `TryConstructBuilding`): a construct
