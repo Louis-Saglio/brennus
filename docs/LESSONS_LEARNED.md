@@ -220,3 +220,31 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
 - The old baseline over-built too in a different way (s3: 45 total) while
   still leaving choppers at 122 m mean distance — coverage gates and
   placement were decoupled from where choppers actually worked.
+
+## 2026-09-05 (century sweep loss analysis)
+
+- 100-seed sweep (standard settings): 55 win / 39 timeout / 6 loss
+  (s2, s21, s55, s62, s63, s73). No JS errors in any game.
+- All 6 losses share one shape: Petra's first 60-75 army arrives at
+  t=13-17, the "retraining surge" fires at t=11-12.6 but Brennus has only
+  4-56 soldiers then (wins have 37-59 at t=13). The decisive defensive
+  battle is lost by t=16-28 and the army never recovers (stays at 6-36 for
+  10+ min) while Petra camps the CC with 100-160 army + 2-8 siege.
+- Losses are objective losses, not attrition losses: Brennus out-killed
+  Petra in all 6 (e.g. s73 29.5k vs 23.4k) but lost its CC every time and
+  never destroyed a Petra CC (0 in all 6; wins destroy 1-2).
+- After the collapse Brennus retrains workers, not soldiers: pop recovers
+  (s55 168→257, s62 539 workers trained vs 103 infantry) and resources
+  stockpile unspent (s62: 7.5k food/2.5k metal at t=23-25; s21: 2.1k food
+  at t=13) while army stays at 10-30.
+- Siege timing splits the outcomes: wins train rams at t=18-27 and purge
+  Petra structures from t=19; losses train 0 siege (s55: 4 rams at t=33,
+  game over at t=35.7).
+- Even-numbered mid-game battles are lost badly (s62: army 86→37 while
+  enemy stayed ~88; s63: 68→23 vs 103→82) — [DEFENSE] lines show only
+  9-19 enemies engaged near the CC at a time, i.e. the army fights
+  fragmented while Petra's arrives as one ball; losses also lag on techs
+  (2-8 vs 9-10 in wins by t=23-33).
+- Battle location is the tell: losses fight within 20-250 m of the home CC
+  from t=14 on; wins keep enemyNear at 300-500 m and erase Petra's army by
+  t=23-28 (enemy <= 20).
