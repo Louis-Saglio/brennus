@@ -248,3 +248,32 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
 - Battle location is the tell: losses fight within 20-250 m of the home CC
   from t=14 on; wins keep enemyNear at 300-500 m and erase Petra's army by
   t=23-28 (enemy <= 20).
+
+### Code mechanisms behind the loss patterns (brennus.js)
+
+- Surge trigger is a pure count threshold: `enemyArmy > 60` (full map
+  visibility, no fog) — Petra crosses it at t=11-12.6, ~1-2 min before her
+  wave arrives. Too late to matter when barracks are late: s2/s21 ordered
+  the first barracks 5.9-6.8 min after town phase (wins: 0.2-1.9 min), so
+  the surge had no trainers and first contact was met by 4-7 soldiers.
+- The defense decision is binary on `armyCount() >= nearThreat` (enemies
+  within 150 m of the threat centroid): superiority → whole army
+  attack-moves the centroid; else → garrison CC + towers. With comparable
+  totals (s62/s63/s73: 68-87 vs 80-100) this tips into attack-moving basic
+  infantry (techs 1-2) into Petra's upgraded ball, and each new trainee
+  walks from the barracks into the blob alone at the next 10-turn command
+  tick.
+- Post-collapse, every offensive path self-locks: raid needs warOn +
+  army>=75 + 2 rams; purge needs warOn + army>=60 + NO camp of 15+ within
+  220 m of home (Petra's camp permanently disables it); sortie needs
+  warOn + army>=100 + 1.5x camp. An army of 10-40 with Petra camping has
+  no legal move except garrison/eject oscillation.
+- War-stage muster floors (wood >= 300) starve the rebuild exactly when
+  the economy is raided: s62 sat on 2188-7554 food with army 15-25 because
+  wood stayed 59-181 (< 300 floor) while workers sheltered. Food piles up
+  unspent because infantry needs food AND wood above floors in the same
+  block.
+- Worker sheltering (enemy within 60 m → garrison) idles the whole economy
+  while Petra camps: income → 0, muster floors unmet, barracks rebuilt
+  slowly (builders sheltered). The 539 "workers trained" in s62 are mostly
+  refills of raided workers, not growth.
