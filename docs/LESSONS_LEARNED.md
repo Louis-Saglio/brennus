@@ -3,6 +3,30 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-06 (failed approach: mass-behind guard on the leftover swat)
+
+- Hypothesis: s55's post-#4.4 death was swat detachments donated into
+  Petra's standing camp (army 59 -> 18 in a minute at t=30-31). Guard:
+  refuse the swat when enemy mass within 120 m of the group centroid
+  exceeds max(cap, 2n).
+- Empirics (6 raid-heavy seeds, caps 12 and 24): the block list is a mix of
+  wave-adjacent bait (mass 37-107 — blocking helped s21 +22%, s81 +14%) and
+  retreating cleanup columns (mass 13-32 — blocking hurt s57 -47%, s70
+  -25%, s63 -13%). No cap separates them: mass count cannot tell
+  "advancing wave's leading edge" from "broken raid's stragglers". Net
+  -11% aggregate wood, same 5/6 wins, s55 unsaved — REVERTED.
+- In the guarded s55 timeline the bleed did not even reproduce: the army
+  grew 34 -> 50 during t=28-32 and the base fell to Petra's 103+2 rolling
+  in while the boom sat wrecked from two early raid crashes (pop 109 -> 56,
+  96 -> 58). s55's residual death is the ACCUMULATION RACE (Petra masses
+  100-175 at ~190 m while our muster throughput is ~15 soldiers/min), not
+  positioning. The original loss-review death modes for s55 (army across
+  the map purging; swat bleed) no longer occur post-#4.1..#4.5.
+- The pre-city turtling discipline (no sortie before war stage; the agg5
+  donation) means a looming camp pre-city is answered only by muster
+  throughput. Raising that (4th barracks vs boom wood) is a trade against
+  the 19 winning seeds — open question, not started.
+
 ## 2026-09-06 (demobilization: soldiers restart a massacred economy)
 
 - The pre-war deadlock from the #4.1 post-mortem: a raid wipes the food
