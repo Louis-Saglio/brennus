@@ -685,6 +685,39 @@ BrennusBot.prototype.assignGatherers = function()
 			counts[this.assignments[ent.id()]]++;
 	}
 	this.gatherCounts = counts;
+
+	// Pull gatherers off over-supplied resources: shares steer only IDLE
+	// units, so a banked resource otherwise keeps its workers forever
+	// (b7fc612 s99: 46 miners stayed on stone/metal with 5-7k banked and
+	// 300/600 ever used while wood sat at 4-141 in stock). Stop up to 2 of
+	// the excess per block — they go idle and the shares below reassign
+	// them. GATHER state only: a chopper rush-building a storehouse keeps
+	// his assignment.
+	{
+		const total = idle.length + counts.food + counts.wood + counts.stone + counts.metal;
+		if (total >= 10)
+		{
+			const shares = this.currentShares(total);
+			let pulled = 0;
+			for (const ent of this.gameState.getOwnUnits().values())
+			{
+				if (pulled >= 2)
+					break;
+				const res = this.assignments[ent.id()];
+				if (!res || !ent.position() || ent.isIdle() || ent.id() === this.herderId)
+					continue;
+				if (counts[res] - (shares[res] || 0) * total < 4)
+					continue;
+				if (ent.unitAIState()?.split(".")[1] !== "GATHER")
+					continue;
+				delete this.assignments[ent.id()];
+				ent.stopMoving();
+				counts[res]--;
+				pulled++;
+			}
+		}
+	}
+
 	if (!idle.length)
 		return;
 
@@ -2665,78 +2698,75 @@ BrennusBot.prototype.ejectArmyGarrisons = function(gameState)
  * near it.
  */
 /**
- * Demobilization: a raid that wipes the food economy deadlocks the pre-war
- * game — food stock 0, no gatherers, no women trainable, and the standing
- * army idle at the rally point (s57/s70/s81 sat at army~20 for 15 min while
- * Petra accumulated). Lend up to 10 citizen-soldiers (never more than half
- * the army) to the gatherer pool until the economy restarts; recall them
- * the moment a serious threat shows or the war stage starts. Demobilized
- * soldiers stay in the army roster (armyCount stays honest for the muster
- * math) but are skipped by armyEnts and treated as workers by
- * assignGatherers and the shelter logic.
+ * Working army: pre-war, every citizen-soldier gathers while no threat
+ * looms — an idle soldier is a worker the economy doesn't have (b7fc612
+ * losses: 15-26 soldiers stood idle 10+ min after each repelled raid while
+ * the economy couldn't recover; demob gated on a DEAD civilian economy —
+ * food<100 AND civFood<6 AND civWorkers<12 — never fired once). No standing
+ * guard: a citizen-soldier is worth more working than watching, and the
+ * shares assign him near home so the recall walk is seconds. Recall on any
+ * enemy in a CC's 120 m ring, a serious assault, or 5+ soldiers/siege
+ * within 250 m of home (waves telegraph at 250-400 m, 1-2 min before
+ * contact). Demobilize only after 40 quiet turns so a border-flapping probe
+ * can't churn orders (v1 lesson: 12-18 s demob/remob cycles flipped s57 to
+ * a loss). Demobilized soldiers stay in the army roster (armyCount stays
+ * honest for the muster math) but are skipped by armyEnts and treated as
+ * workers by assignGatherers and the shelter logic. War stage never
+ * demobilizes: the army has real jobs there (raid/purge/sortie/rally).
  */
-BrennusBot.prototype.manageDemobilization = function(gameState, serious)
+BrennusBot.prototype.manageDemobilization = function(gameState, incoming)
 {
 	for (const id in this.demobilized)
 		if (!this.army[id] || !gameState.getEntityById(+id))
 			delete this.demobilized[id];
 
-	const res = this.arbiter.mirror();
-	let demobFood = 0;
-	for (const id in this.demobilized)
-		if (this.assignments[id] === "food")
-			demobFood++;
-	const civFood = ((this.gatherCounts || {}).food || 0) - demobFood;
-	// Alive civilians, garrisoned or not (sheltering workers have no position
-	// but are alive): the deadlock this breaks is a worker MASSACRE. A
-	// sheltered workforce (s57: 19 workers ejected 12 s after a false
-	// demobilize) must not trip it — soldiers yanked to the fields during a
-	// shelter episode miss the defense and gather nothing.
-	let civWorkers = 0;
-	for (const u of gameState.getOwnUnits().values())
-		if (u.isGatherer() && !u.hasClass("Soldier") && !u.hasClass("Trader") &&
-			u.id() !== this.herderId)
-			civWorkers++;
-	if (serious || this.warOn() || !this.defenseOn() || res.food > 400 || civFood >= 8)
+	if (incoming)
+		this.lastIncomingTurn = this.turn;
+
+	if (incoming || this.warOn() || !this.defenseOn())
 	{
+		const home = this.getCivicCentre()?.position();
 		let n = 0;
 		for (const id in this.demobilized)
 		{
 			const ent = gameState.getEntityById(+id);
 			if (ent?.position())
-				ent.stopMoving();
+			{
+				// Converge on the CC rather than freezing mid-field: a
+				// recalled farmer who stops at his field walks into the blob
+				// alone (val-s30: recall at 249 m, cavalry-led contact 15 s
+				// later, 57 -> 17). When the threat is already in the ring
+				// the defense branch overrides this move in the same block.
+				if (home)
+					ent.move(home[0], home[1]);
+				else
+					ent.stopMoving();
+			}
 			delete this.assignments[id];
 			delete this.demobilized[id];
 			n++;
 		}
 		if (n)
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m remobilizing ${n} soldiers (food=${Math.floor(res.food)}, civFoodGatherers=${civFood})\n`);
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m remobilizing ${n} soldiers\n`);
 		return;
 	}
-	if (res.food >= 100 || civFood >= 6 || civWorkers >= 12)
+	if (this.turn - (this.lastIncomingTurn ?? -10000) < 40)
 		return;
-	let demobN = 0;
-	for (const id in this.demobilized)
-		demobN++;
-	const cap = Math.min(10, Math.floor(this.armyCount() / 2));
 	let added = 0;
 	for (const id in this.army)
 	{
-		if (demobN >= cap)
-			break;
 		if (this.demobilized[id])
 			continue;
 		const ent = gameState.getEntityById(+id);
-		if (!ent?.position() || !ent.canGather("food"))
+		if (!ent?.position() || !ent.isGatherer())
 			continue;
 		this.demobilized[id] = 1;
 		delete this.assignments[id];
 		ent.stopMoving();
-		demobN++;
 		added++;
 	}
 	if (added)
-		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m demobilizing ${added} soldiers to gathering (demob=${demobN}, food=${Math.floor(res.food)}, civFoodGatherers=${civFood}, civWorkers=${civWorkers})\n`);
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m demobilizing ${added} soldiers to gathering\n`);
 };
 
 BrennusBot.prototype.manageDefense = function()
@@ -2849,7 +2879,14 @@ BrennusBot.prototype.manageDefense = function()
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m ejecting ${ejected} garrisoned soldiers (threat over)\n`);
 	}
 
-	this.manageDemobilization(gameState, serious);
+	// Wave early warning for the working army: 5+ enemy soldiers/siege within
+	// 250 m of home recall the gatherers before the 120 m threat ring does.
+	let nearHome = 0;
+	if (homePos)
+		for (const p of mil)
+			if (SquareDistance(p, homePos) < 250 * 250)
+				nearHome++;
+	this.manageDemobilization(gameState, serious || !!threat || nearHome >= 5);
 
 	const armyEnts = [];
 	for (const id in this.army)

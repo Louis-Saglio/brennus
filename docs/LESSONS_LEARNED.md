@@ -3,6 +3,85 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-06 (b7fc612 century-sweep loss autopsy: s55, s61, s99)
+
+- The b7fc612 sweep lost s55 (38.7m), s61 (32.6m), s99 (40.6m). s61/s99 were
+  timeouts in the e02d97b sweep: the #4.x fixes flipped 5 of 6 old losses
+  and churned 2 new ones in. s55 is the same holdout as before.
+- Demobilization fired 0 times in all 3 losses (grep "demobilizing"). The v2
+  gates (food<100 AND civFood<6 AND civWorkers<12 alive) detect a DEAD
+  civilian economy; the post-raid reality in all 3 losses is 12+ women alive
+  (sheltered) and 15-26 soldiers idle — logStatus `idle=` confirmed 15 (s55
+  t=15), 26 (s61 t=18), 14 (s99 t=15-20). The "count heads" fix made the
+  insurance unreachable exactly where it was designed for.
+- Pre-city the army receives NO orders between threats (the rally is
+  warOn-only, deliberate) and no code path attacks an enemy structure or
+  build crew: raid/purge/sortie are all warOn-gated, purge needs army>=60
+  and only targets CC *foundations*. Petra's forward CC (s99 ~19m), tower
+  (s61 ~18m) and fortress (s55 ~26m) were unanswerable by construction.
+- s55 and s99 never researched city although stone/metal were banked (s99:
+  1314/1119 by t=18, 5012/6441 at the end). phase_city_generic costs 750
+  stone + 750 metal and requires **3 Town-class structures** (gaul: CC,
+  market, temple/tavern, forge — barracks is Village). Both games sat at
+  `town=2` for 20+ min: trio buildings were razed as foundations by repeat
+  raids, and managePhaseUp returns silently on canResearch=false — no log,
+  no watchdog, no rush-rebuild of the missing Town structure.
+- Sticky assignments: assignGatherers only reassigns IDLE units. Stone/metal
+  shares drop to 0 once the 850/850 bank is full, but miners stay on their
+  mines forever — s99 used only 300 of 5631 stone and 600 of 7023 metal
+  gathered, while wood stock sat at 4-141 all game (lumberjacks massacred at
+  exposed woodlines; mean dropsite distance 43-80m, rates 6-18%). Food
+  mountain: 21.5k at t=35. The wood collapse (not food) blocked the
+  re-muster: army stayed 1-6 from t=28 with 9-15k food in stock.
+- Engine gather autocontinue drift is corrected for wood and fruit/meat but
+  NOT stone/metal: exhausted-mine miners chain to far unserved mines (s99:
+  21 miners at a mine ~180m from the CC at t=16, rates 35-57%). The
+  underserved-mine storehouse orders then FAILED 3x (placementOK=true,
+  terrOwner=1 — territory flip by Petra's forward CC and/or the documented
+  same-block stock race; wood was 39-107 in that window).
+- Barter has no food->wood path pre-city (only stone/metal excess -> wood at
+  >=1300 in the post-spend balance, which never fired in s99). Worse, s99
+  SOLD wood for stone/metal at t=24.1-24.6 while wood was ~40-100 and
+  stone/metal already >1300/900: the buy branch picks sell=max(food,wood) on
+  the post-defense-spend balance and has no floor protecting the bottleneck
+  resource.
+
+## 2026-09-06 (working army + gatherer reallocation: s55/s61/s99 fixes 1+2)
+
+- Louis's doctrine: a citizen-soldier works or fights; idling is only legal
+  briefly while a threat converges. Implemented as full demobilization of
+  the gatherer-capable roster to the worker pool (assignGatherers treats
+  them as workers; armyEnts skips them) after 40 quiet turns pre-war, NO
+  standing guard kept. Recall when `incoming` (serious threat, threat flag,
+  or 5+ enemy military within 250 m of the home CC), war on, or defense
+  off. On recall soldiers move to the home CC instead of stopMoving in
+  place — converge before contact, not a piecemeal walk into the blob.
+- Reallocation: assignGatherers now stops up to 2 assigned workers per
+  block whose resource exceeds its share by >= 4 heads (GATHER state only,
+  herders excluded); they go idle and the share logic reassigns. Cures the
+  s99 shape (46 miners on banked stone/metal while wood starved).
+- Results (kiln, standard settings): probe 8 seeds 0 errors, s55 loss ->
+  timeout (first city at 30.5m), s99 loss -> timeout, s61 unchanged loss
+  (accumulation race, not idleness). 15-seed validation vs baseline: wins
+  6 -> 10, losses 3 -> 2, but two churn regressions (s7 timeout -> loss,
+  s30 win -> loss; s30's first wave met cavalry-led contact before the
+  recalled infantry converged — motivated the converge-home recall).
+  Re-probe with converge-home: ALL 5 timeout, 0 errors, s61 loss ->
+  timeout. Final validation tally 10W/5T/0L (baseline 6W/6T/3L).
+- Demob fires from t=4.3-6.9 (town) and recalls land before waves. The
+  demob= counter in logStatus makes the working army directly observable
+  (peaks 40-88 mid-game).
+- KNOWN OPEN ITEM (standoff stall, pre-existing, now visible as churn):
+  when Petra camps permanently within 250 m, `incoming` never clears and
+  the army never demobilizes (s55/s99 idle=51-65 rows while the camp
+  lingers — both still held as timeouts). s99 also shows demob<->remob
+  oscillation (~0.2 min period) when the camp sits on the 250 m boundary.
+  Options: shrink the recall radius, or allow demob when a standoff
+  persists N minutes without turning serious. Awaiting Louis's call.
+- Marginal-seed chaos is real: s7/s30 flipped on a one-line recall tweak
+  between two validation runs of the same code intent. Verdicts on
+  individual marginal seeds are noise; the 15-seed tally is the signal.
+
 ## 2026-09-06 (failed approach: mass-behind guard on the leftover swat)
 
 - Hypothesis: s55's post-#4.4 death was swat detachments donated into
