@@ -58,6 +58,29 @@ Cleared 2026-08-29. Reference knowledge was migrated into
 - s38/s81 unchanged (never-city bucket: silent managePhaseUp stall at
   town=2; massacred economy) — separate failure modes, untouched.
 
+## 2026-09-06 (8ac30f0 century sweep: 71/28/1, pop-lock discovered)
+
+- Full sweep of the placement fix: **71 win / 28 timeout / 1 loss** vs
+  3af2b27's 42/56/2 (+29 wins). 34 timeouts flipped to wins; 5 wins churned
+  to timeouts on marginal seeds (s8, s29, s46, s73, s83); s87's
+  even-fight annihilation reproduced bit-for-bit (same 29.7 m loss).
+  0 JS errors in 100 games.
+- The silent arsenal-placement failure is gone from the sweep: every
+  remaining timeout except s38/s81 (never-city) builds the arsenal. The
+  timeout mass moved to: arsenal >= 36 m (out of clock; ~10 seeds),
+  raid-bounce / raze-vs-rebuild race (~14 seeds), and pop-lock (below).
+- NEW failure mode — pop-lock: rams ordered into the arsenal queue never
+  spawn because pop sits at 299-300/300 all late game; the queued items
+  count toward the ram target (no re-order, no error), the field army stays
+  below target (s31: 111 of 120), and civilian dismissal does not fire —
+  s31 dismissed exactly once (t=26.1) then sat with 51k food, army 111,
+  4 queued rams and ZERO raids to the cap (Petra down to her 1 starting CC,
+  enemyArmy=0, enemyNear=Infinity from t~35). Same "rams>0, raids=0"
+  signature on s8, s69, s79 (not autopsied). Fix direction: count queued
+  pop in the army shortfall / dismiss civilians for queued ram pop, or
+  reserve ram pop in popPartition (workers overshot the 150 cap: s31 had
+  176-182 gatherers).
+
 
 ## 2026-09-06 (b7fc612 century-sweep loss autopsy: s55, s61, s99)
 
