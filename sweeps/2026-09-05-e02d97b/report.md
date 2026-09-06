@@ -1,0 +1,110 @@
+# Century sweep: seeds 1-100, standard settings
+
+Brennus (gaul, diff 3, aggressive) vs Petra (rome, diff 3, aggressive), mainland 192, temperate, circle, conquest_civic_centers, 45 min in-game limit, seed == aiseed. Run on 2026-09-05 via kiln, bot at commit e02d97b (verified: the "retraining surge" log line added in that commit appears in all 100 stdout logs).
+
+**Outcome: 6 loss, 39 timeout, 55 win**
+
+Verdict rules: `timeout` = 45-min in-game limit reached (kiln marks player 1 won regardless); `win`/`loss` = game ended before the limit; `errors` = ERROR/script-exception lines in stdout.log (a win with JS errors does not count).
+
+| seed | result | game min | JS errors | artifacts |
+|---|---|---|---|---|
+| 1 | win | 26.2 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s1` |
+| 2 | loss | 35.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s2` |
+| 3 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s3` |
+| 4 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s4` |
+| 5 | win | 32.4 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s5` |
+| 6 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s6` |
+| 7 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s7` |
+| 8 | win | 38.1 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s8` |
+| 9 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s9` |
+| 10 | win | 23.1 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s10` |
+| 11 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s11` |
+| 12 | win | 42.6 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s12` |
+| 13 | win | 22.7 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s13` |
+| 14 | win | 26.4 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s14` |
+| 15 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s15` |
+| 16 | win | 34.5 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s16` |
+| 17 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s17` |
+| 18 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s18` |
+| 19 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s19` |
+| 20 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s20` |
+| 21 | loss | 29.2 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s21` |
+| 22 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s22` |
+| 23 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s23` |
+| 24 | win | 23.9 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s24` |
+| 25 | win | 31.7 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s25` |
+| 26 | win | 23.9 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s26` |
+| 27 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s27` |
+| 28 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s28` |
+| 29 | win | 41.1 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s29` |
+| 30 | win | 31.4 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s30` |
+| 31 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s31` |
+| 32 | win | 32.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s32` |
+| 33 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s33` |
+| 34 | win | 33.2 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s34` |
+| 35 | win | 27.4 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s35` |
+| 36 | win | 36.2 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s36` |
+| 37 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s37` |
+| 38 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s38` |
+| 39 | win | 31.1 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s39` |
+| 40 | win | 33.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s40` |
+| 41 | win | 34.3 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s41` |
+| 42 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s42` |
+| 43 | win | 27.9 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s43` |
+| 44 | win | 26.9 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s44` |
+| 45 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s45` |
+| 46 | win | 28.3 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s46` |
+| 47 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s47` |
+| 48 | win | 32.4 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s48` |
+| 49 | win | 24.7 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s49` |
+| 50 | win | 31.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s50` |
+| 51 | win | 32.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s51` |
+| 52 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s52` |
+| 53 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s53` |
+| 54 | win | 25.6 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s54` |
+| 55 | loss | 35.7 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s55` |
+| 56 | win | 26.2 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s56` |
+| 57 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s57` |
+| 58 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s58` |
+| 59 | win | 31.8 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s59` |
+| 60 | win | 29.9 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s60` |
+| 61 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s61` |
+| 62 | loss | 34.4 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s62` |
+| 63 | loss | 34.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s63` |
+| 64 | win | 37.6 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s64` |
+| 65 | win | 37.6 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s65` |
+| 66 | win | 39.5 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s66` |
+| 67 | win | 22.5 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s67` |
+| 68 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s68` |
+| 69 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s69` |
+| 70 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s70` |
+| 71 | win | 23.8 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s71` |
+| 72 | win | 39.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s72` |
+| 73 | loss | 35.7 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s73` |
+| 74 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s74` |
+| 75 | win | 23.8 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s75` |
+| 76 | win | 30.3 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s76` |
+| 77 | win | 26.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s77` |
+| 78 | win | 32.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s78` |
+| 79 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s79` |
+| 80 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s80` |
+| 81 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s81` |
+| 82 | win | 39.4 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s82` |
+| 83 | win | 40.3 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s83` |
+| 84 | win | 41.4 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s84` |
+| 85 | win | 31.5 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s85` |
+| 86 | win | 36.2 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s86` |
+| 87 | win | 35.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s87` |
+| 88 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s88` |
+| 89 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s89` |
+| 90 | win | 27.8 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s90` |
+| 91 | win | 23.2 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s91` |
+| 92 | win | 31.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s92` |
+| 93 | win | 43.2 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s93` |
+| 94 | win | 31.2 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s94` |
+| 95 | win | 25.4 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s95` |
+| 96 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s96` |
+| 97 | win | 43.7 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s97` |
+| 98 | win | 33.2 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s98` |
+| 99 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s99` |
+| 100 | timeout | 45.0 |  | `/home/ubuntu/brennus/sweeps/2026-09-05-e02d97b/artifacts/s100` |

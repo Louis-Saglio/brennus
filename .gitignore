@@ -1,6 +1,9 @@
 # Scratch: isolated match HOMEs, smoke-run logs
 tmp/
 
+# Sweep match artifacts (heavy logs); the reports next to them are tracked
+sweeps/*/artifacts/
+
 # Python bytecode
 __pycache__/
 
