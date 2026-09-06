@@ -499,6 +499,13 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.swatting = false;
 	this.spearNext = true;
 
+	// Proportional recall (ids recalled to a home threat, live only while the
+	// threat does) and border foundation denial state — transient like
+	// this.offense/this.purge.
+	this.recalled = {};
+	this.deny = undefined;
+	this.denyTried = {};
+
 };
 
 BrennusBot.prototype.OnUpdate = function()
@@ -2712,7 +2719,7 @@ BrennusBot.prototype.ejectArmyGarrisons = function(gameState)
  * a loss). Demobilized soldiers stay in the army roster (armyCount stays
  * honest for the muster math) but are skipped by armyEnts and treated as
  * workers by assignGatherers and the shelter logic. War stage never
- * demobilizes: the army has real jobs there (raid/purge/sortie/rally).
+ * demobilizes: the army has real jobs there (raid/purge/deny/sortie/rally).
  */
 BrennusBot.prototype.manageDemobilization = function(gameState, incoming)
 {
@@ -2783,6 +2790,9 @@ BrennusBot.prototype.manageDefense = function()
 	for (const id in this.healers)
 		if (!gameState.getEntityById(+id))
 			delete this.healers[id];
+	for (const id in this.recalled)
+		if (!this.army[id])
+			delete this.recalled[id];
 	if (this.defenseOn())
 		for (const ent of gameState.getOwnUnits().values())
 		{
@@ -2872,11 +2882,16 @@ BrennusBot.prototype.manageDefense = function()
 	// reach of the minor-probe swat that never gets its soldiers back.
 	if (serious)
 		this.lastSeriousTurn = this.turn;
-	else if (this.turn - this.lastSeriousTurn > 30)
+	else
 	{
-		const ejected = this.ejectArmyGarrisons(gameState);
-		if (ejected)
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m ejecting ${ejected} garrisoned soldiers (threat over)\n`);
+		// A proportional recall lives only while its threat does.
+		this.recalled = {};
+		if (this.turn - this.lastSeriousTurn > 30)
+		{
+			const ejected = this.ejectArmyGarrisons(gameState);
+			if (ejected)
+				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m ejecting ${ejected} garrisoned soldiers (threat over)\n`);
+		}
 	}
 
 	// Wave early warning for the working army: 5+ enemy soldiers/siege within
@@ -2886,7 +2901,10 @@ BrennusBot.prototype.manageDefense = function()
 		for (const p of mil)
 			if (SquareDistance(p, homePos) < 250 * 250)
 				nearHome++;
-	this.manageDemobilization(gameState, serious || !!threat || nearHome >= 5);
+	// A border foundation going up is a threat too: keep the army mobilized
+	// for the denial (Petra founds border fortresses during our boom).
+	const denyTarget = this.findDenyTarget(mil, homePos);
+	this.manageDemobilization(gameState, serious || !!threat || nearHome >= 5 || !!denyTarget || !!this.deny);
 
 	const armyEnts = [];
 	for (const id in this.army)
@@ -2907,36 +2925,98 @@ BrennusBot.prototype.manageDefense = function()
 	}
 	if (serious)
 	{
-		// Defense takes precedence over any raid or purge.
+		// threat.n counts only enemies already within 120 m of the CC;
+		// the rest of the wave is still marching in (agg9 s3: threat.n=8
+		// hid a 105-unit wave — the 59-strong army attack-moved into the
+		// open and melted in 1.5 min). Compare against everyone within
+		// 150 m of the threat centroid instead.
+		let nearThreat = 0;
+		for (const p of mil)
+			if (SquareDistance(p, [threat.x, threat.z]) < 150 * 150)
+				nearThreat++;
+		nearThreat = Math.max(nearThreat, threat.n);
+		// A denial sits near home by construction — the threat's army handles
+		// it. An away raid/purge does not automatically die to a home threat:
+		// recall only the shortfall — enough to deal with it at 1.5x plus 4
+		// per siege engine (rams are tanky) — when the away force stays at or
+		// above the raid's 50-strong regroup floor (0cae013 s57: the whole
+		// 98-man army was grinding a border fortress 290 m out while 2 rams
+		// burned the home CC). Below the floor the away mission is canceled
+		// and everyone comes home, as before. Recalls are sticky and additive:
+		// recalled ids count as responding wherever they are, so a marching
+		// detachment is not re-recalled every block while a growing threat
+		// still escalates.
+		if (this.deny)
+			this.deny = undefined;
 		if (this.offense || this.purge)
 		{
-			this.offense = undefined;
-			this.purge = undefined;
+			const needed = Math.ceil(nearThreat * 1.5) + threat.siegeN * 4;
+			let responding = 0;
 			for (const ent of armyEnts)
-				ent.setStance("defensive");
-			if (homePos)
-				for (const id in this.rams)
+				if (this.recalled[ent.id()] ||
+					SquareDistance(ent.position(), [threat.x, threat.z]) < 150 * 150)
+					responding++;
+			const shortfall = needed - responding;
+			// The away force after recalling is armyEnts - responding -
+			// shortfall = armyEnts - needed: check the floor against needed
+			// itself, or block-by-block escalation slides the away mission
+			// below the regroup floor one shortfall at a time (s3 probe:
+			// 55 already recalled, +3 more, away kept 47 < 50).
+			if (shortfall > 0 && armyEnts.length - needed >= 50)
+			{
+				const byDist = armyEnts.slice().sort((a, b) =>
+					SquareDistance(a.position(), [threat.x, threat.z]) - SquareDistance(b.position(), [threat.x, threat.z]));
+				let n = 0;
+				for (const ent of byDist)
 				{
-					const ram = gameState.getEntityById(+id);
-					if (ram?.position())
-						ram.move(homePos[0], homePos[1]);
+					if (this.recalled[ent.id()])
+						continue;
+					this.recalled[ent.id()] = 1;
+					ent.setStance("defensive");
+					if (++n >= shortfall)
+						break;
 				}
+				if (n)
+				{
+					let rc = 0;
+					for (const id in this.recalled)
+						rc++;
+					print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m recalling ${rc} soldiers for the home threat, away mission keeps ${armyEnts.length - rc}\n`);
+				}
+			}
+			else if (shortfall > 0)
+			{
+				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m recalling the whole army for the home threat, away mission canceled (army=${armyEnts.length}, threat=${nearThreat})\n`);
+				this.offense = undefined;
+				this.purge = undefined;
+				this.recalled = {};
+				for (const ent of armyEnts)
+					ent.setStance("defensive");
+				if (homePos)
+					for (const id in this.rams)
+					{
+						const ram = gameState.getEntityById(+id);
+						if (ram?.position())
+							ram.move(homePos[0], homePos[1]);
+					}
+			}
+			// shortfall <= 0: enough responders are already home — the away
+			// mission continues untouched.
 		}
 		if (!this.hadThreat)
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m engaging ${threat.n} enemies (siege=${threat.siegeN}) near CC ${threat.x.toFixed(0)},${threat.z.toFixed(0)} (army=${armyEnts.length})\n`);
 		if (this.turn >= this.armyCmdTurn)
 		{
 			this.armyCmdTurn = this.turn + 10;
-			// threat.n counts only enemies already within 120 m of the CC;
-			// the rest of the wave is still marching in (agg9 s3: threat.n=8
-			// hid a 105-unit wave — the 59-strong army attack-moved into the
-			// open and melted in 1.5 min). Compare against everyone within
-			// 150 m of the threat centroid instead.
-			let nearThreat = 0;
-			for (const p of mil)
-				if (SquareDistance(p, [threat.x, threat.z]) < 150 * 150)
-					nearThreat++;
-			nearThreat = Math.max(nearThreat, threat.n);
+			// Responders: everyone when the army fights at home; under a split
+			// recall only the recalled and whoever is already near the threat —
+			// the rest of the army keeps its away-mission orders.
+			const split = !!(this.offense || this.purge);
+			const responders = [];
+			for (const ent of armyEnts)
+				if (!split || this.recalled[ent.id()] ||
+					SquareDistance(ent.position(), [threat.x, threat.z]) < 150 * 150)
+					responders.push(ent);
 			// Garrisoned soldiers (not the ungarrisoned remainder) decide
 			// superiority — 20 in the CC is +20 arrows, and they eject into
 			// the fight once the balance flips.
@@ -2958,16 +3038,17 @@ BrennusBot.prototype.manageDefense = function()
 						SquareDistance(ent.position(), [threat.ccx, threat.ccz]) < 120 * 120)
 						shelters.push(ent);
 			}
-			if (this.armyCount() >= nearThreat)
+			if ((split ? responders.length : this.armyCount()) >= nearThreat)
 			{
 				// Local superiority: eject the garrisons (wherever they are —
 				// the fight may have moved CCs since they hid) and take the
 				// fight to them.
 				this.ejectArmyGarrisons(gameState);
-				for (const ent of armyEnts)
+				for (const ent of responders)
 					ent.attackMove(threat.x, threat.z, "Unit", false);
-				for (const ent of healerEnts)
-					ent.move(threat.x, threat.z);
+				if (!split)
+					for (const ent of healerEnts)
+						ent.move(threat.x, threat.z);
 			}
 			else
 			{
@@ -2990,17 +3071,22 @@ BrennusBot.prototype.manageDefense = function()
 						}
 					return false;
 				};
-				for (const ent of armyEnts)
+				for (const ent of responders)
 				{
 					ent.setStance("defensive");
 					if (!garrisonIn(ent) && SquareDistance(ent.position(), [threat.ccx, threat.ccz]) > 40 * 40)
 						ent.move(threat.ccx, threat.ccz);
 				}
-				for (const ent of healerEnts)
-					if (!garrisonIn(ent))
-						ent.move(threat.ccx, threat.ccz);
+				if (!split)
+					for (const ent of healerEnts)
+						if (!garrisonIn(ent))
+							ent.move(threat.ccx, threat.ccz);
 			}
 		}
+	}
+	else if (this.manageDeny(gameState, armyEnts, mil, homePos, denyTarget))
+	{
+		// foundation denial in progress, commands issued there
 	}
 	else if (this.manageOffense(gameState, armyEnts, healerEnts, mil, homePos))
 	{
@@ -3237,6 +3323,144 @@ BrennusBot.prototype.manageDefense = function()
 };
 
 /**
+ * Foundation denial: an enemy military foundation (tower, fortress, army
+ * camp, CC) going up at our border is the cheapest fight we will ever get
+ * against it — kill the builders and the foundation before it completes.
+ * Once a fortress stands, taking it without siege is a grind the army loses
+ * (0.28 fortress: 5200 hp, 8x capture points at 45 cp/s regen; 0cae013 s57:
+ * a 98-man purge ground 1.5 min on a built rome fortress, took the losses,
+ * and the home CC fell to 2 rams while the army was away). Denial therefore
+ * runs from the town phase on — Petra founds border fortresses during our
+ * boom — with a proportional detachment (2x defenders, 8-30), and it
+ * preempts starting a raid or purge but never interrupts an active raid.
+ * Returns true while a denial is commanded.
+ */
+BrennusBot.prototype.manageDeny = function(gameState, armyEnts, mil, homePos, denyTarget)
+{
+	if (this.deny)
+	{
+		const target = gameState.getEntityById(this.deny.id);
+		// owner() === us: a captured structure flips mid-denial — that is a
+		// win, not a reason to keep attacking it.
+		if (!target || !target.position() || target.owner() === this.player)
+		{
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m denied enemy foundation at ${this.deny.x.toFixed(0)},${this.deny.z.toFixed(0)}\n`);
+			this.deny = undefined;
+			this.armyCmdTurn = 0;
+			return false;
+		}
+		let defenders = 0;
+		for (const p of mil)
+			if (SquareDistance(p, [this.deny.x, this.deny.z]) < 100 * 100)
+				defenders++;
+		if (target.foundationProgress() === undefined || this.turn - this.deny.turn > 600 ||
+			this.armyCount() < this.deny.needed || defenders * 2 > this.armyCount())
+		{
+			// Too late (it completed), stalled, the army melted, or Petra
+			// reinforced the foundation beyond what the roster can beat — a
+			// built structure from here on follows the purge rules, and the
+			// donation rule forbids feeding the detachment into a lost fight.
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m foundation denial abandoned at ${this.deny.x.toFixed(0)},${this.deny.z.toFixed(0)} (built=${target.foundationProgress() === undefined}, defenders=${defenders}, army=${this.armyCount()})\n`);
+			this.denyTried[this.deny.id] = this.turn;
+			this.deny = undefined;
+			this.armyCmdTurn = 0;
+			return false;
+		}
+	}
+	else if (denyTarget)
+	{
+		this.deny = denyTarget;
+		this.deny.turn = this.turn;
+		// The purge re-targets once the denial is over.
+		this.purge = undefined;
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m denying enemy foundation ${denyTarget.template} at ${denyTarget.x.toFixed(0)},${denyTarget.z.toFixed(0)} (defenders=${denyTarget.defenders}, detachment=${denyTarget.needed}, army=${armyEnts.length})\n`);
+	}
+	else
+		return false;
+	if (this.turn < this.armyCmdTurn)
+		return true;
+	this.armyCmdTurn = this.turn + 10;
+	const byDist = armyEnts.slice().sort((a, b) =>
+		SquareDistance(a.position(), [this.deny.x, this.deny.z]) - SquareDistance(b.position(), [this.deny.x, this.deny.z]));
+	const det = byDist.slice(0, this.deny.needed);
+	for (const ent of det)
+	{
+		// On approach prefer units: killing the builders stalls the
+		// foundation even when the detachment cannot finish it.
+		if (SquareDistance(ent.position(), [this.deny.x, this.deny.z]) < 60 * 60)
+			ent.attack(this.deny.id, false);
+		else
+			ent.attackMove(this.deny.x, this.deny.z, "Unit", false);
+	}
+	return true;
+};
+
+/**
+ * Deny-target scan: enemy military foundations near our border — the same
+ * "near" rule as the purge (150 m of an own structure, 130 m of a planned
+ * expansion spot). Runs every block from the town phase so the
+ * demobilization logic sees the denial as incoming and keeps the working
+ * army mobilized for it.
+ */
+BrennusBot.prototype.findDenyTarget = function(mil, homePos)
+{
+	if (!this.defenseOn() || !homePos || this.offense || this.deny)
+		return undefined;
+	const gameState = this.gameState;
+	const spots = this.expPlan?.spots || [];
+	let best, bestScore, bestDef = 0;
+	for (const ent of gameState.getEnemyStructures().values())
+	{
+		const pos = ent.position();
+		if (!pos || ent.foundationProgress() === undefined)
+			continue;
+		if (!ent.hasClass("Tower") && !ent.hasClass("Fortress") &&
+			!ent.hasClass("ArmyCamp") && !ent.hasClass("CivCentre"))
+			continue;
+		if (this.denyTried[ent.id()] && this.turn - this.denyTried[ent.id()] < 600)
+			continue;
+		let near = false;
+		for (const own of gameState.getOwnStructures().values())
+			if (own.position() && SquareDistance(own.position(), pos) < 150 * 150)
+			{
+				near = true;
+				break;
+			}
+		if (!near)
+			for (const spot of spots)
+				if (SquareDistance(spot, pos) < 130 * 130)
+				{
+					near = true;
+					break;
+				}
+		if (!near)
+			continue;
+		let defenders = 0;
+		for (const p of mil)
+			if (SquareDistance(p, pos) < 100 * 100)
+				defenders++;
+		// Too hot for a detachment: the donation rule stands — better no
+		// denial than a 30-man feed into a 40-defender foundation.
+		if (defenders * 2 > 30)
+			continue;
+		const score = defenders * 10000 + SquareDistance(pos, homePos);
+		if (best === undefined || score < bestScore)
+		{
+			best = ent;
+			bestScore = score;
+			bestDef = defenders;
+		}
+	}
+	if (!best)
+		return undefined;
+	const needed = Math.max(8, bestDef * 2);
+	if (this.armyCount() < needed)
+		return undefined;
+	const bp = best.position();
+	return { "id": best.id(), "x": bp[0], "z": bp[1], "needed": needed, "defenders": bestDef, "template": best.templateName() };
+};
+
+/**
  * Offense: with no serious threat at home and a strong army, raze the
  * least defended enemy CC — enemy CCs claim the spots our expansion plan
  * needs (200 m rule) and their territory caps our map control. Raid at 75+
@@ -3381,16 +3605,19 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 /**
  * Purge: with no raid on, raze the enemy military structures sitting at our
  * border — forward towers, fortresses, army camps (Rome builds those in OUR
- * territory; they train units and rams at our doorstep) and CC foundations.
- * They shrink our territory, stale the expansion spots (the planner only
- * avoids them) and farm the nearby economy, and outside a CC raid the army
- * otherwise never touches a structure (s109: lone forward towers stood all
- * game). "Border" means within 150 m of an own structure or 130 m of a
- * planned expansion spot. Infantry attacks with capture allowed — its damage
- * bounces off structure armor (towers: hack 29); rams raze. War-stage only,
- * like the sortie: pre-war the muster IS the defense. Gates sit below the
- * raid's (60 not 75, no ram floor) but the donation rule stands: 1.5x local
- * superiority or stay home. Returns true while a purge is commanded.
+ * territory; they train units and rams at our doorstep). They shrink our
+ * territory, stale the expansion spots (the planner only avoids them) and
+ * farm the nearby economy, and outside a CC raid the army otherwise never
+ * touches a structure (s109: lone forward towers stood all game). "Border"
+ * means within 150 m of an own structure or 130 m of a planned expansion
+ * spot. Foundations are the denial's job, not the purge's. A built fortress
+ * is a purge target only with rams on the field — without siege, infantry
+ * capture cannot beat its 8x capture points at 45 cp/s regen and the army
+ * just bleeds against it (0cae013 s57); towers and army camps fall to
+ * infantry capture (its damage bounces off structure armor — towers: hack
+ * 29). War-stage only, like the sortie: pre-war the muster IS the defense.
+ * Gates sit below the raid's (60 not 75) but the donation rule stands: 1.5x
+ * local superiority or stay home. Returns true while a purge is commanded.
  */
 BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil, homePos)
 {
@@ -3426,11 +3653,14 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 			standDown();
 			return false;
 		}
-		if (this.armyCount() < 40 || this.turn - this.purge.turn > 900)
+		if (this.armyCount() < 40 || this.turn - this.purge.turn > 900 ||
+			(target.hasClass("Fortress") && ramEnts.length < 1))
 		{
 			// Purge targets sit near home by construction, so 3 min (not the
-			// raid's 6) caps a stalled one.
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purge aborted at ${this.purge.x.toFixed(0)},${this.purge.z.toFixed(0)} (age=${((this.turn - this.purge.turn) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
+			// raid's 6) caps a stalled one. A fortress whose rams died
+			// mid-purge is abandoned too — without siege the army just bleeds
+			// against it.
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purge aborted at ${this.purge.x.toFixed(0)},${this.purge.z.toFixed(0)} (age=${((this.turn - this.purge.turn) / 300).toFixed(1)}m, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 			standDown();
 			return false;
 		}
@@ -3454,9 +3684,14 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 			const pos = ent.position();
 			if (!pos)
 				continue;
-			const foundation = ent.foundationProgress() !== undefined;
-			if (!ent.hasClass("Tower") && !ent.hasClass("Fortress") && !ent.hasClass("ArmyCamp") &&
-				!(foundation && ent.hasClass("CivCentre")))
+			if (ent.foundationProgress() !== undefined)
+				continue;	// foundations are the denial's job
+			if (!ent.hasClass("Tower") && !ent.hasClass("Fortress") && !ent.hasClass("ArmyCamp"))
+				continue;
+			// A built fortress without rams is not a target: 5200 hp and 8x
+			// capture points at 45 cp/s regen make the infantry grind a
+			// donation (0cae013 s57).
+			if (ent.hasClass("Fortress") && ramEnts.length < 1)
 				continue;
 			let near = false;
 			for (const own of gameState.getOwnStructures().values())

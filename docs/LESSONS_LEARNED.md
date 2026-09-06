@@ -488,3 +488,32 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
   while Petra camps: income → 0, muster floors unmet, barracks rebuilt
   slowly (builders sheltered). The 539 "workers trained" in s62 are mostly
   refills of raided workers, not growth.
+
+## 2026-09-06 (border-fortress loss, 0cae013 s57)
+
+- Loss shape: Petra founded a fortress 290 m from our home CC at ~t=25 while
+  the working army was demobilized — nothing reacted (the purge was
+  war-stage only). At t=30.4 the fresh war-stage purge ground the BUILT
+  fortress with 0 rams for 1.5 min (army 98→88), and when 2 rams + escort
+  hit the home CC at t=31.9 the recall walk was 290 m; the army bled 88→14
+  at home and the CC fell. Defeat at 35.2m.
+- 0.28 fortress: 5200 hp, capture points 8x the structure default at 45
+  cp/s regen (template_structure_military_fortress). Infantry capture
+  cannot beat the regen and hack damage bounces off — never send a purge
+  against a built fortress without rams; deny the foundation instead.
+- Foundation denial works: foundations carry the built template's classes
+  (`foundation|structures/rome/fortress` still hasClass("Fortress")), so
+  the class filter sees them. A detachment of 2x defenders (min 8) kills
+  builders + foundation; s57 probe denied that exact fortress at t=25.0
+  and won. Abort the denial when defenders mid-denial exceed half the
+  roster (donation rule) — Petra reinforces foundations she cares about.
+- Proportional recall: on a serious home threat during a raid/purge, recall
+  only the shortfall (1.5x threat + 4 per siege engine) when the away force
+  stays >= 50, else cancel the mission. Recall floor must be checked
+  against the TOTAL needed (away keeps army-needed), not the per-block
+  shortfall — block-by-block escalation otherwise slides the away force
+  below the floor (s3 probe: 55 recalled, +3, away kept 47).
+- Recalls must be sticky: recalled ids count as responding wherever they
+  are, or a detachment still marching home is re-recalled every 5-turn
+  block and the whole army ends up recalled anyway.
+- Probe (5 seeds: 57, 63, 109, 3, 30): 5 wins, 0 JS errors.
