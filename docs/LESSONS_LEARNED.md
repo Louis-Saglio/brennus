@@ -3,6 +3,34 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-06 (defense buildings at cost level + pop-gated accumulation hold)
+
+- The two reserve deadlocks flagged by #4.1 are fixed: tower floors
+  300/300 -> 100/100 (cost), muster-building floor 320 -> 300, and while a
+  muster building is missing AND unaffordable the bot holds
+  `constructionDefense` — honored in `manageConstruction` AFTER the
+  dropsite call, so storehouses/one-time civic buildings keep firing and
+  only houses/fields pause. This is the same lesson as the s90 storehouse:
+  a rigid stock floor starves the very investment that matters in a war.
+- The hold needs a pop-margin gate: `popLimit - population - queuedPop`
+  must exceed `defenseHoldMinPopMargin` (8) or the hold releases. Without
+  it, a pop-choked bot (s90 sat 40/40 from 4.5m to 10m, wood <300 the
+  whole time) stalls its own boom — v1 (full construction hold) and v2
+  (houses/fields only) both starved s90's storehouses exactly this way
+  (8.3k wood, loss). With the gate: margin 0 -> houses fire (s90); margin
+  14-20 -> hold accumulates (s21).
+- Probe (s90/s21/s57/s63/s55): 4 wins, zero JS errors; s90 95.2k wood (its
+  best ever), barracks at 6.8-9.2m (was 9.2-12.7m pre-#4.2), towers built
+  on every seed. s55 still loses — same deathball-razes-home-CC-while-army-
+  purges-away positioning death, the remaining #4.x item, not this fix.
+- Validation (the other 15 seeds): 15/15 wins, zero JS errors, towers on
+  every seed (3-25 per game). All 11 established winners held, watch seeds
+  1-5 all win and s2 flipped to a win (its mid-game military death is what
+  this fix targets). Scoreboard post-#4.2: 19/20; only s55 loses.
+- Three-stage saga on one seed is the chaos tax: v1 and v2 both made s90
+  strictly worse for a root cause invisible in stats (pop choke). The log
+  diff (first divergence) found it in minutes; stats alone never would.
+
 ## 2026-09-05 (retraining surge: muster toward the observed enemy army)
 
 - Pre-city, when the enemy's standing army exceeds `musterTarget`, the

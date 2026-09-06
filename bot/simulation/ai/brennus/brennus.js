@@ -159,6 +159,9 @@ BrennusBot.prototype.storehouseMinTreeWood = 100;
 /** Total wood within woodServeDist of a storehouse spot below which the building cannot pay its 100 wood back: lone stragglers and pairs top out at 400 (200/tree on temperate), the home groves that must stay covered start at ~700 — 500 sits between the two measured clusters (s21/s70/s81 bled their economy on straggler storehouses; gating at 1000 delayed the home grove on s2/s45 and cost both games). */
 BrennusBot.prototype.storehouseMinWoodMass = 500;
 
+/** Free pop slots (limit − population − queued) below which a house outranks a missing muster building: the defense accumulation hold releases so the pop race is never choked (s90 sat at 40/40 for 5 min under an ungated hold). */
+BrennusBot.prototype.defenseHoldMinPopMargin = 8;
+
 /** Pinned stone and metal mines closer than this (m) share ONE storehouse. */
 BrennusBot.prototype.minePairDist = 55;
 
@@ -1735,6 +1738,12 @@ BrennusBot.prototype.manageConstruction = function()
 	if (this.manageDropSites(foundations, reserve))
 		return;
 
+	// The defense accumulation hold (manageDefenseBuildings) pauses the
+	// house/field race while a muster building's 300 wood accumulates —
+	// dropsites and one-time civic buildings above keep firing.
+	if (this.arbiter.held("constructionDefense"))
+		return;
+
 	// Field demand is computed fresh every block, BEFORE both house gates
 	// read it (until step C the early gate below read the previous block's
 	// declaration — an accident of statement order, not a policy).
@@ -3301,8 +3310,30 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 	{
 		if (haveByType[type] >= want || this.pendingBuilds.some(pb => pb.template === type))
 			continue;
-		if (this.arbiter.books("defenseBuildings").wood < (boom ? 350 : 320))
+		if (this.arbiter.books("defenseBuildings").wood < (boom ? 350 : 300))
+		{
+			// Pre-boom the boom spends wood below the floor every block, so a
+			// muster building can wait minutes for stock that never
+			// accumulates (s21: three barracks landed 7 min after town
+			// phase). Hold construction while unaffordable: the trickle
+			// accumulates and the building fires at cost the moment it can.
+			// The hold binds houses/fields only — dropsites are the wood
+			// producers and must keep firing (s90's woodline collapsed under
+			// a full construction hold) — and it releases when the boom is
+			// pop-choked: a house outranks a barracks when nothing can train
+			// anyway (s90 sat at 40/40 for 5 min under the hold).
+			if (!boom)
+			{
+				let queuedPop = 0;
+				for (const ent of gameState.getOwnStructures().values())
+					for (const item of ent.trainingQueue() || [])
+						if (item.unitTemplate)
+							queuedPop += item.count;
+				if (gameState.getPopulationLimit() - gameState.getPopulation() - queuedPop > this.defenseHoldMinPopMargin)
+					this.arbiter.hold("constructionDefense");
+			}
 			return;
+		}
 		if (this.tryConstruct(type, "military"))
 		{
 			this.arbiter.spend(this.arbiter.books("defenseBuildings"), "defenseBuildings", { "wood": 300 }, type.split("/").pop());
@@ -3359,7 +3390,9 @@ BrennusBot.prototype.placeTower = function(center, want)
 	if (near >= want)
 		return false;
 	const res = this.arbiter.books("towers");
-	if (res.wood < 300 || res.stone < 300)
+	// Cost-level floors: a tower costs 100/100, and the wave does not wait
+	// for 300/300 to accumulate (s57 stood up zero towers all game).
+	if (res.wood < 100 || res.stone < 100)
 		return false;
 	const clearOfTowers = (x, z) => !towers.some(p => SquareDistance(p, [x, z]) < 65 * 65);
 	const spot = this.findBuildingPosition(towerType, center, 12, 80, true,
