@@ -3,6 +3,31 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-06 (leftover swat: the threat scan is no longer CC-centric)
+
+- The threat scan counted enemies only within 120 m of an own CC, so raid
+  leftovers burning outer storehouses/fields beyond the ring never got an
+  army answer (the second half of the s63 loss-review note). Now, when the
+  army would otherwise idle (no serious threat, no raid, no purge), the
+  biggest leftover group — 3-14 enemies beyond every CC ring but within
+  60 m of an own structure and 250 m of an own CC — gets a proportional
+  detachment (`max(6, 2n)`) attack-moving its centroid. 15+ is a siege
+  camp: the war-stage sortie's job, not a swat.
+- Detachment, not whole army: the bulk stays home while Petra's main army
+  looms; the serious branch re-scans every block and preempts within 5
+  turns if a real wave lands. Pre-city gets the swat but deliberately NOT
+  the rally (validated behavior — a misleading "fall through to the rally"
+  comment said otherwise; the rally lived inside the war-stage else).
+- Probe (6 raid-heavy seeds): all 5 wins held, s55 loss but +13% wood;
+  s57 +80% wood (25.5k -> 45.8k — the swat protects the outer economy where
+  the stuck-at-20 army used to stand), s63 +5%, s45 +5%, s81 -10%, s21 -4%
+  (chaotic variation, wins held). Zero JS errors.
+- Validation (the other 14 seeds): 14/14 wins, zero JS errors, swats fired
+  on every seed (3-17 per game). Wood gathered 752k -> 937k aggregate
+  (+25%): s2 +148%, s4 +120%, s22 +81%, s3 +54%; s39 -29% and s47 -39%
+  are chaotic variation on games that still won comfortably. Scoreboard
+  post-fix: 19/20, only s55 loses (positioning item).
+
 ## 2026-09-06 (army garrison eject: hide only while the serious threat lasts)
 
 - Engine/API fact: garrisoned units have no `position()`, so they silently

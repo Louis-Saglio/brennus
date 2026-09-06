@@ -495,6 +495,7 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.armyCmdTurn = 0;
 	this.shelterDanger = {};
 	this.lastSeriousTurn = 0;
+	this.swatting = false;
 	this.spearNext = true;
 
 };
@@ -2912,70 +2913,145 @@ BrennusBot.prototype.manageDefense = function()
 		// War-stage only: before city the sortie is a donation — agg5 s1 sent
 		// the whole 60-strong muster into Petra's 75-106 blob at 16m and the
 		// base fell 9 minutes later.
-		if (!this.warOn())
+		let sortie = false;
+		if (this.warOn())
 		{
-			// stand down: fall through to the rally below
-		}
-		else
-		{
-		let campN = 0, cx = 0, cz = 0;
-		for (const p of mil)
-			if (SquareDistance(p, homePos) < 220 * 220)
-			{
-				campN++;
-				cx += p[0];
-				cz += p[1];
-			}
-		// Sortie only with clear superiority: the camp GROWS while the army
-		// marches (Petra converges), and agg8 s2's 20.7m sortie at 60-vs-32
-		// turned into 60-vs-83 mid-field and donated ~30 soldiers. 1.5x or
-		// stay home and let the towers and CC arrows bleed the camp instead.
-		if (campN >= 15 && this.armyCount() >= 100 && this.armyCount() >= campN * 1.5 && this.turn >= this.armyCmdTurn)
-		{
-			this.armyCmdTurn = this.turn + 10;
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m sortie against siege camp ${(cx / campN).toFixed(0)},${(cz / campN).toFixed(0)} (camp=${campN}, army=${armyEnts.length})\n`);
-			for (const ent of armyEnts)
-				ent.attackMove(cx / campN, cz / campN, "Unit", false);
-			for (const ent of healerEnts)
-				ent.move(cx / campN, cz / campN);
-		}
-		else if (this.turn >= this.armyCmdTurn)
-		{
-			// Rally: at a pending expansion CC (escort the builders) else home.
-			let rally = homePos;
-			for (const pb of this.pendingBuilds)
-				if (pb.template === ccType)
+			let campN = 0, cx = 0, cz = 0;
+			for (const p of mil)
+				if (SquareDistance(p, homePos) < 220 * 220)
 				{
-					rally = [pb.x, pb.z];
-					break;
+					campN++;
+					cx += p[0];
+					cz += p[1];
 				}
-			if (rally === homePos)
-				for (const f of gameState.getOwnFoundations().values())
-					if (f.position() && gameState.getBuiltTemplate(f.templateName()).templateName() === ccType)
-					{
-						rally = f.position();
-						break;
-					}
-			if (rally)
+			// Sortie only with clear superiority: the camp GROWS while the army
+			// marches (Petra converges), and agg8 s2's 20.7m sortie at 60-vs-32
+			// turned into 60-vs-83 mid-field and donated ~30 soldiers. 1.5x or
+			// stay home and let the towers and CC arrows bleed the camp instead.
+			if (campN >= 15 && this.armyCount() >= 100 && this.armyCount() >= campN * 1.5 && this.turn >= this.armyCmdTurn)
 			{
-				let far = false;
+				sortie = true;
+				this.armyCmdTurn = this.turn + 10;
+				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m sortie against siege camp ${(cx / campN).toFixed(0)},${(cz / campN).toFixed(0)} (camp=${campN}, army=${armyEnts.length})\n`);
 				for (const ent of armyEnts)
-					if (SquareDistance(ent.position(), rally) > 60 * 60)
+					ent.attackMove(cx / campN, cz / campN, "Unit", false);
+				for (const ent of healerEnts)
+					ent.move(cx / campN, cz / campN);
+			}
+		}
+		if (!sortie && this.turn >= this.armyCmdTurn)
+		{
+			// Dispersed leftovers: raiders beyond every CC's 120 m threat ring
+			// but still inside the economy's reach burn outer buildings while
+			// the army stands idle (s63 loss-review note — the threat scan is
+			// CC-centric and never sees them). Swat the biggest such group
+			// (3-14: 15+ is a siege camp, the sortie's job) with a proportional
+			// detachment; the serious branch preempts if a real wave lands.
+			let swat;
+			if (armyEnts.length >= 6)
+			{
+				const ccps = [], anchors = [];
+				for (const ent of gameState.getOwnStructures().values())
+				{
+					const p = ent.position();
+					if (!p || ent.foundationProgress() !== undefined)
+						continue;
+					anchors.push(p);
+					if (ent.templateName() === ccType)
+						ccps.push(p);
+				}
+				const cand = [];
+				for (const p of mil)
+				{
+					let nearCC = false;
+					for (const c of ccps)
+						if (SquareDistance(p, c) < 120 * 120)
+						{
+							nearCC = true;
+							break;
+						}
+					if (nearCC)
+						continue;
+					for (const a of anchors)
+						if (SquareDistance(p, a) < 60 * 60)
+						{
+							cand.push(p);
+							break;
+						}
+				}
+				let best;
+				for (let i = 0; i < cand.length; i++)
+				{
+					let n = 0, sx = 0, sz = 0;
+					for (let j = 0; j < cand.length; j++)
+						if (SquareDistance(cand[i], cand[j]) < 50 * 50)
+						{
+							n++;
+							sx += cand[j][0];
+							sz += cand[j][1];
+						}
+					if (n >= 3 && n < 15 && (!best || n > best.n))
+						best = { "n": n, "x": sx / n, "z": sz / n };
+				}
+				if (best)
+					for (const c of ccps)
+						if (SquareDistance([best.x, best.z], c) < 250 * 250)
+						{
+							swat = best;
+							break;
+						}
+			}
+			if (swat)
+			{
+				this.armyCmdTurn = this.turn + 10;
+				if (!this.swatting)
+					print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m swatting ${swat.n} leftover raiders at ${swat.x.toFixed(0)},${swat.z.toFixed(0)} (army=${armyEnts.length})\n`);
+				this.swatting = true;
+				const det = Math.min(armyEnts.length, Math.max(6, swat.n * 2));
+				for (let i = 0; i < det; i++)
+					armyEnts[i].attackMove(swat.x, swat.z, "Unit", false);
+			}
+			else
+			{
+				this.swatting = false;
+				if (this.warOn())
+				{
+				// Rally: at a pending expansion CC (escort the builders) else home.
+				let rally = homePos;
+				for (const pb of this.pendingBuilds)
+					if (pb.template === ccType)
 					{
-						far = true;
+						rally = [pb.x, pb.z];
 						break;
 					}
-				if (far)
+				if (rally === homePos)
+					for (const f of gameState.getOwnFoundations().values())
+						if (f.position() && gameState.getBuiltTemplate(f.templateName()).templateName() === ccType)
+						{
+							rally = f.position();
+							break;
+						}
+				if (rally)
 				{
-					this.armyCmdTurn = this.turn + 25;
+					let far = false;
 					for (const ent of armyEnts)
 						if (SquareDistance(ent.position(), rally) > 60 * 60)
+						{
+							far = true;
+							break;
+						}
+					if (far)
+					{
+						this.armyCmdTurn = this.turn + 25;
+						for (const ent of armyEnts)
+							if (SquareDistance(ent.position(), rally) > 60 * 60)
+								ent.move(rally[0], rally[1]);
+						for (const ent of healerEnts)
 							ent.move(rally[0], rally[1]);
-					for (const ent of healerEnts)
-						ent.move(rally[0], rally[1]);
+					}
+				}
 				}
 			}
-		}
 		}
 	}
 	this.hadThreat = !!serious;
