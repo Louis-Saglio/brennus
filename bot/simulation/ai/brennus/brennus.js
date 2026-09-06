@@ -494,6 +494,7 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.healers = this.savedState?.healers || {};
 	this.armyCmdTurn = 0;
 	this.shelterDanger = {};
+	this.lastSeriousTurn = 0;
 	this.spearNext = true;
 
 };
@@ -2609,6 +2610,48 @@ BrennusBot.prototype.armyCount = function()
 };
 
 /**
+ * Eject roster soldiers/healers from every own holder. Garrisoned units
+ * have no position and drop out of armyEnts, so any consumer downstream of
+ * the garrison order (swat, raid, purge, rally) silently runs at reduced
+ * strength until they are unloaded. Only roster ids are unloaded — workers
+ * belong to the shelter logic with its own enemy-proximity timer.
+ */
+BrennusBot.prototype.ejectArmyGarrisons = function(gameState)
+{
+	let hiding = false;
+	for (const id in this.army)
+	{
+		const e = gameState.getEntityById(+id);
+		if (e && !e.position())
+		{
+			hiding = true;
+			break;
+		}
+	}
+	if (!hiding)
+		for (const id in this.healers)
+		{
+			const e = gameState.getEntityById(+id);
+			if (e && !e.position())
+			{
+				hiding = true;
+				break;
+			}
+		}
+	if (!hiding)
+		return 0;
+	let n = 0;
+	for (const ent of gameState.getOwnStructures().values())
+		for (const gid of ent.garrisoned() || [])
+			if (this.army[gid] || this.healers[gid])
+			{
+				ent.unload(gid);
+				n++;
+			}
+	return n;
+};
+
+/**
  * Defense: the muster starts at the town phase — aggressive Petra's
  * first waves arrive around 15-17 min, long before the boom completes, and
  * starting defense only after city+300pop meant meeting a 90-unit army with
@@ -2713,6 +2756,21 @@ BrennusBot.prototype.manageDefense = function()
 			threat = { "x": n ? sx / n : gsx / siegeN, "z": n ? sz / n : gsz / siegeN, "n": n, "siegeN": siegeN, "score": score, "ccx": cp[0], "ccz": cp[1], "ccId": ent.id() };
 	}
 
+	const serious = threat && (threat.n >= 8 || threat.siegeN > 0);
+	// Garrisoning happens only under a serious outnumbered threat; once the
+	// threat is no longer serious the reason to hide is gone. Eject (30-turn
+	// settle against border-flapping) or the garrisoned army stays invisible
+	// to armyEnts forever while sub-8 leftovers burn the outer economy in
+	// reach of the minor-probe swat that never gets its soldiers back.
+	if (serious)
+		this.lastSeriousTurn = this.turn;
+	else if (this.turn - this.lastSeriousTurn > 30)
+	{
+		const ejected = this.ejectArmyGarrisons(gameState);
+		if (ejected)
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m ejecting ${ejected} garrisoned soldiers (threat over)\n`);
+	}
+
 	const armyEnts = [];
 	for (const id in this.army)
 	{
@@ -2728,7 +2786,6 @@ BrennusBot.prototype.manageDefense = function()
 		if (ent?.position())
 			healerEnts.push(ent);
 	}
-	const serious = threat && (threat.n >= 8 || threat.siegeN > 0);
 	if (serious)
 	{
 		// Defense takes precedence over any raid or purge.
@@ -2784,14 +2841,10 @@ BrennusBot.prototype.manageDefense = function()
 			}
 			if (this.armyCount() >= nearThreat)
 			{
-				// Local superiority: eject the garrisons and take the fight to them.
-				for (const s of shelters)
-					for (const gid of s.garrisoned() || [])
-					{
-						const g = gameState.getEntityById(gid);
-						if (g?.hasClass("Soldier") || g?.hasClass("Healer"))
-							s.unload(gid);
-					}
+				// Local superiority: eject the garrisons (wherever they are —
+				// the fight may have moved CCs since they hid) and take the
+				// fight to them.
+				this.ejectArmyGarrisons(gameState);
 				for (const ent of armyEnts)
 					ent.attackMove(threat.x, threat.z, "Unit", false);
 				for (const ent of healerEnts)
@@ -3629,6 +3682,14 @@ BrennusBot.prototype.logStatus = function()
 	const techs = this.boomTechs.filter(t => gameState.isResearched(t)).length;
 	const res = this.arbiter.mirror();
 
+	let gar = 0;
+	for (const id in this.army)
+	{
+		const e = gameState.getEntityById(+id);
+		if (e && !e.position())
+			gar++;
+	}
+
 	const rate = cls => {
 		const s = this.rateStats[cls];
 		return s.theo > 0 ? `${Math.round(100 * s.amount / s.theo)}%` : "-";
@@ -3654,7 +3715,7 @@ BrennusBot.prototype.logStatus = function()
 		`founds=${gameState.getOwnFoundations().toEntityArray().length} failedSpots=${(this.failedSpots || []).length} ` +
 		`fruitStock=${Math.round(this.fruitStock)} ` +
 		`enemyArmy=${this.enemyArmy || 0} siege=${this.enemySiege || 0} enemyNear=${(this.enemyNearestHome || 0).toFixed(0)}m ` +
-		`army=${this.armyCount ? this.armyCount() : 0} ` +
+		`army=${this.armyCount ? this.armyCount() : 0} gar=${gar} ` +
 		`terr=${terr ? terr.pct + "%(" + terr.own + "/" + terr.total + ")" : "-"} ` +
 		`stock ${Math.floor(res.food)}/${Math.floor(res.wood)}/${Math.floor(res.stone)}/${Math.floor(res.metal)}\n`);
 

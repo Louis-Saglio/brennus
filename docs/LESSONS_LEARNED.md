@@ -3,6 +3,35 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-06 (army garrison eject: hide only while the serious threat lasts)
+
+- Engine/API fact: garrisoned units have no `position()`, so they silently
+  drop out of `armyEnts` — every consumer downstream of a garrison order
+  (minor-probe swat, raid, purge, rally) runs at reduced strength until an
+  explicit `unload`. `armyCount()` (roster by id) still counts them, so the
+  HARNESS `army=` line hid this; the `gar=` field now reports it.
+- The deadlock (s63 loss-review note): the outnumbered branch garrisons the
+  army, but eject existed only in the serious+superiority branch and in the
+  worker-shelter timer (needs zero enemies within 100 m for 20 turns). A
+  sub-8 leftover group lingering in the 100-120 m ring kept the threat
+  non-serious AND the shelter timer refreshing — the army hid forever while
+  the outer economy burned.
+- Fix: eject roster soldiers/healers from all own holders
+  (`ejectArmyGarrisons`) whenever no serious threat for 30 turns (settle
+  against border-flapping), and from the superiority branch regardless of
+  which CC they hid in (the fight may have moved). Workers stay managed by
+  the shelter logic.
+- Evidence: the eject print can only fire when soldiers sat garrisoned
+  30+ turns past the last serious threat. Probe on 6 raid-heavy seeds: it
+  fired once on s55 at 13.8m (9 soldiers freed; loss but wood 11.7k ->
+  15.1k); the other 5 seeds stayed bit-identical to the pre-fix run
+  (outcomes + wood matched exactly), i.e. the fix is dormant where threats
+  end cleanly.
+- Validation (the other 14 seeds): 14/14 wins, zero JS errors, eject never
+  fired — every game bit-identical to the #4.2 wave (wood matched to the
+  unit). Dormant-but-safe everywhere except where the deadlock is real.
+  Scoreboard post-fix: 19/20, only s55 loses (positioning item).
+
 ## 2026-09-06 (defense buildings at cost level + pop-gated accumulation hold)
 
 - The two reserve deadlocks flagged by #4.1 are fixed: tower floors
