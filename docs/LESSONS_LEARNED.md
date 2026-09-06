@@ -3,6 +3,32 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-06 (demobilization: soldiers restart a massacred economy)
+
+- The pre-war deadlock from the #4.1 post-mortem: a raid wipes the food
+  economy -> food stock 0 -> no women trainable -> no gatherers -> the army
+  sits at ~20 for 15 min. `manageDemobilization` lends up to 10
+  citizen-soldiers (never more than half the army, `canGather("food")` only
+  — champions can't) to the gatherer pool; they stay in the army roster but
+  are skipped by armyEnts and treated as workers by assignGatherers and the
+  shelter logic. Recall all on: serious threat, war stage, food > 400, or
+  8+ civilian food gatherers.
+- The gate must be ALIVE civilian workers < 12, not gathering-food workers
+  < 6: v1 keyed on gatherers and fired on shelter episodes (garrisoned
+  workers have no position -> uncounted -> civFood=0 while 19 workers sat
+  alive in the CC). s57 churned 8-10 soldiers through 12-18 s
+  demobilize/remobilize cycles during the defense window and flipped to a
+  loss. Sheltered != dead; count heads, not assignments.
+- Probe v2 (6 raid-heavy seeds): demob never fired — every game
+  bit-identical to the #4.4 baseline (s57 and s70 recovered their wins).
+  Dormant insurance, like the #4.3 eject: the massacre scenario no longer
+  occurs in the 20-seed suite now that the swat+eject keep economies alive.
+  The plumbing itself was live-fired by v1 (soldiers got assignments,
+  gathered, recalled; zero JS errors).
+- Validation (the other 14 seeds): 14/14 wins, zero JS errors, demob never
+  fired — every game bit-identical to the #4.4 wave (wood matched to the
+  unit). Scoreboard unchanged: 19/20, only s55 loses (positioning item).
+
 ## 2026-09-06 (leftover swat: the threat scan is no longer CC-centric)
 
 - The threat scan counted enemies only within 120 m of an own CC, so raid

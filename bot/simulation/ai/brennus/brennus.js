@@ -492,6 +492,7 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.army = this.savedState?.army || {};
 	this.rams = this.savedState?.rams || {};
 	this.healers = this.savedState?.healers || {};
+	this.demobilized = this.savedState?.demobilized || {};
 	this.armyCmdTurn = 0;
 	this.shelterDanger = {};
 	this.lastSeriousTurn = 0;
@@ -670,7 +671,7 @@ BrennusBot.prototype.assignGatherers = function()
 
 	for (const ent of this.gameState.getOwnUnits().values())
 	{
-		if (!ent.isGatherer() || !ent.position() || this.army[ent.id()])
+		if (!ent.isGatherer() || !ent.position() || (this.army[ent.id()] && !this.demobilized[ent.id()]))
 			continue;
 
 		if (ent.id() === this.herderId && !this.herdingDone)
@@ -683,6 +684,7 @@ BrennusBot.prototype.assignGatherers = function()
 		else if (this.assignments[ent.id()])
 			counts[this.assignments[ent.id()]]++;
 	}
+	this.gatherCounts = counts;
 	if (!idle.length)
 		return;
 
@@ -2662,6 +2664,81 @@ BrennusBot.prototype.ejectArmyGarrisons = function(gameState)
  * enemies are close, and the army blob sent to whichever CC has enemies
  * near it.
  */
+/**
+ * Demobilization: a raid that wipes the food economy deadlocks the pre-war
+ * game — food stock 0, no gatherers, no women trainable, and the standing
+ * army idle at the rally point (s57/s70/s81 sat at army~20 for 15 min while
+ * Petra accumulated). Lend up to 10 citizen-soldiers (never more than half
+ * the army) to the gatherer pool until the economy restarts; recall them
+ * the moment a serious threat shows or the war stage starts. Demobilized
+ * soldiers stay in the army roster (armyCount stays honest for the muster
+ * math) but are skipped by armyEnts and treated as workers by
+ * assignGatherers and the shelter logic.
+ */
+BrennusBot.prototype.manageDemobilization = function(gameState, serious)
+{
+	for (const id in this.demobilized)
+		if (!this.army[id] || !gameState.getEntityById(+id))
+			delete this.demobilized[id];
+
+	const res = this.arbiter.mirror();
+	let demobFood = 0;
+	for (const id in this.demobilized)
+		if (this.assignments[id] === "food")
+			demobFood++;
+	const civFood = ((this.gatherCounts || {}).food || 0) - demobFood;
+	// Alive civilians, garrisoned or not (sheltering workers have no position
+	// but are alive): the deadlock this breaks is a worker MASSACRE. A
+	// sheltered workforce (s57: 19 workers ejected 12 s after a false
+	// demobilize) must not trip it — soldiers yanked to the fields during a
+	// shelter episode miss the defense and gather nothing.
+	let civWorkers = 0;
+	for (const u of gameState.getOwnUnits().values())
+		if (u.isGatherer() && !u.hasClass("Soldier") && !u.hasClass("Trader") &&
+			u.id() !== this.herderId)
+			civWorkers++;
+	if (serious || this.warOn() || !this.defenseOn() || res.food > 400 || civFood >= 8)
+	{
+		let n = 0;
+		for (const id in this.demobilized)
+		{
+			const ent = gameState.getEntityById(+id);
+			if (ent?.position())
+				ent.stopMoving();
+			delete this.assignments[id];
+			delete this.demobilized[id];
+			n++;
+		}
+		if (n)
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m remobilizing ${n} soldiers (food=${Math.floor(res.food)}, civFoodGatherers=${civFood})\n`);
+		return;
+	}
+	if (res.food >= 100 || civFood >= 6 || civWorkers >= 12)
+		return;
+	let demobN = 0;
+	for (const id in this.demobilized)
+		demobN++;
+	const cap = Math.min(10, Math.floor(this.armyCount() / 2));
+	let added = 0;
+	for (const id in this.army)
+	{
+		if (demobN >= cap)
+			break;
+		if (this.demobilized[id])
+			continue;
+		const ent = gameState.getEntityById(+id);
+		if (!ent?.position() || !ent.canGather("food"))
+			continue;
+		this.demobilized[id] = 1;
+		delete this.assignments[id];
+		ent.stopMoving();
+		demobN++;
+		added++;
+	}
+	if (added)
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m demobilizing ${added} soldiers to gathering (demob=${demobN}, food=${Math.floor(res.food)}, civFoodGatherers=${civFood}, civWorkers=${civWorkers})\n`);
+};
+
 BrennusBot.prototype.manageDefense = function()
 {
 	const gameState = this.gameState;
@@ -2772,9 +2849,13 @@ BrennusBot.prototype.manageDefense = function()
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m ejecting ${ejected} garrisoned soldiers (threat over)\n`);
 	}
 
+	this.manageDemobilization(gameState, serious);
+
 	const armyEnts = [];
 	for (const id in this.army)
 	{
+		if (this.demobilized[id])
+			continue;
 		const ent = gameState.getEntityById(+id);
 		if (ent?.position())
 			armyEnts.push(ent);
@@ -3083,7 +3164,7 @@ BrennusBot.prototype.manageDefense = function()
 		return;
 	for (const ent of gameState.getOwnUnits().values())
 	{
-		if (!ent.isGatherer() || !ent.position() || this.army[ent.id()] || ent.id() === this.herderId)
+		if (!ent.isGatherer() || !ent.position() || (this.army[ent.id()] && !this.demobilized[ent.id()]) || ent.id() === this.herderId)
 			continue;
 		const state = ent.unitAIState() || "";
 		if (state.indexOf("GARRISON") !== -1 || state.indexOf("REPAIR") !== -1)
@@ -3765,6 +3846,9 @@ BrennusBot.prototype.logStatus = function()
 		if (e && !e.position())
 			gar++;
 	}
+	let demob = 0;
+	for (const id in this.demobilized)
+		demob++;
 
 	const rate = cls => {
 		const s = this.rateStats[cls];
@@ -3791,7 +3875,7 @@ BrennusBot.prototype.logStatus = function()
 		`founds=${gameState.getOwnFoundations().toEntityArray().length} failedSpots=${(this.failedSpots || []).length} ` +
 		`fruitStock=${Math.round(this.fruitStock)} ` +
 		`enemyArmy=${this.enemyArmy || 0} siege=${this.enemySiege || 0} enemyNear=${(this.enemyNearestHome || 0).toFixed(0)}m ` +
-		`army=${this.armyCount ? this.armyCount() : 0} gar=${gar} ` +
+		`army=${this.armyCount ? this.armyCount() : 0} gar=${gar} demob=${demob} ` +
 		`terr=${terr ? terr.pct + "%(" + terr.own + "/" + terr.total + ")" : "-"} ` +
 		`stock ${Math.floor(res.food)}/${Math.floor(res.wood)}/${Math.floor(res.stone)}/${Math.floor(res.metal)}\n`);
 
