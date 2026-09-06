@@ -3,6 +3,62 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-06 (3af2b27 sweep timeout autopsy: the arsenal IS the timeout)
+
+- 56 timeouts decompose: 43 never order an arsenal (0 rams, 0 raids, 0 CCs
+  razed in 45 min), 7 order it at t=37-42 (first raid t=41-44, 1-2 CCs razed
+  before the cap: s31, s37, s55, s69, s76, s89, s96, s77), 2 raid on time but
+  bounce (s57: two arsenal foundations razed by Petra, mid-raid on the last
+  CC at the cap; s61: Petra camps her CC with 49-60 defenders), 2 never reach
+  city (s38: town=2 with 53k food banked — the silent managePhaseUp stall;
+  s81: massacred economy, pop 34/194 at the cap).
+- The kill chain works when it starts on time: wins order the arsenal at
+  t=14-31, raid from ~t=25-35 and win at 27-44. When a late raid finally
+  fires with rams against <=20 defenders a CC falls in 0.2-1.3 min (s69, s96)
+  — the 45-min cap needs the first raid by ~t=35, i.e. the arsenal by ~t=30.
+- Why placement fails: `manageDefenseBuildings`/`tryConstruct` searches only
+  the HOME CC ring (radius 10-130 m, fixed CC angle, nearEnemy veto) for a
+  29x29+inflation lot; by war-on the ring holds 4 barracks + temple + ~50
+  houses + fields + towers + storehouses and no hole fits. It retries every
+  block, logs nothing, and the wants loop `return`s on the first missing type
+  so temples 2-3 and the forge are never even attempted (s1: 4 barracks +
+  1 temple at t=28.4, then silence for 17 min with 40k+ wood banked).
+- Not the enemy veto: s6/s9/s14/s24/s47/s48/s60/s62/s64/s79/s86 and others
+  end with enemyArmy 0-8 and STILL no arsenal — pure obstruction crowding.
+- Endgame signature of the 43: army 100-140 idle at home, pop ~300/300,
+  banks of 10-60k food/wood unspent, kills at parity or better (s24: 1155
+  vs 429) — the bot wins every fight and cannot end the game.
+- Same root cause as the 2026-08-29 findloss note (then 12/24 timeouts) —
+  it has grown into the dominant failure mode as defense/boom improved.
+
+## 2026-09-06 (arsenal placement fix: expansion-ring fallback)
+
+- Fix in `tryConstruct`: non-dropsite buildings that find no spot around the
+  home CC now fall back to each built expansion CC ring (nearest to home
+  first, per-CC land region, same nearEnemy veto). Wants loop skips to the
+  next type on placement failure instead of returning (an unplaceable
+  arsenal used to starve temples 2-3 and the forge). Full placement failure
+  retries every 25 turns (the failing fine scan ran EVERY block before —
+  those games ran at ~33 t/s) and logs a throttled `[WARNING] no placement
+  for X at any CC` so the failure is never silent again.
+- Probe (s14, s24, s47, s60 timeouts + s4 win): s14/s24 timeout -> win
+  (31.6m both), s4 held, 0 JS errors, 62-69 t/s. s47/s60 still timeout but
+  on the raid-bounce mode (75-87 army vs 46-66 camped defenders), not
+  placement.
+- Validation (20 seeds vs 3af2b27 sweep): the 14 arsenal-bucket seeds went
+  0W/14T -> 8W/6T (s1, s6, s9, s18, s41, s49, s68, s72 flipped; s72's
+  arsenal landed at 19.8m). Overall 6W/14T -> 12W/8T/0L; the only churn is
+  s8 win -> timeout (arsenal late at 38.4, chaotic variance). 0 JS errors.
+- Residual limiter, visible in the logs: the fallback needs a second BUILT
+  CC, and expansion waits for pop 300, so arsenals still land at 25-33 m in
+  the flipped games and at 37-44 m in the remaining timeouts (s17, s37,
+  s63 — standoff games where Petra's camp also delays the expansion). The
+  next lever is expansion timing or reserving a big plot at town phase, not
+  the placement search itself.
+- s38/s81 unchanged (never-city bucket: silent managePhaseUp stall at
+  town=2; massacred economy) — separate failure modes, untouched.
+
+
 ## 2026-09-06 (b7fc612 century-sweep loss autopsy: s55, s61, s99)
 
 - The b7fc612 sweep lost s55 (38.7m), s61 (32.6m), s99 (40.6m). s61/s99 were

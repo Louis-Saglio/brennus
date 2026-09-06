@@ -2374,6 +2374,12 @@ BrennusBot.prototype.findMinimaxSpot = function(templateType, points, region)
 
 BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 {
+	// A full placement failure means a fine scan of every candidate ring came
+	// up empty — expensive, and the obstruction it reports changes on
+	// building-completion timescales. Retry at most every 25 turns.
+	this.placeRetryAfter = this.placeRetryAfter || {};
+	if (this.turn < (this.placeRetryAfter[templateType] || 0))
+		return false;
 	const cc = this.getCivicCentre();
 	if (!cc)
 		return false;
@@ -2395,9 +2401,50 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 	if (!pos && kind !== "dropsite")
 
 		pos = this.findBuildingPosition(templateType, ccPos, 12, 120, true, region);
+	// Big footprints (arsenal 29x29) find no hole in the crowded home ring and
+	// otherwise retry silently forever — 43 of 56 timeouts in the 3af2b27
+	// sweep never placed an arsenal, so no rams, so no raids. Fall back to the
+	// expansion rings: an exposed arsenal beats a nonexistent one.
+	if (!pos && kind !== "dropsite" && !center)
+		for (const exp of this.expansionCivicCentres())
+		{
+			const ep = exp.position();
+			pos = this.findBuildingPosition(templateType, ep, 10, 130, true, this.accessibility.getAccessValue(ep));
+			if (pos)
+				break;
+		}
 	if (!pos)
+	{
+		if (kind !== "dropsite")
+		{
+			this.placeRetryAfter[templateType] = this.turn + 25;
+			this.placeFailLog = this.placeFailLog || {};
+			if (this.turn - (this.placeFailLog[templateType] ?? -Infinity) >= 600)
+			{
+				this.placeFailLog[templateType] = this.turn;
+				print(`[WARNING] t=${Math.round(this.gameState.getTimeElapsed() / 60000)}m no placement for ${templateType.split("/").pop()} at any CC — rings crowded or enemy too close\n`);
+			}
+		}
 		return false;
+	}
 	return this.placeOrder(templateType, pos, rush) ? pos : false;
+};
+
+/** Built own CCs other than the home one, nearest to home first — fallback building lots for when the home ring is full. */
+BrennusBot.prototype.expansionCivicCentres = function()
+{
+	const home = this.getCivicCentre();
+	if (!home)
+		return [];
+	const ccType = this.gameState.applyCiv("structures/{civ}/civil_centre");
+	const hp = home.position();
+	const exps = [];
+	for (const ent of this.gameState.getOwnStructures().values())
+		if (ent.templateName() === ccType && ent.id() !== home.id() &&
+			ent.position() && ent.foundationProgress() === undefined)
+			exps.push(ent);
+	exps.sort((a, b) => SquareDistance(a.position(), hp) - SquareDistance(b.position(), hp));
+	return exps;
 };
 
 BrennusBot.prototype.placeOrder = function(templateType, pos, rush)
@@ -3821,8 +3868,10 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 			this.arbiter.spend(this.arbiter.books("defenseBuildings"), "defenseBuildings", { "wood": 300 }, type.split("/").pop());
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m defense building ${type.split("/").pop()}\n`);
 			this.arbiter.hold("construction");
+			return;
 		}
-		return;
+		// Placement failed (crowded rings): skip to the next want rather than
+		// starving temples/forge behind an unplaceable arsenal (3af2b27 sweep).
 	}
 
 	// Towers: 5 around the home CC from the town phase on (they double as
