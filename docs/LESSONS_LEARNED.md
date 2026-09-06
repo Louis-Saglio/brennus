@@ -517,3 +517,13 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
   are, or a detachment still marching home is re-recalled every 5-turn
   block and the whole army ends up recalled anyway.
 - Probe (5 seeds: 57, 63, 109, 3, 30): 5 wins, 0 JS errors.
+- Century sweep of the denial+recall commit (3af2b27): 42 win / 56 timeout
+  / 2 loss, 0 JS errors (parent 0cae013: 36/63/1). s33 (never trains rams
+  -> no raids -> out-massed; pre-existing: 0cae013 s33 also had rams=0)
+  and s87 (army annihilated in an even t=17.5 fight, never re-massed —
+  the documented post-collapse pattern). Denial itself stayed cheap:
+  detachments of 8-14 out of 100+ armies, repeatedly killing re-founded
+  fortresses.
+- Same code + same seed can flip between win/timeout AT the 45-min cap
+  across kiln runners (s57: probe won at the cap on pc, sweep timed out):
+  near-cap verdicts are marginal, treat them as neither fixed nor broken.
