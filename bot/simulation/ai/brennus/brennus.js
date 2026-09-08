@@ -3616,7 +3616,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		if (!best)
 			return false;
 		const bp = best.position();
-		this.offense = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn, "def": Math.floor(bestScore / 10000) };
+		this.offense = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn };
 		this.ramMarch = {};	// fresh stuck-ram tracking for the new march
 		this.purge = undefined;	// the raid takes precedence over any purge
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${Math.floor(bestScore / 10000)}, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
@@ -3637,19 +3637,23 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 	if (this.turn < this.armyCmdTurn)
 		return true;
 	this.armyCmdTurn = this.turn + 10;
-	// Contested-building alarm: the launch line prints the defenders visible
-	// then; Petra reinforces a grinding raid, and an army that keeps attacking
-	// a building with soldiers nearby melts under it (s50-52 raids into 12-67
-	// defenders all ended spent). Warn once per episode, then once per
-	// reinforcement wave (+15 since the last warning).
-	let defenders = 0;
-	for (const p of mil)
+	// Contested-building alarm: fire whenever our soldiers (not siege) attack
+	// the structure while ANY enemy unit stands nearby — Louis's replay
+	// review: raids grind a CC with defenders around and melt. Warn once per
+	// episode, then once per reinforcement wave (+15 since the last warning).
+	let attackers = 0;
+	for (const ent of armyEnts)
+		if (SquareDistance(ent.position(), [this.offense.x, this.offense.z]) < 60 * 60)
+			attackers++;
+	let enemyNear = 0;
+	for (const p of this.enemyMobilesPos || [])
 		if (SquareDistance(p, [this.offense.x, this.offense.z]) < 100 * 100)
-			defenders++;
-	if (defenders >= 10 && (this.offense.warned === undefined || defenders >= this.offense.warned + 15))
+			enemyNear++;
+	if (attackers >= 1 && enemyNear >= 1 &&
+		(this.offense.warned === undefined || enemyNear >= this.offense.warned + 15))
 	{
-		this.offense.warned = defenders;
-		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy CC at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} with ${defenders} enemy soldiers nearby (${this.offense.def} at launch, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+		this.offense.warned = enemyNear;
+		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy CC at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} with ${enemyNear} enemy unit(s) nearby (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 	}
 	for (const ent of armyEnts)
 	{
@@ -3874,17 +3878,22 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 	if (this.turn < this.armyCmdTurn)
 		return true;
 	this.armyCmdTurn = this.turn + 10;
-	// Same contested-building alarm as the raid: a purge grinds a structure
-	// while Petra's soldiers stand around it (1.5x superiority was measured
-	// at launch — reinforcements are the surprise).
-	let purgeDef = 0;
-	for (const p of mil)
+	// Same contested-building alarm as the raid: our soldiers grind the
+	// structure while any enemy unit stands around it (1.5x superiority was
+	// measured at launch — reinforcements are the surprise).
+	let purgeAtk = 0;
+	for (const ent of armyEnts)
+		if (SquareDistance(ent.position(), [this.purge.x, this.purge.z]) < 60 * 60)
+			purgeAtk++;
+	let purgeNear = 0;
+	for (const p of this.enemyMobilesPos || [])
 		if (SquareDistance(p, [this.purge.x, this.purge.z]) < 100 * 100)
-			purgeDef++;
-	if (purgeDef >= 10 && (this.purge.warned === undefined || purgeDef >= this.purge.warned + 15))
+			purgeNear++;
+	if (purgeAtk >= 1 && purgeNear >= 1 &&
+		(this.purge.warned === undefined || purgeNear >= this.purge.warned + 15))
 	{
-		this.purge.warned = purgeDef;
-		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy ${this.purge.name} at ${this.purge.x.toFixed(0)},${this.purge.z.toFixed(0)} with ${purgeDef} enemy soldiers nearby (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+		this.purge.warned = purgeNear;
+		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy ${this.purge.name} at ${this.purge.x.toFixed(0)},${this.purge.z.toFixed(0)} with ${purgeNear} enemy unit(s) nearby (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 	}
 	for (const ent of armyEnts)
 	{

@@ -6,10 +6,12 @@ Cleared 2026-08-29. Reference knowledge was migrated into
 ## 2026-09-08 (Louis's seed 50-53 replay review: two [WARNING]s, ram-stuck watchdog, 45m storehouse gate)
 
 - Two new telemetry alarms from Louis's replay notes. Contested-building
-  (raid + purge): enemy soldiers within 100 m of the attacked structure,
-  >= 10, printed once per episode then once per +15 reinforcement wave —
-  s50-52 raids launched into 12-108 defenders and all ended spent; the
-  warning tracks the reinforcement growth mid-grind (s52: 12 -> 35 -> 57).
+  (raid + purge): fires when our SOLDIERS (not siege — army units inside
+  the 60 m attack ring) attack a structure while ANY enemy unit (soldier
+  or civilian, enemyMobilesPos) stands within 100 m of it; latched once
+  per episode, re-arms when the nearby count grows by +15 (reinforcement
+  wave — s52 ground a CC as its defenders grew 12 -> 35 -> 57). s50-52
+  raids launched into 12-108 defenders and all ended spent.
   Far-mining: per stone/metal supply with >= 2 miners and > 40 m edge walk
   to the nearest dropsite, latched per supply; the message says whether a
   storehouse-served mine of the same resource exists. On s50-53 every
