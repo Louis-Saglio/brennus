@@ -147,6 +147,9 @@ BrennusBot.prototype.woodDistWarn = 40;
 /** Hysteresis for the warning latch (m). */
 BrennusBot.prototype.woodDistWarnClear = 30;
 
+/** Per-mine dropsite edge distance (m) above which logStatus fires a [WARNING]: the wood alarm is a mean and hides a far-mine minority — exhausted-mine autocontinue chains miners to far unserved mines while a storehouse-served mine sits unused (s50/s52, and s99's 21 miners at ~180 m). */
+BrennusBot.prototype.mineDistWarn = 40;
+
 /** Max gatherers on a tree before it counts as full ("slot"): past this, diminishing returns make another chopper pay less than the walk to a freer tree. Tune against the `rates wood=` telemetry. */
 BrennusBot.prototype.treeMaxGatherers = 4;
 
@@ -156,8 +159,11 @@ BrennusBot.prototype.woodSlotMargin = 4;
 /** A far tree must still hold this much wood to trigger a storehouse: a straggler finishing a nearly-dead tree must not spend 100 wood on a building that outlives its forest. */
 BrennusBot.prototype.storehouseMinTreeWood = 100;
 
-/** Total wood within woodServeDist of a storehouse spot below which the building cannot pay its 100 wood back: lone stragglers and pairs top out at 400 (200/tree on temperate), the home groves that must stay covered start at ~700 — 500 sits between the two measured clusters (s21/s70/s81 bled their economy on straggler storehouses; gating at 1000 delayed the home grove on s2/s45 and cost both games). */
+/** Total wood within storehouseGateRadius of a storehouse spot below which the building cannot pay its 100 wood back: lone stragglers and pairs top out at 400 (200/tree on temperate), the home groves that must stay covered start at ~700 — 500 sits between the two measured clusters (s21/s70/s81 bled their economy on straggler storehouses; gating at 1000 delayed the home grove on s2/s45 and cost both games). */
 BrennusBot.prototype.storehouseMinWoodMass = 500;
+
+/** Radius (m) around a storehouse-demand clump whose wood mass counts toward the gate — wider than woodServeDist because a storehouse planted between sparse patches serves all of them: s53 gated five 133-203-mass clumps sitting within 45 m of each other (925 combined) while their choppers walked 230-285 m each way. Pairs 45 m apart still gate out (400 < 500); three trees spanning the radius pass (600), and 600 wood served pays the 100 wood back. */
+BrennusBot.prototype.storehouseGateRadius = 45;
 
 /** Free pop slots (limit − population − queued) below which a house outranks a missing muster building: the defense accumulation hold releases so the pop race is never choked (s90 sat at 40/40 for 5 min under an ungated hold). */
 BrennusBot.prototype.defenseHoldMinPopMargin = 8;
@@ -1986,7 +1992,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		// down the distance ranking until one pays for itself.
 		const massNear = center => {
 			let mass = 0;
-			const r2 = this.woodServeDist * this.woodServeDist;
+			const r2 = this.storehouseGateRadius * this.storehouseGateRadius;
 			for (const s of gameState.getResourceSupplies("wood").values())
 			{
 				const sp = s.position();
@@ -3610,7 +3616,8 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		if (!best)
 			return false;
 		const bp = best.position();
-		this.offense = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn };
+		this.offense = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn, "def": Math.floor(bestScore / 10000) };
+		this.ramMarch = {};	// fresh stuck-ram tracking for the new march
 		this.purge = undefined;	// the raid takes precedence over any purge
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${Math.floor(bestScore / 10000)}, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 		for (const ent of armyEnts)
@@ -3630,6 +3637,20 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 	if (this.turn < this.armyCmdTurn)
 		return true;
 	this.armyCmdTurn = this.turn + 10;
+	// Contested-building alarm: the launch line prints the defenders visible
+	// then; Petra reinforces a grinding raid, and an army that keeps attacking
+	// a building with soldiers nearby melts under it (s50-52 raids into 12-67
+	// defenders all ended spent). Warn once per episode, then once per
+	// reinforcement wave (+15 since the last warning).
+	let defenders = 0;
+	for (const p of mil)
+		if (SquareDistance(p, [this.offense.x, this.offense.z]) < 100 * 100)
+			defenders++;
+	if (defenders >= 10 && (this.offense.warned === undefined || defenders >= this.offense.warned + 15))
+	{
+		this.offense.warned = defenders;
+		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy CC at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} with ${defenders} enemy soldiers nearby (${this.offense.def} at launch, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+	}
 	for (const ent of armyEnts)
 	{
 		if (SquareDistance(ent.position(), [this.offense.x, this.offense.z]) < 60 * 60)
@@ -3643,10 +3664,84 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			ram.attack(this.offense.id, false);
 		else
 			ram.attackMove(this.offense.x, this.offense.z, "Structure", false);
+		this.trackRamMarch(ram, gameState);
 	}
 	for (const ent of healerEnts)
 		ent.move(this.offense.x, this.offense.z);
 	return true;
+};
+
+/**
+ * Stuck-ram watchdog for the raid march, run per command block. A ram
+ * walking at 7.2 m/s covers ~14 m per block; one that moves < 6 m over 3
+ * blocks while still far from the target is wedged on an obstruction (its
+ * 8x12 footprint does not fit forest gaps — s50's four raids ground down
+ * with rams that never arrived). Fighting rams (COMBAT state, e.g. battering
+ * a structure the attackMove met en route) reset the counter. A wedged ram
+ * gets a direct attack order (re-paths to the target's edge), then a 40 m
+ * hop toward the target, then is left alone — the raid age cap owns the rest.
+ */
+BrennusBot.prototype.trackRamMarch = function(ram, gameState)
+{
+	const rp = ram.position();
+	const distT = Math.hypot(rp[0] - this.offense.x, rp[1] - this.offense.z);
+	const id = ram.id();
+	if (!this.ramMarch[id])
+	{
+		this.ramMarch[id] = { "x": rp[0], "z": rp[1], "still": 0, "nudges": 0 };
+		return;
+	}
+	const tr = this.ramMarch[id];
+	const moved = Math.hypot(rp[0] - tr.x, rp[1] - tr.z);
+	tr.x = rp[0];
+	tr.z = rp[1];
+	if (distT <= 60 || moved >= 6)
+	{
+		tr.still = 0;
+		// 99 (given up) survives movement defensively: a wedged ram never
+		// moves >= 6 m between blocks anyway (the hop re-wedges it within
+		// meters — val-1 and warn-3 ran bit-identical), so this latch only
+		// matters if a corridor later opens up mid-raid.
+		if (distT <= 60 || tr.nudges !== 99)
+			tr.nudges = 0;
+		return;
+	}
+	const state = ram.unitAIState()?.split(".")[1];
+	if (state === "WALKING" || state === "WALKINGANDFIGHTING" || state === "IDLE")
+		tr.still++;
+	else
+		tr.still = 0;
+	if (tr.still < 3 || tr.nudges === 99)
+		return;
+	// Print latch per corridor, not per ram: wedged rams pile up at the same
+	// forest gap (s5: 6+ rams along one corridor, 46 log lines) and each new
+	// raid re-detects them — one stuck line and one give-up line per 30 m
+	// spot tells the whole story.
+	if (tr.nudges === 0 && !(this.ramStuckSpots || []).some(p => SquareDistance(p, rp) < 30 * 30))
+	{
+		(this.ramStuckSpots = this.ramStuckSpots || []).push([rp[0], rp[1]]);
+		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m ram stuck at ${rp[0].toFixed(0)},${rp[1].toFixed(0)} — ${distT.toFixed(0)}m from the raid target at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} (wedged on an obstruction, nudging)\n`);
+	}
+	if (tr.nudges < 2)
+		ram.attack(this.offense.id, false);
+	else if (tr.nudges === 2)
+	{
+		const dx = this.offense.x - rp[0], dz = this.offense.z - rp[1];
+		const n = Math.hypot(dx, dz) || 1;
+		ram.move(rp[0] + dx / n * 40, rp[1] + dz / n * 40);
+	}
+	else
+	{
+		if (!(this.ramGaveUpSpots || []).some(p => SquareDistance(p, rp) < 30 * 30))
+		{
+			(this.ramGaveUpSpots = this.ramGaveUpSpots || []).push([rp[0], rp[1]]);
+			print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m ram irrecoverably stuck at ${rp[0].toFixed(0)},${rp[1].toFixed(0)} — raid continues without it\n`);
+		}
+		tr.nudges = 99;
+		return;
+	}
+	tr.still = 0;
+	tr.nudges++;
 };
 
 /**
@@ -3771,7 +3866,7 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 		if (!best || this.armyCount() < bestDef * 1.5)
 			return false;
 		const bp = best.position();
-		this.purge = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn };
+		this.purge = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn, "name": best.templateName() };
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purging enemy ${best.templateName()} ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${bestDef}, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 		for (const ent of armyEnts)
 			ent.setStance("aggressive");
@@ -3779,6 +3874,18 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 	if (this.turn < this.armyCmdTurn)
 		return true;
 	this.armyCmdTurn = this.turn + 10;
+	// Same contested-building alarm as the raid: a purge grinds a structure
+	// while Petra's soldiers stand around it (1.5x superiority was measured
+	// at launch — reinforcements are the surprise).
+	let purgeDef = 0;
+	for (const p of mil)
+		if (SquareDistance(p, [this.purge.x, this.purge.z]) < 100 * 100)
+			purgeDef++;
+	if (purgeDef >= 10 && (this.purge.warned === undefined || purgeDef >= this.purge.warned + 15))
+	{
+		this.purge.warned = purgeDef;
+		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy ${this.purge.name} at ${this.purge.x.toFixed(0)},${this.purge.z.toFixed(0)} with ${purgeDef} enemy soldiers nearby (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+	}
 	for (const ent of armyEnts)
 	{
 		if (SquareDistance(ent.position(), [this.purge.x, this.purge.z]) < 60 * 60)
@@ -4215,6 +4322,25 @@ BrennusBot.prototype.logStatus = function()
 	}
 	else if (wd === "-" || wd < this.woodDistWarnClear)
 		this.woodDistWarned = false;
+
+	// Mine-coverage alarm, per mine: a mean hides a far-mine minority, so each
+	// supply with 2+ miners and a long dropsite walk warns once per episode
+	// (latched per supply while it lasts). When a storehouse-served mine of
+	// the same resource exists, say so — that is a drift/assignment failure,
+	// not missing coverage, and the storehouse build order cannot fix it.
+	const farMines = this.farMineGatherers();
+	const farNow = {};
+	for (const m of farMines)
+	{
+		farNow[m.id] = 1;
+		if (this.mineFarWarned?.[m.id])
+			continue;
+		const why = m.served ?
+			`${m.served} served ${m.res} mine(s) sit by a dropsite — miner drift` :
+			`no served ${m.res} mine — mine storehouse coverage is failing`;
+		print(`[WARNING] t=${Math.round(gameState.getTimeElapsed() / 60000)}m ${m.n} miners on a ${m.res} mine at ${m.pos[0].toFixed(0)},${m.pos[1].toFixed(0)} — ${m.d}m from the nearest dropsite (>${this.mineDistWarn}m) — ${why}\n`);
+	}
+	this.mineFarWarned = farNow;
 };
 
 BrennusBot.prototype.meanDropsiteDistances = function()
@@ -4279,6 +4405,67 @@ BrennusBot.prototype.meanDropsiteDistances = function()
 		"grain": gN ? Math.round(gSum / gN) : "-",
 		"fruit": fN ? Math.round(fSum / fN) : "-"
 	};
+};
+
+/**
+ * Miners working a mine far from every dropsite, for the mine-coverage alarm
+ * in logStatus. Per-supply episodes: a supply is "far" when its nearest
+ * storehouse/CC edge is beyond mineDistWarn and 2+ miners work it (one stray
+ * is anecdote, two is coverage). Foundations count as sites — a storehouse
+ * being built is coverage in flight, not a gap. Also counts served mines
+ * (edge <= 18 m, the underserved threshold manageDropSites uses) of the same
+ * resource: the "gathers far while a served mine sits unused" case the alarm
+ * must distinguish from missing coverage.
+ */
+BrennusBot.prototype.farMineGatherers = function()
+{
+	const gameState = this.gameState;
+	const halfDiag = ent => {
+		const o = ent.get("Obstruction/Static");
+		return o ? Math.hypot(+o["@width"], +o["@depth"]) / 2 : 8;
+	};
+	const sites = [];
+	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
+	for (const ent of gameState.getOwnStructures().values())
+		if (ent.position() && (ent.templateName() === storeType || ent.hasClass("CivCentre")))
+			sites.push({ "pos": ent.position(), "half": halfDiag(ent) });
+	for (const f of gameState.getOwnFoundations().values())
+		if (f.position() && gameState.getBuiltTemplate(f.templateName()).templateName() === storeType)
+			sites.push({ "pos": f.position(), "half": halfDiag(f) });
+	if (!sites.length)
+		return [];
+	const edge = pos => Math.min(...sites.map(s => Math.hypot(pos[0] - s.pos[0], pos[1] - s.pos[1]) - s.half));
+	const miners = {};	// supplyId -> {res, pos, n}
+	for (const ent of gameState.getOwnUnits().values())
+	{
+		if (!ent.isGatherer() || ent.isIdle() || !ent.position())
+			continue;
+		const res = this.assignments[ent.id()];
+		if (res !== "stone" && res !== "metal")
+			continue;
+		const tgt = this.gatherTarget[ent.id()];
+		if (tgt?.generic !== res)
+			continue;
+		const pos = gameState.getEntityById(tgt.supplyId)?.position();
+		if (!pos)
+			continue;
+		const m = miners[tgt.supplyId] = miners[tgt.supplyId] || { "res": res, "pos": pos, "n": 0 };
+		m.n++;
+	}
+	const bad = [];
+	for (const id in miners)
+	{
+		const m = miners[id];
+		const d = Math.max(0, edge(m.pos));
+		if (m.n < 2 || d <= this.mineDistWarn)
+			continue;
+		let served = 0;
+		for (const s of gameState.getResourceSupplies(m.res).values())
+			if (s.position() && s.resourceSupplyAmount() && edge(s.position()) <= 18)
+				served++;
+		bad.push({ "id": +id, "res": m.res, "pos": m.pos, "n": m.n, "d": Math.round(d), "served": served });
+	}
+	return bad;
 };
 
 BrennusBot.prototype.findExpansionWoodStorehouse = function(storeType, center)

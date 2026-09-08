@@ -3,6 +3,57 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-08 (Louis's seed 50-53 replay review: two [WARNING]s, ram-stuck watchdog, 45m storehouse gate)
+
+- Two new telemetry alarms from Louis's replay notes. Contested-building
+  (raid + purge): enemy soldiers within 100 m of the attacked structure,
+  >= 10, printed once per episode then once per +15 reinforcement wave —
+  s50-52 raids launched into 12-108 defenders and all ended spent; the
+  warning tracks the reinforcement growth mid-grind (s52: 12 -> 35 -> 57).
+  Far-mining: per stone/metal supply with >= 2 miners and > 40 m edge walk
+  to the nearest dropsite, latched per supply; the message says whether a
+  storehouse-served mine of the same resource exists. On s50-53 every
+  episode was "miner drift" (served mine available, e.g. 23 miners on a
+  stone mine 205 m out on s52), never missing coverage — the b7fc612
+  autocontinue-drift note confirmed map-wide; the fix is reallocation,
+  not storehouses.
+- Ram-stuck watchdog on the raid march: a ram moving < 6 m over 3 command
+  blocks (7.2 m/s walk, ~14 m/block expected) in WALKING /
+  WALKINGANDFIGHTING / IDLE is wedged. UnitAI fact: attackMove lives in
+  INDIVIDUAL.WALKINGANDFIGHTING (checked via unitAIState split), and a
+  pathfinding failure FINISHES the order -> IDLE — both states must be
+  treated as stuck candidates; COMBAT (battering a structure en route)
+  resets the counter. Nudge ladder: direct attack (re-path), 40 m hop
+  toward the target, then give up.
+- Empirics: rams wedge in FOREST CORRIDORS and the whole column wedges at
+  the same gap (s50: three rams at (69,237); s5: 6+ along (461-504,
+  663-712) en route to a CC 370-400 m away). The nudges NEVER free a
+  wedged ram — the direct attack re-paths through the same footprint-
+  blocked gap (ram footprint 8x12 vs tree gaps), the hop re-wedges a few
+  meters on. Detection + warning is the deliverable; clearance-aware
+  routing is an engine problem.
+- Give-up and stuck prints are latched per 30 m corridor spot, not per
+  ram: wedged rams pile up at the same forest gap (s5: 6+ rams along one
+  corridor = 46 log lines, each re-flagged per raid) and one line per
+  spot tells the story. Diagnosed wrong first (blamed a movement-reset
+  re-flag cycle): a wedged ram NEVER moves >= 6 m between blocks, proven
+  by bit-identical val-1/warn-3 s5 logs — the interleaved lines were
+  different rams at the same rounded coordinates all along.
+- Wood storehouse mass gate radius 30 -> 45 m (`storehouseGateRadius`),
+  threshold unchanged at 500: s53 gated five 133-203-mass clumps sitting
+  within 45 m of each other (925 combined) while their choppers walked
+  230-285 m; a storehouse between sparse patches serves all of them.
+  Pairs 45 m apart still gate out (400 < 500). Validation (19 seeds, the
+  eco-fragile set): 13W/6T/0L vs the 8ac30f0 sweep's 12W/7T/0L, 0 JS
+  errors; s45/s47/s57/s70 timeout -> win, s2/s3/s30 win -> timeout on
+  the documented late-kill-chain mode (first raid t=41-43 or 0 raids —
+  not eco: wood/min within +/-5% of baseline). Dropsite orders 1289 ->
+  1413 (+9.6%); wood/min held on the straggler seeds (s21 1093 = 1093,
+  s90 +35%).
+- Probe sweep on the reporters (s50-53, 2 waves): s50 timeout -> win
+  (34.8-39 m), s51/s53 win, s52 stays capped (Petra camps her CC with
+  80-108 defenders — the s61 standoff mode, now warning-tagged).
+
 ## 2026-09-06 (3af2b27 sweep timeout autopsy: the arsenal IS the timeout)
 
 - 56 timeouts decompose: 43 never order an arsenal (0 rams, 0 raids, 0 CCs
