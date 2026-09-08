@@ -659,3 +659,32 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
 - Same code + same seed can flip between win/timeout AT the 45-min cap
   across kiln runners (s57: probe won at the cap on pc, sweep timed out):
   near-cap verdicts are marginal, treat them as neither fixed nor broken.
+
+## 2026-09-08 (far-mining elimination, val2-mine batch)
+
+- Storehouses require OWN territory in 0.28: template_structure.xml
+  BuildRestrictions has Territory="own" and components/BuildRestrictions.js
+  enforces it — a mine outside our territory can never be served by a new
+  storehouse, no matter the distance logic. Mining must be coverage-first:
+  only work a stone/metal supply whose edge is <= 40 m from a dropsite
+  (mineDistWarn) or that sits inside our own territory frontier.
+- findSupply needed its own serve gate, separate from the periodic
+  pull-back: the residual arrival vector was post-raid demobilization,
+  which reassigned miners standing 160-330 m out directly to far mines
+  (autocontinue picks them up via gatherTarget). Gating the assignment
+  itself removed the recurring far-mine clusters the pull-back alone kept
+  chasing.
+- Serve radius 130 m -> 40 m edge on both servedMineIds and the proactive
+  storehouse builder: at 130 m the builder lagged the frontier, miners
+  walked ahead of coverage, and every expansion produced a transient
+  far-mining cluster. Tightening both to the warning threshold eliminated
+  the frontier-lag pattern entirely.
+- Residual warnings are raid-transients by design: when the one free
+  served mine is nearEnemy-rejected during a raid, the pull-back
+  deliberately refuses to send miners toward it and they idle far until
+  the raid passes (val2 s39 t=13: 21 stuck, enemy=1). Do not weaken the
+  nearEnemy guard or the warning to chase zero.
+- Validation (19 seeds, standard settings): 14 won / 5 TIMEOUT / 0 lost,
+  0 JS errors, 1 warning total (the s39 raid-transient). Baselines on the
+  same seeds: 12W/7T shipped before this work, 15W/4T mid-task — within
+  the near-cap noise band.

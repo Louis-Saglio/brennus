@@ -150,6 +150,9 @@ BrennusBot.prototype.woodDistWarnClear = 30;
 /** Per-mine dropsite edge distance (m) above which logStatus fires a [WARNING]: the wood alarm is a mean and hides a far-mine minority — exhausted-mine autocontinue chains miners to far unserved mines while a storehouse-served mine sits unused (s50/s52, and s99's 21 miners at ~180 m). */
 BrennusBot.prototype.mineDistWarn = 40;
 
+/** Mine-to-dropsite edge distance (m) within which a mine counts as served: equals the underserved threshold manageDropSites reacts to, so the drift pull-back below corrects miners long before the mineDistWarn alarm could observe them, and warning / pull-back / storehouse demand all read one metric. */
+BrennusBot.prototype.mineGatherServeDist = 18;
+
 /** Max gatherers on a tree before it counts as full ("slot"): past this, diminishing returns make another chopper pay less than the walk to a freer tree. Tune against the `rates wood=` telemetry. */
 BrennusBot.prototype.treeMaxGatherers = 4;
 
@@ -682,6 +685,154 @@ BrennusBot.prototype.assignGatherers = function()
 		}
 	}
 
+	{
+		// Autocontinue drift hits miners the same way it hits choppers. Tier 1:
+		// pull empty-handed miners on a mine no dropsite serves back to the
+		// nearest served mine of the same resource. Tier 2: the 18-40 m band —
+		// not efficient but alarm-safe, always beats an unserved mine. Tier 3:
+		// a mine outside own territory can never get a storehouse
+		// (BuildRestrictions "own"), so miners there funnel to the in-territory
+		// mine closest to existing coverage — the far trigger in manageDropSites
+		// extends coverage to it. Whoever still has nowhere to go is real
+		// coverage demand read from the same anchors.
+		const sites = this.dropsiteEdgeList();
+		let served, band, terrMines; // scanned once per block, only if some miner drifted
+		let stuckWhy; // rejection census, filled alongside served
+		const pulled = { "stone": 0, "metal": 0 };
+		const stuck = { "stone": 0, "metal": 0 };
+		for (const ent of this.gameState.getOwnUnits().values())
+		{
+			const res = this.assignments[ent.id()];
+			if ((res !== "stone" && res !== "metal") || !ent.isGatherer() ||
+				ent.isIdle() || !ent.position())
+				continue;
+			if (ent.unitAIState()?.split(".")[1] !== "GATHER")
+				continue;
+			if ((ent.resourceCarrying() || []).some(c => c.amount > 0))
+				continue;
+			const tgt = this.gatherTarget[ent.id()];
+			if (tgt?.generic !== res)
+				continue;
+			const anchor = this.gameState.getEntityById(tgt.supplyId)?.position();
+			if (!anchor || this.edgeDistToSites(anchor, sites) <= this.mineGatherServeDist)
+				continue;
+			if (served === undefined)
+			{
+				served = { "stone": [], "metal": [] };
+				band = { "stone": [], "metal": [] };
+				terrMines = { "stone": [], "metal": [] };
+				stuckWhy = {};
+				for (const rr of ["stone", "metal"])
+				{
+					stuckWhy[rr] = { "full": 0, "region": 0, "enemy": 0, "cant": 0 };
+					for (const s of this.gameState.getResourceSupplies(rr).values())
+					{
+						const sp = s.position();
+						if (!sp || !s.resourceSupplyAmount())
+							continue;
+						const edge = this.edgeDistToSites(sp, sites);
+						if (edge > this.mineDistWarn)
+						{
+							if (!s.isFull() && this.inOwnTerritory(sp[0], sp[1]))
+								terrMines[rr].push({ "s": s, "edge": edge });
+							continue;
+						}
+						if (s.isFull())
+						{
+							if (edge <= this.mineGatherServeDist)
+								stuckWhy[rr].full++;
+							continue;
+						}
+						if (edge <= this.mineGatherServeDist)
+							served[rr].push(s);
+						else
+							band[rr].push(s);
+					}
+				}
+			}
+			const region = this.accessibility.getAccessValue(ent.position());
+			const pick = list =>
+			{
+				let best, bestD = Infinity;
+				for (const s of list)
+				{
+					if (this.accessibility.getAccessValue(s.position()) !== region)
+					{
+						stuckWhy[res].region++;
+						continue;
+					}
+					if (this.nearEnemy(s.position(), 100, 60))
+					{
+						stuckWhy[res].enemy++;
+						continue;
+					}
+					if (!this.canGatherSupply(ent, s))
+					{
+						stuckWhy[res].cant++;
+						continue;
+					}
+					const d = SquareDistance(ent.position(), s.position());
+					if (d < bestD)
+					{
+						bestD = d;
+						best = s;
+					}
+				}
+				return best;
+			};
+			let best = pick(served[res]) || pick(band[res]);
+			if (!best && !this.inOwnTerritory(anchor[0], anchor[1]))
+			{
+				let bestEdge = Infinity;
+				for (const m of terrMines[res])
+				{
+					if (this.accessibility.getAccessValue(m.s.position()) !== region)
+						continue;
+					if (this.nearEnemy(m.s.position(), 100, 60))
+						continue;
+					if (!this.canGatherSupply(ent, m.s))
+						continue;
+					if (m.edge < bestEdge)
+					{
+						bestEdge = m.edge;
+						best = m.s;
+					}
+				}
+			}
+			if (best)
+			{
+				ent.gather(best);
+				pulled[res]++;
+			}
+			else
+				stuck[res]++;
+		}
+		if (served !== undefined)
+		{
+			// Drift episodes persist for minutes: accumulate and print at most
+			// one line per resource per 150 turns, or the early game (starting
+			// mines beyond serve range of the CC) floods the log every block.
+			this.minePullLog = this.minePullLog || {};
+			for (const rr of ["stone", "metal"])
+			{
+				if (!pulled[rr] && !stuck[rr])
+					continue;
+				const log = this.minePullLog[rr] = this.minePullLog[rr] ||
+					{ "pulled": 0, "stuck": 0, "lastTurn": -150 };
+				log.pulled += pulled[rr];
+				log.stuck += stuck[rr];
+				if (this.turn - log.lastTurn < 150)
+					continue;
+				log.lastTurn = this.turn;
+				const t = (this.gameState.getTimeElapsed() / 60000).toFixed(1);
+				const w = stuckWhy[rr];
+				print(`[HARNESS] t=${t}m ${rr} pull-back: pulled ${log.pulled}, stuck ${log.stuck} (served: ${served[rr].length} free, band: ${band[rr].length}, in-terr far: ${terrMines[rr].length}, rejected full=${w.full} region=${w.region} enemy=${w.enemy} cant=${w.cant})\n`);
+				log.pulled = 0;
+				log.stuck = 0;
+			}
+		}
+	}
+
 	for (const ent of this.gameState.getOwnUnits().values())
 	{
 		if (!ent.isGatherer() || !ent.position() || (this.army[ent.id()] && !this.demobilized[ent.id()]))
@@ -863,6 +1014,7 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 		const minePos = mine?.position();
 		if (minePos && mine.resourceSupplyAmount() && !mine.isFull() &&
 			this.accessibility.getAccessValue(minePos) === region &&
+			this.edgeDistToSites(minePos, this.dropsiteEdgeList()) <= this.mineGatherServeDist &&
 			!this.nearEnemy(minePos, 100, 60) &&
 			this.canGatherSupply(unit, mine))
 			return mine;
@@ -874,6 +1026,16 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 		candidates = candidates.concat(this.gameState.getHuntableSupplies().filterNearest(pos, 10).toEntityArray());
 	const foodSites = resource === "food" ? this.foodDropsitePositions() : null;
 
+	// Stone/metal: the bot never orders anyone to a mine past the alarm
+	// distance — nearest served candidate first, else the in-territory
+	// candidate closest to coverage (the far trigger in manageDropSites
+	// extends coverage to it), else nothing while any in-territory mine
+	// remains: a miner demobilized 300 m from home must not be sent to the
+	// mine next door. Outside expansion there is one deadlock exception:
+	// no in-territory mine of the resource left at all.
+	const mineRes = resource === "stone" || resource === "metal";
+	const edgeSites = mineRes ? this.dropsiteEdgeList() : null;
+	let firstAny, bestTerr, bestTerrEdge = Infinity;
 	for (const supply of candidates)
 	{
 		const supplyPos = supply.position();
@@ -892,7 +1054,7 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 			!foodSites.some(d => SquareDistance(supplyPos, d) < 45 * 45))
 			continue;
 
-		if ((resource === "stone" || resource === "metal") && this.expansionOn() &&
+		if (mineRes && this.expansionOn() &&
 			this.servedMineIds && !this.servedMineIds.has(supply.id()))
 			continue;
 
@@ -900,9 +1062,32 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 		if (resource === "food" && supply.isHuntable() && !unit.hasClass("Cavalry") &&
 			!this.inOwnTerritory(supplyPos[0], supplyPos[1]))
 			continue;
-		return supply;
+		if (!mineRes)
+			return supply;
+		const edge = this.edgeDistToSites(supplyPos, edgeSites);
+		if (edge <= this.mineDistWarn)
+			return supply;
+		if (!firstAny)
+			firstAny = supply;
+		if (this.inOwnTerritory(supplyPos[0], supplyPos[1]) && edge < bestTerrEdge)
+		{
+			bestTerrEdge = edge;
+			bestTerr = supply;
+		}
 	}
-	return undefined;
+	if (!mineRes)
+		return undefined;
+	if (bestTerr)
+		return bestTerr;
+	if (this.expansionOn() || !firstAny)
+		return undefined;
+	for (const s of this.gameState.getResourceSupplies(resource).values())
+	{
+		const sp = s.position();
+		if (sp && s.resourceSupplyAmount() && this.inOwnTerritory(sp[0], sp[1]))
+			return undefined;
+	}
+	return firstAny;
 };
 
 BrennusBot.prototype.woodDropsitePositions = function()
@@ -923,6 +1108,34 @@ BrennusBot.prototype.woodDropsitePositions = function()
 			sites.push(f.position());
 	}
 	return sites;
+};
+
+/** Storehouse/CC positions with obstruction half-diagonals (storehouse foundations included): edge distance to this list is the serve metric every mine-coverage consumer shares (pull-back, storehouse demand, warning). */
+BrennusBot.prototype.dropsiteEdgeList = function()
+{
+	const gameState = this.gameState;
+	const halfDiag = ent =>
+	{
+		const o = ent.get("Obstruction/Static");
+		return o ? Math.hypot(+o["@width"], +o["@depth"]) / 2 : 8;
+	};
+	const sites = [];
+	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
+	for (const ent of gameState.getOwnStructures().values())
+		if (ent.position() && (ent.templateName() === storeType || ent.hasClass("CivCentre")))
+			sites.push({ "pos": ent.position(), "half": halfDiag(ent) });
+	for (const f of gameState.getOwnFoundations().values())
+		if (f.position() && gameState.getBuiltTemplate(f.templateName()).templateName() === storeType)
+			sites.push({ "pos": f.position(), "half": halfDiag(f) });
+	return sites;
+};
+
+BrennusBot.prototype.edgeDistToSites = function(pos, sites)
+{
+	let d = Infinity;
+	for (const s of sites)
+		d = Math.min(d, Math.hypot(pos[0] - s.pos[0], pos[1] - s.pos[1]) - s.half);
+	return d;
 };
 
 BrennusBot.prototype.foodDropsitePositions = function()
@@ -2040,7 +2253,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 
 	if (storeCount < (this.expansionOn() ? 40 : 18))
 	{
-		let worst, worstDist = 18;
+		let worst, worstDist = this.mineGatherServeDist;
 		const underserved = [];
 		for (const ent of gameState.getOwnUnits().values())
 		{
@@ -2051,7 +2264,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 				continue;
 			const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
 			const d = minEdgeDist(anchor, woodSites);
-			if (d > 18)
+			if (d > this.mineGatherServeDist)
 				underserved.push(anchor);
 			if (d > worstDist)
 			{
@@ -2059,8 +2272,13 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 				worst = anchor;
 			}
 		}
-		if (underserved.length >= (this.expansionOn() ? 5 : 2) &&
-			!(this.expansionOn() && this.turn - (this.lastMineStoreTurn || -1000) < 40))
+		// A drift cluster past the warning distance cannot wait for the
+		// expansion headcount: two miners at 40+ m is already coverage demand.
+		// It also skips the mine-storehouse cooldown and the reserve-padded
+		// wood floor — every turn at 40+ m costs more than the 100 wood.
+		const far = underserved.filter(p => minEdgeDist(p, woodSites) > this.mineDistWarn);
+		if ((underserved.length >= (this.expansionOn() ? 5 : 2) || far.length >= 2) &&
+			!(this.expansionOn() && far.length < 2 && this.turn - (this.lastMineStoreTurn || -1000) < 40))
 		{
 			this.arbiter.declare("dropsite", { "wood": 100 });
 			const sMine = this.mineId.stone !== undefined ?
@@ -2069,9 +2287,11 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 				gameState.getEntityById(this.mineId.metal) : undefined;
 			const sPos = sMine?.position(), mPos = mMine?.position();
 			// Pinned stone and metal mines close together share ONE storehouse between them.
+			// Not when the trigger is a far drift cluster: the demand sits at
+			// worst, wherever the pinned mines are is irrelevant to it.
 			const pairNear = sPos && mPos &&
 				Math.hypot(sPos[0] - mPos[0], sPos[1] - mPos[1]) < this.minePairDist;
-			if (pairNear)
+			if (pairNear && far.length < 2)
 			{
 				const mid = [(sPos[0] + mPos[0]) / 2, (sPos[1] + mPos[1]) / 2];
 				const planned = storeFoundations.some(p => Math.hypot(p[0] - mid[0], p[1] - mid[1]) < 30) ||
@@ -2093,7 +2313,7 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 			const center = centroid(clump);
 			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 45) ||
 				storePending(center);
-			const pos = resources.wood >= woodFloor && !planned &&
+			const pos = resources.wood >= (far.length >= 2 ? 100 : woodFloor) && !planned &&
 				this.tryConstruct(storeType, "dropsite", center);
 			if (pos)
 			{
@@ -2109,7 +2329,6 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 		storeCount < 40 && this.turn - (this.lastMineStoreTurn || -1000) > 40)
 	{
 		const region = this.accessibility.getAccessValue(cc.position());
-		const r2 = this.mineServeDist * this.mineServeDist;
 		let best, bestAmt = 1500;
 		for (const res of ["stone", "metal"])
 			for (const s of gameState.getResourceSupplies(res).values())
@@ -2120,7 +2339,9 @@ BrennusBot.prototype.manageDropSites = function(foundations, reserve)
 				if (this.accessibility.getAccessValue(pos) !== region ||
 					!this.inOwnTerritory(pos[0], pos[1]))
 					continue;
-				if (woodSites.some(d => SquareDistance(pos, d.pos) < r2))
+				// Coverage-first: open the richest in-territory mine past the
+				// alarm distance before mining shares ever reach it.
+				if (minEdgeDist(pos, woodSites) <= this.mineDistWarn)
 					continue;
 				bestAmt = s.resourceSupplyAmount();
 				best = pos;
@@ -4345,9 +4566,10 @@ BrennusBot.prototype.logStatus = function()
 		if (this.mineFarWarned?.[m.id])
 			continue;
 		const why = m.served ?
-			`${m.served} served ${m.res} mine(s) sit by a dropsite — miner drift` :
-			`no served ${m.res} mine — mine storehouse coverage is failing`;
-		print(`[WARNING] t=${Math.round(gameState.getTimeElapsed() / 60000)}m ${m.n} miners on a ${m.res} mine at ${m.pos[0].toFixed(0)},${m.pos[1].toFixed(0)} — ${m.d}m from the nearest dropsite (>${this.mineDistWarn}m) — ${why}\n`);
+			`${m.served} served ${m.res} mine(s) with free slots sit by a dropsite — miner drift` :
+			`no served ${m.res} mine with free slots — mine storehouse coverage is failing`;
+		const terr = m.terr ? "" : " — outside own territory, no storehouse can be ordered there";
+		print(`[WARNING] t=${Math.round(gameState.getTimeElapsed() / 60000)}m ${m.n} miners on a ${m.res} mine at ${m.pos[0].toFixed(0)},${m.pos[1].toFixed(0)} — ${m.d}m from the nearest dropsite (>${this.mineDistWarn}m) — ${why}${terr}\n`);
 	}
 	this.mineFarWarned = farNow;
 };
@@ -4422,28 +4644,17 @@ BrennusBot.prototype.meanDropsiteDistances = function()
  * storehouse/CC edge is beyond mineDistWarn and 2+ miners work it (one stray
  * is anecdote, two is coverage). Foundations count as sites — a storehouse
  * being built is coverage in flight, not a gap. Also counts served mines
- * (edge <= 18 m, the underserved threshold manageDropSites uses) of the same
- * resource: the "gathers far while a served mine sits unused" case the alarm
- * must distinguish from missing coverage.
+ * (edge within mineGatherServeDist, the underserved threshold manageDropSites
+ * uses) of the same resource: the "gathers far while a served mine sits
+ * unused" case the alarm must distinguish from missing coverage.
  */
 BrennusBot.prototype.farMineGatherers = function()
 {
 	const gameState = this.gameState;
-	const halfDiag = ent => {
-		const o = ent.get("Obstruction/Static");
-		return o ? Math.hypot(+o["@width"], +o["@depth"]) / 2 : 8;
-	};
-	const sites = [];
-	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
-	for (const ent of gameState.getOwnStructures().values())
-		if (ent.position() && (ent.templateName() === storeType || ent.hasClass("CivCentre")))
-			sites.push({ "pos": ent.position(), "half": halfDiag(ent) });
-	for (const f of gameState.getOwnFoundations().values())
-		if (f.position() && gameState.getBuiltTemplate(f.templateName()).templateName() === storeType)
-			sites.push({ "pos": f.position(), "half": halfDiag(f) });
+	const sites = this.dropsiteEdgeList();
 	if (!sites.length)
 		return [];
-	const edge = pos => Math.min(...sites.map(s => Math.hypot(pos[0] - s.pos[0], pos[1] - s.pos[1]) - s.half));
+	const edge = pos => this.edgeDistToSites(pos, sites);
 	const miners = {};	// supplyId -> {res, pos, n}
 	for (const ent of gameState.getOwnUnits().values())
 	{
@@ -4470,9 +4681,11 @@ BrennusBot.prototype.farMineGatherers = function()
 			continue;
 		let served = 0;
 		for (const s of gameState.getResourceSupplies(m.res).values())
-			if (s.position() && s.resourceSupplyAmount() && edge(s.position()) <= 18)
+			if (s.position() && s.resourceSupplyAmount() && !s.isFull() &&
+				edge(s.position()) <= this.mineGatherServeDist)
 				served++;
-		bad.push({ "id": +id, "res": m.res, "pos": m.pos, "n": m.n, "d": Math.round(d), "served": served });
+		bad.push({ "id": +id, "res": m.res, "pos": m.pos, "n": m.n, "d": Math.round(d), "served": served,
+			"terr": this.inOwnTerritory(m.pos[0], m.pos[1]) });
 	}
 	return bad;
 };
@@ -4573,9 +4786,6 @@ BrennusBot.prototype.warOn = function()
 	return this.war;
 };
 
-/** Distance (m) from a CC/storehouse at which a mine counts as served. */
-BrennusBot.prototype.mineServeDist = 130;
-
 BrennusBot.prototype.expBarterTarget = 52000;
 
 BrennusBot.prototype.targetTraders = 40;
@@ -4595,8 +4805,10 @@ BrennusBot.prototype.expansionShares = function(total)
 
 	const rate = 0.4;
 	const region = this.expansionRegion;
-	const sites = this.expansionMineDropsites();
-	const r2 = this.mineServeDist * this.mineServeDist;
+	// "Served" is the alarm metric — edge within mineDistWarn of a dropsite:
+	// crews are never sized on mines whose staffing would trip the far-mine
+	// warning; coverage extends to new mines first (proactive storehouse).
+	const sites = this.dropsiteEdgeList();
 	const served = { "stone": 0, "metal": 0 };
 	this.servedMineIds = new Set();
 	for (const res of ["stone", "metal"])
@@ -4607,7 +4819,13 @@ BrennusBot.prototype.expansionShares = function(total)
 				continue;
 			if (region !== undefined && this.accessibility.getAccessValue(pos) !== region)
 				continue;
-			if (!sites.some(d => SquareDistance(pos, d) < r2))
+			if (this.edgeDistToSites(pos, sites) > this.mineDistWarn)
+				continue;
+			// Mines outside own territory can never get a storehouse
+			// (BuildRestrictions "own"): sizing the mining shares on them sends
+			// crews where coverage cannot follow — the drift pull-back funnels
+			// strays back in-territory.
+			if (!this.inOwnTerritory(pos[0], pos[1]))
 				continue;
 			served[res] += s.resourceSupplyAmount();
 			this.servedMineIds.add(s.id());
@@ -4632,26 +4850,6 @@ BrennusBot.prototype.expansionShares = function(total)
 	shares.food = rest * 0.50;
 	shares.wood = rest * 0.50;
 	return shares;
-};
-
-BrennusBot.prototype.expansionMineDropsites = function()
-{
-	const gameState = this.gameState;
-	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
-	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
-	const sites = [];
-	for (const ent of gameState.getOwnStructures().values())
-		if (ent.position() && (ent.templateName() === storeType || ent.templateName() === ccType))
-			sites.push(ent.position());
-	for (const f of gameState.getOwnFoundations().values())
-	{
-		if (!f.position())
-			continue;
-		const built = gameState.getBuiltTemplate(f.templateName()).templateName();
-		if (built === storeType || built === ccType)
-			sites.push(f.position());
-	}
-	return sites;
 };
 
 /** CC lattice: hex-packed grid on ~210 m spacing (the engine's min CC
