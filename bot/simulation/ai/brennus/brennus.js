@@ -3858,30 +3858,63 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 	if (this.turn < this.armyCmdTurn)
 		return true;
 	this.armyCmdTurn = this.turn + 10;
-	// Contested-building alarm: fire whenever our soldiers (not siege) attack
-	// the structure while ANY enemy unit stands nearby — Louis's replay
-	// review: raids grind a CC with defenders around and melt. Warn once per
-	// episode, then once per reinforcement wave (+15 since the last warning).
+	// Contest: enemy units within 100 m of the target. While any stand there,
+	// soldiers clear them instead of grinding the structure — raids that
+	// ignore defenders melt under their fire (replay review s50/51/52). Rams
+	// keep battering regardless: they are the razors, and their armor shrugs
+	// the arrows the infantry was eating. Gaia predators are not a contest.
+	const foes = [];
+	for (const ent of gameState.getEnemyUnits().values())
+	{
+		if (ent.owner() === 0)
+			continue;
+		const pos = ent.position();
+		if (pos && SquareDistance(pos, [this.offense.x, this.offense.z]) < 100 * 100)
+			foes.push(ent);
+	}
+	// Contested-building alarm: fire whenever soldiers are ordered onto the
+	// structure while enemy units stand nearby (once per episode, then once
+	// per reinforcement wave, +15 since the last warning). The contest
+	// transitions themselves are telemetry (throttled: a scout dancing at
+	// the 100 m edge must not spam a line per block).
+	if (foes.length !== (this.offense.contestN || 0) &&
+		this.turn - (this.offense.contestLogTurn || -30) >= 30)
+	{
+		this.offense.contestLogTurn = this.turn;
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid ${foes.length ? `contested: engaging ${foes.length} enemy unit(s) around the CC, rams keep battering` : "contest cleared: grinding the CC"} (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+	}
+	this.offense.contestN = foes.length;
 	let attackers = 0;
 	for (const ent of armyEnts)
-		if (SquareDistance(ent.position(), [this.offense.x, this.offense.z]) < 60 * 60)
-			attackers++;
-	let enemyNear = 0;
-	for (const p of this.enemyMobilesPos || [])
-		if (SquareDistance(p, [this.offense.x, this.offense.z]) < 100 * 100)
-			enemyNear++;
-	if (attackers >= 1 && enemyNear >= 1 &&
-		(this.offense.warned === undefined || enemyNear >= this.offense.warned + 15))
 	{
-		this.offense.warned = enemyNear;
-		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy CC at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} with ${enemyNear} enemy unit(s) nearby (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
-	}
-	for (const ent of armyEnts)
-	{
-		if (SquareDistance(ent.position(), [this.offense.x, this.offense.z]) < 60 * 60)
-			ent.attack(this.offense.id, false);
-		else
+		if (SquareDistance(ent.position(), [this.offense.x, this.offense.z]) >= 60 * 60)
+		{
 			ent.attackMove(this.offense.x, this.offense.z, "Unit", false);
+			continue;
+		}
+		if (foes.length)
+		{
+			let best, bestDist;
+			for (const foe of foes)
+			{
+				const d = SquareDistance(foe.position(), ent.position());
+				if (best === undefined || d < bestDist)
+				{
+					best = foe;
+					bestDist = d;
+				}
+			}
+			ent.attack(best.id(), false);
+			continue;
+		}
+		ent.attack(this.offense.id, false);
+		attackers++;
+	}
+	if (attackers >= 1 && foes.length >= 1 &&
+		(this.offense.warned === undefined || foes.length >= this.offense.warned + 15))
+	{
+		this.offense.warned = foes.length;
+		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy CC at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} with ${foes.length} enemy unit(s) nearby (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 	}
 	for (const ram of ramEnts)
 	{
@@ -4099,29 +4132,60 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 	if (this.turn < this.armyCmdTurn)
 		return true;
 	this.armyCmdTurn = this.turn + 10;
-	// Same contested-building alarm as the raid: our soldiers grind the
-	// structure while any enemy unit stands around it (1.5x superiority was
-	// measured at launch — reinforcements are the surprise).
+	// Same contest rule as the raid: while enemy units stand within 100 m of
+	// the target, soldiers clear them instead of grinding the structure —
+	// 1.5x superiority was measured at launch, reinforcements are the
+	// surprise. Rams keep battering regardless.
+	const purgeFoes = [];
+	for (const ent of gameState.getEnemyUnits().values())
+	{
+		if (ent.owner() === 0)
+			continue;
+		const pos = ent.position();
+		if (pos && SquareDistance(pos, [this.purge.x, this.purge.z]) < 100 * 100)
+			purgeFoes.push(ent);
+	}
+	// Contested-building alarm: fire whenever soldiers are ordered onto the
+	// structure while enemy units stand nearby. Contest transitions are
+	// telemetry, throttled like the raid's.
+	if (purgeFoes.length !== (this.purge.contestN || 0) &&
+		this.turn - (this.purge.contestLogTurn || -30) >= 30)
+	{
+		this.purge.contestLogTurn = this.turn;
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purge ${purgeFoes.length ? `contested: engaging ${purgeFoes.length} enemy unit(s) around the ${this.purge.name}, rams keep battering` : `contest cleared: capturing the ${this.purge.name}`} (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+	}
+	this.purge.contestN = purgeFoes.length;
 	let purgeAtk = 0;
 	for (const ent of armyEnts)
-		if (SquareDistance(ent.position(), [this.purge.x, this.purge.z]) < 60 * 60)
-			purgeAtk++;
-	let purgeNear = 0;
-	for (const p of this.enemyMobilesPos || [])
-		if (SquareDistance(p, [this.purge.x, this.purge.z]) < 100 * 100)
-			purgeNear++;
-	if (purgeAtk >= 1 && purgeNear >= 1 &&
-		(this.purge.warned === undefined || purgeNear >= this.purge.warned + 15))
 	{
-		this.purge.warned = purgeNear;
-		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy ${this.purge.name} at ${this.purge.x.toFixed(0)},${this.purge.z.toFixed(0)} with ${purgeNear} enemy unit(s) nearby (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
-	}
-	for (const ent of armyEnts)
-	{
-		if (SquareDistance(ent.position(), [this.purge.x, this.purge.z]) < 60 * 60)
-			ent.attack(this.purge.id, true);
-		else
+		if (SquareDistance(ent.position(), [this.purge.x, this.purge.z]) >= 60 * 60)
+		{
 			ent.attackMove(this.purge.x, this.purge.z, "Unit", false);
+			continue;
+		}
+		if (purgeFoes.length)
+		{
+			let best, bestDist;
+			for (const foe of purgeFoes)
+			{
+				const d = SquareDistance(foe.position(), ent.position());
+				if (best === undefined || d < bestDist)
+				{
+					best = foe;
+					bestDist = d;
+				}
+			}
+			ent.attack(best.id(), false);
+			continue;
+		}
+		ent.attack(this.purge.id, true);
+		purgeAtk++;
+	}
+	if (purgeAtk >= 1 && purgeFoes.length >= 1 &&
+		(this.purge.warned === undefined || purgeFoes.length >= this.purge.warned + 15))
+	{
+		this.purge.warned = purgeFoes.length;
+		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy ${this.purge.name} at ${this.purge.x.toFixed(0)},${this.purge.z.toFixed(0)} with ${purgeFoes.length} enemy unit(s) nearby (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 	}
 	for (const ram of ramEnts)
 	{

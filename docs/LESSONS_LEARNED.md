@@ -688,3 +688,30 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
   0 JS errors, 1 warning total (the s39 raid-transient). Baselines on the
   same seeds: 12W/7T shipped before this work, 15W/4T mid-task — within
   the near-cap noise band.
+
+## 2026-09-09 (contested-building elimination, val3-contest batch)
+
+- The contested-CC/purge warning was proximity-based (soldiers within
+  60 m of the target while any enemy mobile stood within 100 m) and fired
+  79 times across 17 of 19 validation seeds: the raid/purge command loops
+  issued unconditional attack(structure) orders to every soldier within
+  60 m of the target every 10-turn block, defenders or not.
+- Fix shape: per block, collect enemy units (owner != gaia) within 100 m
+  of the target; while any stand there, soldiers engage their nearest
+  contester instead of grinding, rams keep battering (their armor shrugs
+  the arrows the infantry was eating). Grind orders only go out when the
+  ring is clear. Soldiers fight defenders back instead of donating — s74
+  purge held army ~90-104 while clearing waves of 14->31 defenders around
+  a tower.
+- The alarm now counts soldiers ORDERED onto the structure in the block
+  (the API exposes unitAIState() but no order target, so a state-based
+  alarm cannot tell grinding from ranged engagements and proximity
+  false-positives on soldiers correctly fighting contesters). Order-based
+  counting is the honest metric available: it fires only if a future
+  change reintroduces contested grind orders.
+- Contest transitions (0->N / N->0) are logged as [DEFENSE] telemetry,
+  throttled to one line per 30 turns per raid/purge.
+- Validation (19 seeds, standard settings): 16 won / 3 TIMEOUT / 0 lost,
+  0 JS errors, 0 contested warnings (was 79). Mine warning: 1 (s39 t=13,
+  the documented raid-transient, bit-identical to val2). Baselines on the
+  same seeds: 14W/5T/0L before this change.
