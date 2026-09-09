@@ -2616,6 +2616,19 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 	const ccPos = cc.position();
 
 	const region = this.accessibility.getAccessValue(ccPos);
+	// Rams are the raid gate and the arsenal is the ram source: at war stage a
+	// mobile enemy loitering 60 m off a candidate ring must not stall the kill
+	// clock — the home ring is defended by the standing army and its towers.
+	// Enemy structures (a forward base) still block. (ccinf A/B: the arsenal
+	// landed 3-10 min late whenever Petra's army camped nearby, and the first
+	// raid slipped by the same margin.)
+	const ignoreMobileEnemies = kind === "military" && !center &&
+		templateType.indexOf("arsenal") !== -1 && this.warOn();
+	// Per-check rejection counts across this call's searches, dumped with the
+	// throttled no-placement warning — a full failure otherwise says nothing
+	// about which gate closed (ccinf: late arsenals needed this to diagnose).
+	const diag = { "scanned": 0, "failedSpots": 0, "nearEnemy": 0, "houseBlock": 0,
+		"region": 0, "extra": 0, "pass": 0, "terr": 0 };
 	// Only place in the CC's land region: a spot across a cliff or river sits unbuilt forever.
 	let pos;
 	if (kind === "house")
@@ -2627,19 +2640,46 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 		pos = this.findBuildingPosition(templateType, center || ccPos, 10, 28, true, region);
 	else
 
-		pos = this.findBuildingPosition(templateType, center || ccPos, 10, 130, true, region);
+		pos = this.findBuildingPosition(templateType, center || ccPos, 10, 130, true, region, undefined, ignoreMobileEnemies, diag);
 	if (!pos && kind !== "dropsite")
 
-		pos = this.findBuildingPosition(templateType, ccPos, 12, 120, true, region);
+		pos = this.findBuildingPosition(templateType, ccPos, 12, 120, true, region, undefined, ignoreMobileEnemies, diag);
 	// Big footprints (arsenal 29x29) find no hole in the crowded home ring and
 	// otherwise retry silently forever — 43 of 56 timeouts in the 3af2b27
 	// sweep never placed an arsenal, so no rams, so no raids. Fall back to the
 	// expansion rings: an exposed arsenal beats a nonexistent one.
+	if (!pos && ignoreMobileEnemies)
+
+		// Every building shares the CC angle, so the searches only ever test one
+		// orientation; a square footprint rotated 45° tiles completely
+		// differently against the tree/building grid. One extra pass for the
+		// kill-clock building before giving up on the defended home ring.
+		pos = this.findBuildingPosition(templateType, ccPos, 10, 130, true, region, undefined, true, diag,
+			this.getPlacementAngle() + Math.PI / 4);
+	if (!pos && ignoreMobileEnemies)
+
+		// CC rings stay crowded/forested for minutes (ccinf diag-s2: 97% of
+		// candidates die on static passability at either angle). Woodline
+		// storehouses sit where chopping is actively clearing the map — holes
+		// open there first. An exposed arsenal beats a nonexistent one.
+	{
+		const storeType = this.gameState.applyCiv("structures/{civ}/storehouse");
+		for (const ent of this.gameState.getOwnStructures().values())
+		{
+			if (ent.templateName() !== storeType ||
+				!ent.position() || ent.foundationProgress() !== undefined)
+				continue;
+			pos = this.findBuildingPosition(templateType, ent.position(), 10, 60, true,
+				this.accessibility.getAccessValue(ent.position()), undefined, true, diag);
+			if (pos)
+				break;
+		}
+	}
 	if (!pos && kind !== "dropsite" && !center)
 		for (const exp of this.expansionCivicCentres())
 		{
 			const ep = exp.position();
-			pos = this.findBuildingPosition(templateType, ep, 10, 130, true, this.accessibility.getAccessValue(ep));
+			pos = this.findBuildingPosition(templateType, ep, 10, 130, true, this.accessibility.getAccessValue(ep), undefined, false, diag);
 			if (pos)
 				break;
 		}
@@ -2652,7 +2692,8 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 			if (this.turn - (this.placeFailLog[templateType] ?? -Infinity) >= 600)
 			{
 				this.placeFailLog[templateType] = this.turn;
-				print(`[WARNING] t=${Math.round(this.gameState.getTimeElapsed() / 60000)}m no placement for ${templateType.split("/").pop()} at any CC — rings crowded or enemy too close\n`);
+				print(`[WARNING] t=${Math.round(this.gameState.getTimeElapsed() / 60000)}m no placement for ${templateType.split("/").pop()} at any CC — rings crowded or enemy too close ` +
+					`(scanned=${diag.scanned} failedSpots=${diag.failedSpots} nearEnemy=${diag.nearEnemy} houseBlock=${diag.houseBlock} region=${diag.region} extra=${diag.extra} pass=${diag.pass} terr=${diag.terr})\n`);
 			}
 		}
 		return false;
@@ -2954,13 +2995,13 @@ BrennusBot.prototype.findGridSpot = function(templateType, plots, region)
 	return undefined;
 };
 
-BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRadius, maxRadius, fine, region, extraCheck)
+BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRadius, maxRadius, fine, region, extraCheck, ignoreMobileEnemies, diag, angleOverride)
 {
 	const gameState = this.gameState;
 	const template = gameState.getTemplate(templateType);
 	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
 	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
-	const angle = this.getPlacementAngle();
+	const angle = angleOverride !== undefined ? angleOverride : this.getPlacementAngle();
 	const pass = gameState.getPassabilityMap();
 	const mask = gameState.getPassabilityClassMask("building-land");
 	const terr = this.territoryMap;
@@ -2973,24 +3014,46 @@ BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRa
 			const ang = a * 2 * Math.PI / angles;
 			const x = center[0] + r * Math.cos(ang);
 			const z = center[1] + r * Math.sin(ang);
+			if (diag)
+				diag.scanned++;
 			if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
+			{
+				if (diag)
+					diag.failedSpots++;
 				continue;
-			if (this.nearEnemy([x, z], 100, 60))
+			}
+			if (this.nearEnemy([x, z], 100, ignoreMobileEnemies ? 0 : 60))
+			{
+				if (diag)
+					diag.nearEnemy++;
 				continue;
+			}
 			if (this.overlapsHouseBlock(x, z, halfW, halfD))
+			{
+				if (diag)
+					diag.houseBlock++;
 				continue;
+			}
 			if (region !== undefined && this.accessibility.getAccessValue([x, z]) !== region)
+			{
+				if (diag)
+					diag.region++;
 				continue;
+			}
 			if (extraCheck && !extraCheck(x, z))
+			{
+				if (diag)
+					diag.extra++;
 				continue;
-			if (this.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
+			}
+			if (this.placementOK(x, z, halfW, halfD, angle, pass, mask, terr, diag))
 				return [x, z];
 		}
 	return undefined;
 };
 
 /** Placement prefilter: true rotated footprint (inflated 0.75 m) passable, territory box own. */
-BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mask, terr)
+BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mask, terr, diag)
 {
 	const hw = halfW + 0.75, hd = halfD + 0.75;
 	const ex = hw * Math.abs(Math.cos(angle)) + hd * Math.abs(Math.sin(angle));
@@ -3000,7 +3063,11 @@ BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mas
 	const x0 = Math.floor((x - ex) / cell), x1 = Math.floor((x + ex) / cell);
 	const z0 = Math.floor((z - ez) / cell), z1 = Math.floor((z + ez) / cell);
 	if (x0 < 0 || z0 < 0 || x1 >= pass.width || z1 >= pass.height)
+	{
+		if (diag)
+			diag.pass++;
 		return false;
+	}
 	const cosa = Math.cos(angle), sina = Math.sin(angle);
 	for (let j = z0; j <= z1; ++j)
 		for (let i = x0; i <= x1; ++i)
@@ -3012,10 +3079,20 @@ BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mas
 			const v = -dx * sina + dz * cosa;
 			if (Math.abs(u) <= hw && Math.abs(v) <= hd &&
 				(pass.data[i + j * pass.width] & mask))
+			{
+				if (diag)
+					diag.pass++;
 				return false;
+			}
 		}
 
-	return this.territoryOwn(x, z, ex, ez, terr);
+	if (!this.territoryOwn(x, z, ex, ez, terr))
+	{
+		if (diag)
+			diag.terr++;
+		return false;
+	}
+	return true;
 };
 
 /** Every territory cell under the footprint's bounding box must be ours. */
@@ -4572,16 +4649,26 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	const res = this.arbiter.books("defenseTraining");
 	const barracksType = gameState.applyCiv("structures/{civ}/barracks");
 	const templeType = gameState.applyCiv("structures/{civ}/temple");
+	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
+	const boom = this.warOn();
 	let queued = 0;
 	const trainers = [];
 	for (const ent of gameState.getOwnStructures().values())
 	{
 		if (ent.foundationProgress() !== undefined)
 			continue;
-		if (ent.templateName() !== barracksType && ent.templateName() !== templeType)
+		// War stage only: the CC joins the infantry rotation. Before city its
+		// queue belongs to the women stream and the phase research; after, both
+		// are done (the worker cap holds, no phase tech remains) and the queue
+		// sits idle — a free extra trainer the muster leaves unused.
+		if (ent.templateName() !== barracksType && ent.templateName() !== templeType &&
+			!(boom && ent.templateName() === ccType))
 			continue;
 		for (const item of ent.trainingQueue() || [])
-			queued += item.count;
+			// A CC queue may hold women (trainWorkers refilling below the
+			// worker cap): those are not queued soldiers.
+			if (ent.templateName() !== ccType || item.template?.indexOf("infantry") !== -1)
+				queued += item.count;
 		if ((ent.trainingQueue()?.length || 0) <= 1)
 			trainers.push(ent);
 	}
@@ -4654,7 +4741,6 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	// per-block cadence). After city, batches of 5 with a wood reserve while
 	// temples/forge/arsenal are outstanding (def11-13: starving the
 	// construction budget froze the muster).
-	const boom = this.warOn();
 	const milBatch = boom ? this.arbiterParams.warChest.musterBatch :
 		surging ? this.arbiterParams.surge.batch : this.arbiterParams.foodSplit.musterBatch;
 	const floorF = boom ? this.arbiterParams.warChest.musterFood : this.arbiterParams.foodSplit.musterFloor.food;
@@ -4667,7 +4753,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 		{
 			if (res.food < floorF || res.wood < floorW)
 				break;
-			if (ent.templateName() === barracksType)
+			if (ent.templateName() === barracksType || ent.templateName() === ccType)
 			{
 				const type = gameState.applyCiv(this.spearNext ?
 					"units/{civ}/infantry_spearman_b" : "units/{civ}/infantry_javelineer_b");

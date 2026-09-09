@@ -3,6 +3,45 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-09 (CC war-stage infantry trainer + storehouse-anchored arsenal)
+
+- The Gaul CC trains `infantry_spearman_b` / `infantry_javelineer_b` /
+  `cavalry_javelineer_b` itself; Brennus used it only for women and phase
+  research. `manageDefenseTraining` now adds every built CC to the infantry
+  rotation once `warOn()` (city researched): pre-war the CC queue belongs
+  to the women stream and phase research; post-war both are done and the
+  queue idles. CC queue items count as queued soldiers only when the item
+  template contains "infantry" (women refills must not mask the muster's
+  missing count).
+- Rams train ONLY at the arsenal (`structures/{civ}/arsenal`, footprint
+  29x29 — the biggest non-CC buildable). No fortress/stable alternative
+  exists in the pinned 0.28 templates.
+- Placement failures are diagnosable: `tryConstruct`'s throttled
+  no-placement `[WARNING]` now carries per-check rejection counters
+  (scanned/failedSpots/nearEnemy/houseBlock/region/extra/pass/terr).
+  War-stage arsenal failures were ~97% static passability (`pass`) —
+  trees and buildings, NOT enemies, territory, or house blocks. Ignoring
+  mobile enemies and rotating the footprint 45° both changed nothing
+  (bit-identical replays: code paths that never fire differently leave
+  the sim untouched).
+- What works: anchor the arsenal search at own built woodline
+  storehouses (ring 10-60 m) after the aligned + rotated home-ring
+  searches fail — chopping clears holes there first. War-stage arsenal
+  landed at city time (17.4-19.3 min) on all 4 war-stage seeds, vs
+  21-31 min before; first raids at 19.8-22.8 min.
+- A/B (seeds 1-5, standard settings, vs HEAD dea4463): s2 26.2 vs 26.6,
+  s3 26.0 vs 31.6, s5 25.8 vs 35.7 wins; s1 identical timeout (war stage
+  never reached, patch inert — pre-existing at HEAD); s4 a timeout vs
+  base win — the raid started earlier (21.6 min) but with only 2 rams
+  that died under a 23-defender CC, then a 15-min grind against Petra's
+  236-strong army. Early arsenals open the raid gate at the 2-ram floor
+  instead of an accumulated 6.
+- JS pitfall: `tryConstruct` has no local `gameState` (unlike most
+  managers) — a bare `gameState` reference throws there, the engine
+  catches the AI exception per call, the game continues but the defense
+  manager is dead for that block (v4 probe: 5683 ERROR lines). A match
+  with JS errors never counts.
+
 ## 2026-09-09 (snapped 2x4 house blocks; CC-first fields tried and rejected)
 
 - Houses now place in snapped 2x4 blocks (two columns of four, 0.25 m
