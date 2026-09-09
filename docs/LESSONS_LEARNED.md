@@ -3,6 +3,35 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-09 (snapped 2x4 house blocks; CC-first fields tried and rejected)
+
+- Houses now place in snapped 2x4 blocks (two columns of four, 0.25 m
+  epsilon gap, 6 m alley) instead of the 14 m static grid. Verified
+  geometry from the `house at x,z` telemetry on s13: column steps of
+  11.25 m, column separation 17 m (11 + 6), blocks repeat all game. Zero
+  house `construct FAILED` across 8 seeds; the engine accepts the 0.25 m
+  gap fine.
+- The passability grid cannot validate a touching slot (a neighbour's
+  obstruction bleeds into shared 4 m cells), so snapped blocks are
+  grid-validated as a whole when anchored (while empty), the block
+  rectangle is reserved against all other finders until complete, and
+  slot fills only recheck what can change (enemies, territory, failed
+  spots with a 2 m radius — the generic 6 m would poison the whole block
+  — and exact rectangle overlap with own buildings).
+- CC-first fields (the user's request, tried and measured, then reverted):
+  concentrating the food economy in the raid's camping ground is fatal.
+  Same field count around the CC vs farmsteads, same raid: workers went
+  60 -> 0 food gatherers by t=15 and never recovered (gar=5 vs base
+  gar=14); baseline kept 37 workers alive and rebounded to +79 pop in
+  5 min (val s21/s55). A cap of 8 CC-ring fields did not help. Fields
+  stay farmstead-first; the CC band stays reserved for houses.
+- Analysis traps: a kiln `won` line means nothing without checking WHO
+  won — read `playerState` per playerID in stats.json (stdout line order
+  is not player order). Kiln replays (observer mode) record no commands:
+  `commands.txt` is all empty `turn/end` markers — use bot telemetry
+  (`house at x,z`) to verify placement geometry instead of replays.
+  Determinism holds with print-only changes (bit-identical turn counts).
+
 ## 2026-09-08 (Louis's seed 50-53 replay review: two [WARNING]s, ram-stuck watchdog, 45m storehouse gate)
 
 - Two new telemetry alarms from Louis's replay notes. Contested-building

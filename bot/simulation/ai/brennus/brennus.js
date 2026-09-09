@@ -462,6 +462,8 @@ BrennusBot.prototype.CustomInit = function(gameState)
 
 	this.failedSpots = this.savedState?.failedSpots || [];
 
+	this.houseBlocks = this.savedState?.houseBlocks || []; // [{bx, bz, dead}] block anchors in CC-local frame
+
 	this.carry = this.savedState?.carry || {};
 
 	this.gatherTarget = this.savedState?.gatherTarget || {};
@@ -2055,7 +2057,6 @@ BrennusBot.prototype.manageConstruction = function()
 	if (fields < desiredFields && fieldFoundations < 2 &&
 		resources.wood >= 100)
 	{
-
 		const farmType = gameState.applyCiv("structures/{civ}/farmstead");
 		const farms = gameState.getOwnStructures().toEntityArray()
 			.filter(ent => ent.templateName() === farmType &&
@@ -2579,6 +2580,8 @@ BrennusBot.prototype.findMinimaxSpot = function(templateType, points, region)
 				continue;
 			if (this.nearEnemy([x, z], 100, 60))
 				continue;
+			if (this.overlapsHouseBlock(x, z, halfW, halfD))
+				continue;
 			if (this.accessibility.getAccessValue([x, z]) !== region)
 				continue;
 			if (!this.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
@@ -2616,7 +2619,7 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 	// Only place in the CC's land region: a spot across a cliff or river sits unbuilt forever.
 	let pos;
 	if (kind === "house")
-		pos = this.findGridSpot(templateType, this.housePlots(ccPos), region);
+		pos = this.findHouseSpot(templateType, ccPos, region);
 	else if (kind === "field")
 		pos = this.findGridSpot(templateType, this.fieldPlots(ccPos), region);
 	else if (kind === "dropsite")
@@ -2654,6 +2657,8 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 		}
 		return false;
 	}
+	if (kind === "house")
+		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(2)}m house at ${pos[0].toFixed(1)},${pos[1].toFixed(1)}\n`);
 	return this.placeOrder(templateType, pos, rush) ? pos : false;
 };
 
@@ -2702,28 +2707,201 @@ BrennusBot.prototype.getPlacementAngle = function()
 	return this.ccAngle;
 };
 
-BrennusBot.prototype.housePlots = function(ccPos)
+// Houses are built in snapped 2x4 blocks: two columns of four touching along
+// the column axis (an epsilon gap, so float error cannot become the overlap the
+// engine would silently reject), separated by a 6 m alley units can pass.
+// Every house keeps a free face toward the alley or open ground, so garrison
+// (LoadingRange 1) and civilian spawning stay reachable. Two columns max: more
+// would seal houses in; four per column keeps the wall short enough to walk
+// around.
+// Snapped slots cannot be validated against the passability grid — a neighbor's
+// obstruction bleeds into shared 4 m cells — so the whole block is grid-validated
+// when anchored (while still empty), its rectangle is reserved against every
+// other placement path until complete, and slot filling only rechecks what can
+// change: enemies, territory, failed spots, exact overlap with own buildings.
+BrennusBot.prototype.houseBlockDims = function(houseType)
 {
-	if (this._housePlots)
-		return this._housePlots;
+	if (!this._houseDims)
+	{
+		const template = this.gameState.getTemplate(houseType);
+		this._houseDims = {
+			"w": +template.get("Obstruction/Static/@width"),
+			"d": +template.get("Obstruction/Static/@depth")
+		};
+	}
+	return this._houseDims;
+};
+
+/** Per-turn cache of the CC-local frame + reserved rects of all known blocks. */
+BrennusBot.prototype.houseBlockFrame = function()
+{
+	if (this._blockFrameTurn === this.turn)
+		return this._blockFrame;
+	this._blockFrameTurn = this.turn;
+	this._blockFrame = undefined;
+	if (!this.houseBlocks.length)
+		return undefined;
+	const cc = this.getCivicCentre();
+	if (!cc)
+		return undefined;
+	const dims = this.houseBlockDims(this.gameState.applyCiv("structures/{civ}/house"));
+	const w = dims.w, d = dims.d, eps = 0.25, alley = 6;
+	const rects = [];
+	for (const block of this.houseBlocks)
+		rects.push([block.bx - w / 2, block.bz - d / 2,
+			block.bx + 3 * (w + eps) + w / 2, block.bz + d + alley + d / 2]);
+	const angle = this.getPlacementAngle();
+	this._blockFrame = { "x": cc.position()[0], "z": cc.position()[1],
+		"cos": Math.cos(angle), "sin": Math.sin(angle), "rects": rects };
+	return this._blockFrame;
+};
+
+/** Generic finders must never squat a planned block slot. */
+BrennusBot.prototype.overlapsHouseBlock = function(x, z, halfW, halfD)
+{
+	const frame = this.houseBlockFrame();
+	if (!frame)
+		return false;
+	const dx = x - frame.x, dz = z - frame.z;
+	const u = dx * frame.cos + dz * frame.sin;
+	const v = -dx * frame.sin + dz * frame.cos;
+	const m = halfW + halfD + 1;
+	for (const rect of frame.rects)
+		if (u > rect[0] - m && u < rect[2] + m && v > rect[1] - m && v < rect[3] + m)
+			return true;
+	return false;
+};
+
+BrennusBot.prototype.findHouseSpot = function(templateType, ccPos, region)
+{
+	const gameState = this.gameState;
+	const dims = this.houseBlockDims(templateType);
+	const w = dims.w, d = dims.d;
+	const eps = 0.25, alley = 6, rows = 4;
+	const halfW = w / 2 + 0.5, halfD = d / 2 + 0.5;
 	const angle = this.getPlacementAngle();
 	const cosa = Math.cos(angle), sina = Math.sin(angle);
-	const plots = [];
-	for (let gx = -5; gx <= 5; ++gx)
-		for (let gz = -5; gz <= 5; ++gz)
+	const slotWorld = (u, v) => [
+		ccPos[0] + u * cosa - v * sina,
+		ccPos[1] + u * sina + v * cosa];
+
+	const occupied = (x, z) => {
+		const at = pos => pos && Math.abs(pos[0] - x) < 2 && Math.abs(pos[1] - z) < 2;
+		for (const ent of gameState.getOwnStructures().values())
+			if (ent.templateName() === templateType && at(ent.position()))
+				return true;
+		for (const f of gameState.getOwnFoundations().values())
+			if (at(f.position()) &&
+				gameState.getBuiltTemplate(f.templateName()).templateName() === templateType)
+				return true;
+		return this.pendingBuilds.some(pb => pb.template === templateType &&
+			Math.abs(pb.x - x) < 2 && Math.abs(pb.z - z) < 2);
+	};
+
+	// Exact rectangle overlap against own non-house buildings (all share the CC
+	// angle, so axis-aligned in the local frame): the reservation should prevent
+	// this, but a squatting building kills the slot for good.
+	const squatting = (u, v) => {
+		const hits = (pos, o) => {
+			const du = (pos[0] - ccPos[0]) * cosa + (pos[1] - ccPos[1]) * sina - u;
+			const dv = -(pos[0] - ccPos[0]) * sina + (pos[1] - ccPos[1]) * cosa - v;
+			return Math.abs(du) < (w + +o["@width"]) / 2 && Math.abs(dv) < (d + +o["@depth"]) / 2;
+		};
+		for (const ent of gameState.getOwnStructures().values())
+			if (ent.templateName() !== templateType && ent.position() &&
+				ent.get("Obstruction/Static") && hits(ent.position(), ent.get("Obstruction/Static")))
+				return true;
+		for (const f of gameState.getOwnFoundations().values())
+			if (f.position() && gameState.getBuiltTemplate(f.templateName()).templateName() !== templateType &&
+				f.get("Obstruction/Static") && hits(f.position(), f.get("Obstruction/Static")))
+				return true;
+		return false;
+	};
+
+	// Prune completed blocks first so their reservation lifts (real obstructions
+	// take over), then fill the first free slot of an incomplete block.
+	const terr = this.territoryMap;
+	const ex = halfW * Math.abs(cosa) + halfD * Math.abs(sina);
+	const ez = halfW * Math.abs(sina) + halfD * Math.abs(cosa);
+	const kept = [];
+	for (const block of this.houseBlocks)
+		for (let idx = 0; idx < 8; ++idx)
 		{
-			const dx = gx * 14, dz = gz * 14;
-			const dist2 = dx * dx + dz * dz;
-			if (dist2 < 18 * 18 || dist2 > 70 * 70)
+			if (block.dead.indexOf(idx) !== -1)
 				continue;
-			plots.push([
-				ccPos[0] + dx * cosa - dz * sina,
-				ccPos[1] + dx * sina + dz * cosa,
-				dist2]);
+			const spot = slotWorld(block.bx + (idx % rows) * (w + eps),
+				block.bz + Math.floor(idx / rows) * (d + alley));
+			if (!occupied(spot[0], spot[1]))
+			{
+				kept.push(block);
+				break;
+			}
 		}
-	plots.sort((a, b) => a[2] - b[2]);
-	this._housePlots = plots;
-	return plots;
+	if (kept.length !== this.houseBlocks.length)
+	{
+		this.houseBlocks = kept;
+		this._blockFrameTurn = -1;
+	}
+	for (const block of this.houseBlocks)
+		for (let idx = 0; idx < 8; ++idx)
+		{
+			if (block.dead.indexOf(idx) !== -1)
+				continue;
+			const u = block.bx + (idx % rows) * (w + eps);
+			const v = block.bz + Math.floor(idx / rows) * (d + alley);
+			const spot = slotWorld(u, v);
+			if (occupied(spot[0], spot[1]))
+				continue;
+			if (squatting(u, v))
+			{
+				block.dead.push(idx);
+				continue;
+			}
+			// 2 m on failedSpots, not the generic 6: one rejected slot must not
+			// poison its snapped neighbors 11 m apart.
+			if (this.failedSpots.some(f => Math.abs(f[0] - spot[0]) < 2 && Math.abs(f[1] - spot[1]) < 2))
+				continue;
+			if (this.nearEnemy(spot, 100, 60))
+				continue;
+			if (this.accessibility.getAccessValue(spot) !== region)
+				continue;
+			if (!this.territoryOwn(spot[0], spot[1], ex, ez, terr))
+				continue;
+			return spot;
+		}
+
+	// No free slot: anchor a new block. Every slot is grid-checked now, while
+	// the ground is empty — later fills only recheck what can change.
+	const pass = gameState.getPassabilityMap();
+	const mask = gameState.getPassabilityClassMask("building-land");
+	const rects = this.houseBlockFrame()?.rects || [];
+	for (let r = 18; r <= 55; r += 2)
+		for (let a = 0; a < 64; ++a)
+		{
+			const ang = a * 2 * Math.PI / 64;
+			const dx = r * Math.cos(ang), dz = r * Math.sin(ang);
+			const bx = dx * cosa + dz * sina, bz = -dx * sina + dz * cosa;
+			const u1 = bx + 3 * (w + eps) + w / 2, v1 = bz + d + alley + d / 2;
+			if (rects.some(rect => bx - w / 2 < rect[2] && u1 > rect[0] && bz - d / 2 < rect[3] && v1 > rect[1]))
+				continue;
+			let ok = true;
+			for (let idx = 0; idx < 8 && ok; ++idx)
+			{
+				const spot = slotWorld(bx + (idx % rows) * (w + eps),
+					bz + Math.floor(idx / rows) * (d + alley));
+				if (this.failedSpots.some(f => Math.abs(f[0] - spot[0]) < 6 && Math.abs(f[1] - spot[1]) < 6) ||
+					this.nearEnemy(spot, 100, 60) ||
+					this.accessibility.getAccessValue(spot) !== region ||
+					!this.placementOK(spot[0], spot[1], halfW, halfD, angle, pass, mask, terr))
+					ok = false;
+			}
+			if (!ok)
+				continue;
+			this.houseBlocks.push({ "bx": bx, "bz": bz, "dead": [] });
+			this._blockFrameTurn = -1;
+			return slotWorld(bx, bz);
+		}
+	return undefined;
 };
 
 BrennusBot.prototype.fieldPlots = function(ccPos)
@@ -2733,10 +2911,12 @@ BrennusBot.prototype.fieldPlots = function(ccPos)
 	const angle = this.getPlacementAngle();
 	const cosa = Math.cos(angle), sina = Math.sin(angle);
 	const plots = [];
-	for (let gx = -4; gx <= 4; ++gx)
-		for (let gz = -4; gz <= 4; ++gz)
+	// 22.5 m spacing on a 22 m footprint: fields block neither movement nor
+	// pathfinding, so gaps between them are pure waste.
+	for (let gx = -5; gx <= 5; ++gx)
+		for (let gz = -5; gz <= 5; ++gz)
 		{
-			const dx = gx * 24, dz = gz * 24;
+			const dx = gx * 22.5, dz = gz * 22.5;
 			const dist2 = dx * dx + dz * dz;
 			if (dist2 < 58 * 58 || dist2 > 96 * 96)
 				continue;
@@ -2763,6 +2943,8 @@ BrennusBot.prototype.findGridSpot = function(templateType, plots, region)
 		if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
 			continue;
 		if (this.nearEnemy([x, z], 100, 60))
+			continue;
+		if (this.overlapsHouseBlock(x, z, halfW, halfD))
 			continue;
 		if (this.accessibility.getAccessValue([x, z]) !== region)
 			continue;
@@ -2794,6 +2976,8 @@ BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRa
 			if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
 				continue;
 			if (this.nearEnemy([x, z], 100, 60))
+				continue;
+			if (this.overlapsHouseBlock(x, z, halfW, halfD))
 				continue;
 			if (region !== undefined && this.accessibility.getAccessValue([x, z]) !== region)
 				continue;
@@ -2831,6 +3015,12 @@ BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mas
 				return false;
 		}
 
+	return this.territoryOwn(x, z, ex, ez, terr);
+};
+
+/** Every territory cell under the footprint's bounding box must be ours. */
+BrennusBot.prototype.territoryOwn = function(x, z, ex, ez, terr)
+{
 	const tcell = terr.cellSize;
 	const tx0 = Math.floor((x - ex) / tcell), tx1 = Math.floor((x + ex) / tcell);
 	const tz0 = Math.floor((z - ez) / tcell), tz1 = Math.floor((z + ez) / tcell);
@@ -5592,6 +5782,7 @@ BrennusBot.prototype.Serialize = function()
 		"builderAssignments": this.builderAssignments,
 		"pendingBuilds": this.pendingBuilds,
 		"failedSpots": this.failedSpots,
+		"houseBlocks": this.houseBlocks,
 		"carry": this.carry,
 		"gatherTarget": this.gatherTarget,
 		"lastDelivery": this.lastDelivery,
