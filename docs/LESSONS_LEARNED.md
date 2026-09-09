@@ -715,3 +715,26 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
   0 JS errors, 0 contested warnings (was 79). Mine warning: 1 (s39 t=13,
   the documented raid-transient, bit-identical to val2). Baselines on the
   same seeds: 14W/5T/0L before this change.
+
+## 2026-09-09 (ram forest routing: abandoned approach)
+
+- Tried and REVERTED (Louis's call, it was getting nowhere): routing ram
+  marches via Engine.ComputePath with a mod-added "huge" passability class
+  (clearance 5.0 vs the ram footprint's ~4 m half-width). The mod file was
+  bot/simulation/data/pathfinder.xml (pinned file + one class); it worked
+  mechanically (mask registered, routes computed, 7 clean forest detours
+  on s52/s50) but the residual wedges were not forest gaps.
+- Verified facts worth keeping: siege units path with the "large" class
+  (template_unit_siege.xml), clearance 3.0 (pathfinder.xml) — too small
+  for the 8x12 ram footprint. ComputePath waypoints arrive GOAL-first
+  (petra reverses them), and the path ends at the reachable cell nearest
+  the goal when the goal is unreachable (petra's obstruction check relies
+  on this). ComputePath snaps a blocked start to a passable cell and paths
+  from THERE (fantasy routes out of blocked pockets).
+- Wedge forensics (trees/rocks/own+enemy structures/crowd/foes within
+  8-12 m + hugeBlocked grid-cell share, printed by the watchdog) showed
+  the remaining s52/s50 wedges were NOT crowd jams and NOT forest: zero
+  entities nearby, 57-84% of grid cells terrain-blocked (water/cliff) —
+  terrain traps the ram entered before the raid. One earlier wedge WAS a
+  combat crowd jam (5 own + 1 foe within 8-12 m): rams are too heavy for
+  the pushing system to clear a path through a brawl.
