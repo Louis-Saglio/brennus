@@ -2914,6 +2914,117 @@ BrennusBot.prototype.nearEnemy = function(pos, structureDist, mobileDist)
 	return false;
 };
 
+/**
+ * Forward staging point for the idle war-stage army: the farthest point
+ * along the home → nearest-enemy-CC ray that is still in own territory, on
+ * home's land mass, and clear of the enemy (120 m from structures, 80 m
+ * from soldiers/siege). Rallying at the home CC left the army out of
+ * position — the rush back to a threatened CC arrived scattered and bled;
+ * staged at the border the army already sits on the wave's path. The point
+ * slides back toward home as the enemy pushes in and forward as the border
+ * extends, and the walk stops at the FIRST invalid step rather than
+ * skipping past it: a validity gap is a frontier feature (enemy camp,
+ * border notch) the army should stage in front of, not behind. Returns
+ * undefined with no known enemy CC or when the frontier is already at the
+ * doorstep — the rally then falls back to home. The 60 m arrival ring of
+ * the rally absorbs border jitter, so this is recomputed every rally block
+ * without churning orders.
+ *
+ * Strength gates (1.5x, the sortie's rule), evaluated after the walk:
+ * staging is refused — the rally falls back to home — against a serious
+ * enemy force (8+) within 150 m of the point, or within dist(point, home)
+ * + 100 m of home on ANY bearing (close enough to beat the blob back to
+ * the shelters; staging-s6: 55 staged into an 86-strong inbound wave at
+ * 14.6m, army=0 two minutes later). Falling back hands the wave to the
+ * serious-threat branch, which garrisons the CC and towers when
+ * outnumbered.
+ *
+ * Target hysteresis: the enemy CC picked for direction flapped between two
+ * equidistant CCs and the staging point jumped 160 m block to block
+ * (staging-s7); keep the previous CC while it is within 1.3x of the new
+ * nearest distance.
+ */
+BrennusBot.prototype.forwardRallyPoint = function(homePos, mil, armyCount)
+{
+	let target, bestDist;
+	for (const ent of this.gameState.getEnemyStructures().values())
+	{
+		if (!ent.hasClass("CivCentre") || !ent.position() ||
+			ent.foundationProgress() !== undefined)
+			continue;
+		const d = SquareDistance(ent.position(), homePos);
+		if (target === undefined || d < bestDist)
+		{
+			target = ent;
+			bestDist = d;
+		}
+	}
+	if (!target)
+		return undefined;
+	const prev = this.stagingCcId === undefined ? undefined :
+		this.gameState.getEntityById(this.stagingCcId);
+	if (prev?.position() && prev.foundationProgress() === undefined &&
+		SquareDistance(prev.position(), homePos) <= bestDist * 1.3 * 1.3)
+		target = prev;
+	this.stagingCcId = target.id();
+	const tp = target.position();
+	const region = this.accessibility.getAccessValue(homePos);
+	const dist = Math.sqrt(SquareDistance(tp, homePos));
+	const ux = (tp[0] - homePos[0]) / dist;
+	const uz = (tp[1] - homePos[1]) / dist;
+	let last;
+	for (let d = 60; d < Math.min(dist, 500); d += 8)
+	{
+		const p = [homePos[0] + ux * d, homePos[1] + uz * d];
+		if (!this.inOwnTerritory(p[0], p[1]) ||
+			this.accessibility.getAccessValue(p) !== region)
+			break;
+		let hot = false;
+		for (const epos of this.enemyStructuresPos || [])
+			if (SquareDistance(epos, p) < 120 * 120)
+			{
+				hot = true;
+				break;
+			}
+		if (!hot)
+			for (const m of mil)
+				if (SquareDistance(m, p) < 80 * 80)
+				{
+					hot = true;
+					break;
+				}
+		if (hot)
+			break;
+		last = p;
+	}
+	if (!last)
+		return undefined;
+	// Strength gates (1.5x, the sortie's rule): refuse staging — the rally
+	// falls back to home — against a serious force (8+) either within
+	// 150 m of the point, or close enough to beat the staged blob back to
+	// the shelters: within dist(point, home) + 100 m of home, on ANY
+	// bearing. A superior wave inside that envelope catches the blob
+	// mid-field on the walk back (staging-s6: 55 staged into an 86-strong
+	// inbound wave at 14.6m, army=0 two minutes later; the fixed 250 m
+	// near-home gate of staging4 missed it — the wave was still at 300 m
+	// when the orders went out). Falling back hands the wave to the
+	// serious-threat branch, which garrisons the CC and towers when
+	// outnumbered.
+	let foes = 0, closing = 0;
+	const dd = Math.hypot(last[0] - homePos[0], last[1] - homePos[1]) + 100;
+	for (const m of mil)
+	{
+		if (SquareDistance(m, last) < 150 * 150)
+			foes++;
+		if (SquareDistance(m, homePos) < dd * dd)
+			closing++;
+	}
+	if ((foes >= 8 && foes * 1.5 > armyCount) ||
+		(closing >= 8 && closing * 1.5 > armyCount))
+		return undefined;
+	return last;
+};
+
 // ---------------------------------------------------------------- defense
 // War-stage standing army size: popPartition.armyTarget in arbiterParams
 // (the pop math lives with the parameter).
@@ -3417,8 +3528,13 @@ BrennusBot.prototype.manageDefense = function()
 					ent.move(cx / campN, cz / campN);
 			}
 		}
-		if (!sortie && this.turn >= this.armyCmdTurn)
+		if (!sortie && (this.turn >= this.armyCmdTurn || this.stagedRally))
 		{
+			// While a staging point is active its gates are re-evaluated every
+			// block, not on the 25-turn order spacing: a wave inbound between
+			// spacings must retract the staged blob home immediately, not up
+			// to 5 s late. Order issuance itself stays paced.
+			const paced = this.turn >= this.armyCmdTurn;
 			// Dispersed leftovers: raiders beyond every CC's 120 m threat ring
 			// but still inside the economy's reach burn outer buildings while
 			// the army stands idle (s63 loss-review note — the threat scan is
@@ -3426,7 +3542,7 @@ BrennusBot.prototype.manageDefense = function()
 			// (3-14: 15+ is a siege camp, the sortie's job) with a proportional
 			// detachment; the serious branch preempts if a real wave lands.
 			let swat;
-			if (armyEnts.length >= 6)
+			if (paced && armyEnts.length >= 6)
 			{
 				const ccps = [], anchors = [];
 				for (const ent of gameState.getOwnStructures().values())
@@ -3494,7 +3610,11 @@ BrennusBot.prototype.manageDefense = function()
 				this.swatting = false;
 				if (this.warOn())
 				{
-				// Rally: at a pending expansion CC (escort the builders) else home.
+				// Rally: at a pending expansion CC (escort the builders), else a
+				// forward staging point at the territory edge toward the enemy
+				// base, else home. Retreating under CC/tower arrows against a
+				// stronger attack is untouched — it lives in the serious-threat
+				// branch above.
 				let rally = homePos;
 				for (const pb of this.pendingBuilds)
 					if (pb.template === ccType)
@@ -3509,7 +3629,14 @@ BrennusBot.prototype.manageDefense = function()
 							rally = f.position();
 							break;
 						}
-				if (rally)
+				let staging;
+				if (rally === homePos && homePos)
+					staging = this.forwardRallyPoint(homePos, mil, armyEnts.length);
+				if (staging)
+					rally = staging;
+				// Retraction is urgent: a staged blob whose gates flipped
+				// walks home now, it does not wait out the order spacing.
+				if (rally && (paced || (this.stagedRally && rally === homePos)))
 				{
 					let far = false;
 					for (const ent of armyEnts)
@@ -3521,12 +3648,21 @@ BrennusBot.prototype.manageDefense = function()
 					if (far)
 					{
 						this.armyCmdTurn = this.turn + 25;
+						this.stagedRally = staging ? rally : undefined;
+						if (staging &&
+							(!this.stagingLogged || SquareDistance(rally, this.stagingLogged) > 40 * 40))
+						{
+							this.stagingLogged = rally;
+							print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m staging ${armyEnts.length} soldiers forward at ${rally[0].toFixed(0)},${rally[1].toFixed(0)}\n`);
+						}
 						for (const ent of armyEnts)
 							if (SquareDistance(ent.position(), rally) > 60 * 60)
 								ent.move(rally[0], rally[1]);
 						for (const ent of healerEnts)
 							ent.move(rally[0], rally[1]);
 					}
+					else if (!staging)
+						this.stagedRally = undefined;
 				}
 				}
 			}
@@ -3783,7 +3919,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		{
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m razed enemy CC at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)}\n`);
 			this.offense = undefined;
-			this.armyCmdTurn = 0;	// rally home next block
+			this.armyCmdTurn = 0;	// re-rally next block
 			for (const ent of armyEnts)
 				ent.setStance("defensive");
 			sendRamsHome();
@@ -4033,7 +4169,7 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 	}
 	const standDown = () => {
 		this.purge = undefined;
-		this.armyCmdTurn = 0;	// rally home next block
+		this.armyCmdTurn = 0;	// re-rally next block
 		for (const ent of armyEnts)
 			ent.setStance("defensive");
 		for (const ram of ramEnts)

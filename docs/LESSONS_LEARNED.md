@@ -738,3 +738,36 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
   terrain traps the ram entered before the raid. One earlier wedge WAS a
   combat crowd jam (5 own + 1 foe within 8-12 m): rams are too heavy for
   the pushing system to clear a path through a brawl.
+
+## 2026-09-09 (forward army staging)
+
+- War-stage rally now targets a forward staging point (farthest
+  in-territory, same-region, enemy-clear point on the home →
+  nearest-enemy-CC ray) instead of always the home CC. Retreat under
+  CC/tower arrows when outnumbered is unchanged (serious-threat branch).
+- Forward staging without a strength gate donates the army: 55 soldiers
+  staged into an 86-strong inbound wave died in the open (army=0 within
+  2 min) under THREE gate designs before one held:
+  1. no gate — donation;
+  2. foes-within-150-m-of-point gate — misses waves approaching off the
+     enemy-CC bearing (waves come from raid angles, not from their CC);
+  3. fixed 250 m near-home gate — the wave was still at 300 m when the
+     orders went out; the blob's walk back takes as long as the wave's
+     approach, so it was caught mid-field anyway;
+  4. WORKING: suppress when 8+ foes are within dist(point, home)+100 m of
+     home (any bearing) AND count*1.5 > army, re-evaluated EVERY block —
+     the 25-turn rally order spacing loses up to 5 s of the head start —
+     with an immediate move-home retraction when the gate flips.
+- Validated on kiln (staging5, seeds 6/7/8, standard settings): 0 JS
+  errors; s6 went from army-wiped-at-16 m timeout (all 3 prior
+  iterations) to a genuine 33 m win (the wave at 16 m was met by a
+  garrisoned defense, 42 of 64 soldiers survived).
+- JS pitfall: `x !== undefined && f()` evaluates to `false` (not
+  `undefined`) when x is undefined, and `false?.method()` still throws
+  "not a function". One such crash at first call aborted manageDefense
+  mid-block for a whole match (2452 ERROR lines, behavior silently
+  degraded). Use a ternary.
+- JS smoke tests with a stubbed gameState (eval the bot source with the
+  import stripped — see tmp/test-forward-rally.mjs) catch first-call
+  runtime bugs that `node --check` cannot; 18 assertions run in <1 s and
+  are much cheaper than a kiln round.
