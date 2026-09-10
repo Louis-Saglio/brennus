@@ -787,3 +787,31 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
   only one). s96 razed 2 CCs and was marching on the 3rd at t=43.7.
 - Engine caps print() line length (~160 chars observed): long per-minute
   snapshot lines lose their trailing fields (enemyArmy= etc.) in the log.
+
+## 2026-09-10 (relief expansion, 0db887a: 90W/9T/1L vs 85W/14T/1L)
+
+- Expansion was gated on city phase + pop >= 300, so a bot deadlocked on
+  building placement never expanded — and the deadlock itself blocked
+  city phase. The relief path (town phase on, unlock one CC at a time)
+  converted 6 of 14 baseline timeouts to wins and made kept wins 0.55 min
+  faster on average: reaching for resources/room earlier helps healthy
+  games too, not just deadlocked ones.
+- Trigger tuning matters more than the mechanism. Placement-failure
+  triggers must be whitelisted to buildings whose absence hard-blocks the
+  game (market -> city phase, arsenal -> rams) with zero-owned +
+  multi-minute latches. Generic triggers (fields, houses not at the pop
+  limit, barracks, temple) false-fire on healthy wins: baseline golden
+  seeds show multi-minute placement windows for non-critical buildings
+  (s3's first arsenal landed after a ~10.5-min window) and every
+  false-fire derailed the build order.
+- Resource-exhaustion triggers need a served-supply peak check: fire only
+  after the served mass dropped from a recorded peak, otherwise they fire
+  at game start on resource-poor maps.
+- Two timeout causes relief expansion cannot fix: (1) the only buildable
+  CC spot vetoed by the stale-spot/nearEnemy gate (s47 — the army never
+  clears enemies guarding a build spot); (2) the bot never *requesting*
+  the blocking building (s55 never queued a market until t=36.9 — a
+  placement-failure trigger sees nothing to latch onto).
+- s88 regression (win 43.9 -> timeout): any build-order shift can move
+  the endgame raid by ±1 min; seeds already winning within ~1 min of the
+  cap are coin flips.
