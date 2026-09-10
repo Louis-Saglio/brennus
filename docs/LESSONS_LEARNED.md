@@ -3,6 +3,42 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-10 (raid early-warning muster + role-layered formation)
+
+- New defense layer (`detectWave` + `manageMuster`): a cluster of 8+ enemy
+  soldiers/siege within 400 m of an own CC is an incoming raid — the
+  gatherers remobilize and the army forms up ahead of the threatened CC
+  BEFORE contact (melee front, healers behind, ranged back, id-sorted slots,
+  defensive stance) instead of trickling in behind the 250 m recall. The
+  serious branch keeps all fight decisions; on engage, ranged attack-move
+  20 m short of the threat centroid and healers hold 15 m back. Validation
+  (15 seeds vs the 689584f century baseline, `sweeps/2026-09-10-muster`):
+  14W/1TO vs 11W/4TO, military KD 1.77 vs 1.49, soldier losses -16%, 0 JS
+  errors. KD is counted soldiers-only (Infantry+Cavalry+Champion+Hero) —
+  worker kills measure the offense, not the defense, and they drown the
+  signal (s30 muster1: total KD 0.80 looked like a regression, military KD
+  was 1.60 vs 1.49 baseline, an improvement).
+- **Formation distance is capped by the 60 m arrow umbrella.** CC and
+  defense-tower MaxRange is 60 (template_structure_civic_civil_centre,
+  template_structure_defensive_tower); gaul javelineer range is 30, slinger
+  45, healer range 12. The first version formed the melee line 55 m ahead of
+  the CC — outside arrow support — and the seeds whose baseline defense bled
+  attackers under the CC regressed hard (s9 KD 3.26 -> 1.52, s57 2.26 ->
+  1.40) while the trickle-caught seeds improved. 42/34/26 m
+  (melee/healer/ranged) fixed it: +0.3 aggregate KD over the 55 m version on
+  the same 15 seeds.
+- Anti-flap state must live on the BOT, not on a per-block detection result:
+  the first muster-hysteresis version stored its hold timestamp on the wave
+  object, which is replaced by a fresh `detectWave` result every block the
+  wave stays visible — the hold silently never applied (run came out
+  bit-identical to the unfixed one). `this.musterHoldUntil` re-armed on every
+  detection (50-turn bridge) killed the muster/disband flapping (s90: 5
+  disband cycles -> 1-2, and the timeout flipped to a win).
+- The armyCmdTurn throttle couples branches: the muster re-issues slot orders
+  every 10 turns while a wave marches, so the serious branch's
+  engage/garrison decision can land inside the cooldown. Zero the throttle on
+  the muster -> serious transition or the first fight orders lag up to 2 s.
+
 ## 2026-09-08 (Louis's seed 50-53 replay review: two [WARNING]s, ram-stuck watchdog, 45m storehouse gate)
 
 - Two new telemetry alarms from Louis's replay notes. Contested-building

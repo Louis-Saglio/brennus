@@ -171,6 +171,32 @@ BrennusBot.prototype.storehouseGateRadius = 45;
 /** Free pop slots (limit − population − queued) below which a house outranks a missing muster building: the defense accumulation hold releases so the pop race is never choked (s90 sat at 40/40 for 5 min under an ungated hold). */
 BrennusBot.prototype.defenseHoldMinPopMargin = 8;
 
+/**
+ * Raid early warning and the pre-battle muster. A cluster of waveMinUnits
+ * enemy soldiers/siege grouped within waveClusterDist of each other, with its
+ * centroid within waveDetectDist of an own CC, is an incoming raid: the
+ * gatherers remobilize and the army forms up at the threatened CC BEFORE
+ * contact, instead of trickling in one gatherer at a time while the serious
+ * branch attack-moves whoever already stands near the ring (val-s30: recall
+ * at 249 m, cavalry-led contact 15 s later, 57 -> 17). waveClearDist gives
+ * the muster hysteresis so a border-hovering army cannot flap the orders.
+ * The formed line holds melee musterMeleeDist ahead of the CC toward the
+ * wave, healers musterHealerDist (just behind, heal range is 12 m), ranged
+ * musterRangedDist (behind them, inside their 30-45 m reach so the fight
+ * comes to them under CC arrows). All three stay inside the 60 m CC/tower
+ * arrow umbrella: muster1 fought at 55 m out where arrow support barely
+ * reaches, and the seeds that bled attackers under the CC regressed (s9 KD
+ * 3.26 -> 1.52, s57 2.26 -> 1.40) while the trickle-caught seeds improved.
+ */
+BrennusBot.prototype.waveDetectDist = 400;
+BrennusBot.prototype.waveClearDist = 430;
+BrennusBot.prototype.waveMinUnits = 8;
+BrennusBot.prototype.waveClusterDist = 50;
+BrennusBot.prototype.musterMeleeDist = 42;
+BrennusBot.prototype.musterHealerDist = 34;
+BrennusBot.prototype.musterRangedDist = 26;
+BrennusBot.prototype.musterRankWidth = 8;
+
 /** Pinned stone and metal mines closer than this (m) share ONE storehouse. */
 BrennusBot.prototype.minePairDist = 55;
 
@@ -510,10 +536,13 @@ BrennusBot.prototype.CustomInit = function(gameState)
 
 	// Proportional recall (ids recalled to a home threat, live only while the
 	// threat does) and border foundation denial state — transient like
-	// this.offense/this.purge.
+	// this.offense/this.purge. musterWave is the active pre-battle muster
+	// target (the detectWave result), gone once the fight starts.
 	this.recalled = {};
 	this.deny = undefined;
 	this.denyTried = {};
+	this.musterWave = undefined;
+	this.musterHoldUntil = 0;
 
 };
 
@@ -3050,6 +3079,59 @@ BrennusBot.prototype.manageDemobilization = function(gameState, incoming)
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m demobilizing ${added} soldiers to gathering\n`);
 };
 
+/**
+ * Incoming-raid detection: cluster the enemy military positions (positions
+ * within waveClusterDist of each other are one group, same O(n²) grouping as
+ * the leftover-swat scan; mil already holds soldiers and siege) and report
+ * the biggest group of minUnits or more whose centroid sits within maxDist of
+ * an own CC — that group is a raid marching on us, seen early enough to form
+ * up before contact. The muster calls this twice: tight thresholds
+ * (waveMinUnits, waveDetectDist) to start, loose ones to hold. Returns
+ * {n, x, z, ccId, ccx, ccz} for the largest such cluster (tie-break: nearest
+ * CC), or undefined.
+ */
+BrennusBot.prototype.detectWave = function(mil, minUnits, maxDist)
+{
+	const ccType = this.gameState.applyCiv("structures/{civ}/civil_centre");
+	const ccs = [];
+	for (const ent of this.gameState.getOwnStructures().values())
+		if (ent.templateName() === ccType && ent.position())
+			ccs.push({ "id": ent.id(), "pos": ent.position() });
+	if (!ccs.length)
+		return undefined;
+	const cd2 = this.waveClusterDist * this.waveClusterDist;
+	let best;
+	for (let i = 0; i < mil.length; i++)
+	{
+		let n = 0, sx = 0, sz = 0;
+		for (let j = 0; j < mil.length; j++)
+			if (SquareDistance(mil[i], mil[j]) < cd2)
+			{
+				n++;
+				sx += mil[j][0];
+				sz += mil[j][1];
+			}
+		if (n < minUnits)
+			continue;
+		const gx = sx / n, gz = sz / n;
+		let cc, ccD2 = Infinity;
+		for (const c of ccs)
+		{
+			const d2 = SquareDistance([gx, gz], c.pos);
+			if (d2 < ccD2)
+			{
+				ccD2 = d2;
+				cc = c;
+			}
+		}
+		if (ccD2 > maxDist * maxDist)
+			continue;
+		if (!best || n > best.n || (n === best.n && ccD2 < best.ccD2))
+			best = { "n": n, "x": gx, "z": gz, "ccId": cc.id, "ccx": cc.pos[0], "ccz": cc.pos[1], "ccD2": ccD2 };
+	}
+	return best;
+};
+
 BrennusBot.prototype.manageDefense = function()
 {
 	const gameState = this.gameState;
@@ -3175,10 +3257,14 @@ BrennusBot.prototype.manageDefense = function()
 		for (const p of mil)
 			if (SquareDistance(p, homePos) < 250 * 250)
 				nearHome++;
+	// A real wave (8+ clustered) is visible much farther out — detect it at
+	// waveDetectDist so the gatherers remobilize and the muster forms up
+	// before contact instead of the army trickling in behind the enemy.
+	const wave = this.detectWave(mil, this.waveMinUnits, this.waveDetectDist);
 	// A border foundation going up is a threat too: keep the army mobilized
 	// for the denial (Petra founds border fortresses during our boom).
 	const denyTarget = this.findDenyTarget(mil, homePos);
-	this.manageDemobilization(gameState, serious || !!threat || nearHome >= 5 || !!denyTarget || !!this.deny);
+	this.manageDemobilization(gameState, serious || !!threat || nearHome >= 5 || !!wave || !!denyTarget || !!this.deny);
 
 	const armyEnts = [];
 	for (const id in this.army)
@@ -3199,6 +3285,12 @@ BrennusBot.prototype.manageDefense = function()
 	}
 	if (serious)
 	{
+		// The fight branch owns the army now — any pre-battle muster is over.
+		// Drop the command throttle with it so the engage/garrison decision is
+		// not delayed by the muster's last slot re-issue.
+		if (this.musterWave)
+			this.armyCmdTurn = 0;
+		this.musterWave = undefined;
 		// threat.n counts only enemies already within 120 m of the CC;
 		// the rest of the wave is still marching in (agg9 s3: threat.n=8
 		// hid a 105-unit wave — the 59-strong army attack-moved into the
@@ -3318,11 +3410,24 @@ BrennusBot.prototype.manageDefense = function()
 				// the fight may have moved CCs since they hid) and take the
 				// fight to them.
 				this.ejectArmyGarrisons(gameState);
+				// Layered engage: melee charges the centroid; ranged
+				// attack-moves 20 m short of it so they halt inside firing
+				// range instead of walking through the melee into the far
+				// side of the blob; healers hold 15 m behind the fight (heal
+				// range 12 m covers the melee rear ranks) instead of standing
+				// on top of the blob.
+				let edx = threat.x - threat.ccx, edz = threat.z - threat.ccz;
+				const elen = Math.sqrt(edx * edx + edz * edz) || 1;
+				edx /= elen;
+				edz /= elen;
 				for (const ent of responders)
-					ent.attackMove(threat.x, threat.z, "Unit", false);
+					if (ent.hasClass("Ranged") && !ent.hasClass("Melee"))
+						ent.attackMove(threat.x - edx * 20, threat.z - edz * 20, "Unit", false);
+					else
+						ent.attackMove(threat.x, threat.z, "Unit", false);
 				if (!split)
 					for (const ent of healerEnts)
-						ent.move(threat.x, threat.z);
+						ent.move(threat.x - edx * 15, threat.z - edz * 15);
 			}
 			else
 			{
@@ -3365,6 +3470,12 @@ BrennusBot.prototype.manageDefense = function()
 	else if (this.manageOffense(gameState, armyEnts, healerEnts, mil, homePos))
 	{
 		// raid in progress, commands issued there
+	}
+	else if (this.manageMuster(gameState, armyEnts, healerEnts, mil, wave))
+	{
+		// wave inbound: the army forms up in front of the threatened CC and
+		// holds — probe-swatting, purge, sortie and rally all wait for the
+		// fight that is about to start.
 	}
 	else if (threat)
 	{
@@ -3594,6 +3705,95 @@ BrennusBot.prototype.manageDefense = function()
 			ent.garrison(best.ent);
 		}
 	}
+};
+
+/**
+ * Pre-battle muster: a wave is marching on one of our CCs but has not crossed
+ * the 120 m threat ring yet — form the army up in front of that CC so the
+ * fight opens against a gathered, layered line instead of a trickle of
+ * gatherers. Melee holds musterMeleeDist ahead of the CC toward the wave,
+ * healers just behind (heal range 12 m), ranged behind them. Slots are
+ * deterministic (id-sorted, musterRankWidth-wide ranks) and units already
+ * within 6 m of their slot keep it, so the 10-turn re-issue does not churn
+ * orders. Defensive stance holds the line: units engage what reaches them
+ * and fall back to their slot; the serious branch decides when to charge.
+ * Runs only while no away mission owns the army (the serious-branch recall
+ * escalation handles those) and returns true while a muster is active.
+ */
+BrennusBot.prototype.manageMuster = function(gameState, armyEnts, healerEnts, mil, wave)
+{
+	let bridged = false;
+	if (!wave && this.musterWave)
+	{
+		// Brief detection gaps do not disband the line: a hovering army
+		// whose blob keeps splitting across the cluster threshold otherwise
+		// flaps muster/disband every block (s90: four cycles in 48 s). The
+		// bridge re-arms on every detection, so only a 10 s gap with no
+		// wave at all (tight or loose) disbands.
+		if (this.turn < this.musterHoldUntil)
+		{
+			wave = this.musterWave;
+			bridged = true;
+		}
+		else
+			wave = this.detectWave(mil, 6, this.waveClearDist);
+	}
+	if (!wave)
+	{
+		if (this.musterWave)
+		{
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wave dispersed, muster disbanded\n`);
+			this.musterWave = undefined;
+		}
+		return false;
+	}
+	if (!armyEnts.length)
+		return false;
+	const isNew = !this.musterWave;
+	if (!bridged)
+		this.musterHoldUntil = this.turn + 50;
+	this.musterWave = wave;
+	if (this.turn < this.armyCmdTurn)
+		return true;
+	this.armyCmdTurn = this.turn + 10;
+
+	let dx = wave.x - wave.ccx, dz = wave.z - wave.ccz;
+	const len = Math.sqrt(dx * dx + dz * dz) || 1;
+	dx /= len;
+	dz /= len;
+	const px = -dz, pz = dx;
+
+	const melee = [], ranged = [], healers = healerEnts.slice();
+	for (const ent of armyEnts)
+		(ent.hasClass("Ranged") && !ent.hasClass("Melee") ? ranged : melee).push(ent);
+	const byId = (a, b) => a.id() - b.id();
+	melee.sort(byId);
+	ranged.sort(byId);
+	healers.sort(byId);
+
+	const place = (ents, dist) =>
+	{
+		const ax = wave.ccx + dx * dist, az = wave.ccz + dz * dist;
+		for (let i = 0; i < ents.length; i++)
+		{
+			const rank = Math.floor(i / this.musterRankWidth);
+			const file = i % this.musterRankWidth;
+			const rowN = Math.min(ents.length - rank * this.musterRankWidth, this.musterRankWidth);
+			const off = (file - (rowN - 1) / 2) * 3.5;
+			const sx = ax + px * off - dx * rank * 4;
+			const sz = az + pz * off - dz * rank * 4;
+			const ent = ents[i];
+			ent.setStance("defensive");
+			if (SquareDistance(ent.position(), [sx, sz]) > 36)
+				ent.move(sx, sz);
+		}
+	};
+	place(melee, this.musterMeleeDist);
+	place(ranged, this.musterRangedDist);
+	place(healers, this.musterHealerDist);
+	if (isNew)
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wave of ${wave.n} at ${Math.sqrt(wave.ccD2).toFixed(0)}m of CC ${wave.ccx.toFixed(0)},${wave.ccz.toFixed(0)} — mustering melee=${melee.length} ranged=${ranged.length} healers=${healers.length}\n`);
+	return true;
 };
 
 /**
