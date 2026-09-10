@@ -12,6 +12,8 @@ Churn vs 689584f: 10 seeds flipped timeout->win (5, 7, 13, 24, 45, 63, 71, 80, 8
 
 The loss (seed 17): genuine, no JS errors. Brennus's army was destroyed mid-game and never rebuilt — army=6 vs enemyArmy=131 at t=35m, CC fell at ~38.5 min. Same seed was a timeout in the previous sweep.
 
+Seed-17 dig (vs the 689584f run): the two games are event-identical through the t=30m snapshot — same early raid, same 68->27 army wipe at ~29m, which is therefore NOT staging's fault (the 149-strong wave made the gates refuse staging; the army fought at home in both runs). The runs diverge exactly at the first staging order (t=31.2m). Staged forward, the remnant bled 27->17 in a frontier denial fight (the home-rallied old run lost 1), then swat/engage orders chased raider squads 100-150 m from home while the second Roman wave closed (enemyNear 189m -> 39m in 2 min). When the wave hit, only 6 garrisoned vs 13 in the old run; the old run held the CC and rebuilt to pop 106 by t=38m, the new run lost the CC at ~38.5m. Root cause: the staging strength gates only gate the rally order — swat/deny/engage branches still pull the army beyond the staging envelope and override the retract (see docs/LESSONS_LEARNED.md 2026-09-10).
+
 Verdict rules: `timeout` = 45-min in-game limit reached (kiln marks player 1 won regardless); `win`/`loss` = game ended before the limit; `errors` = ERROR/script-exception lines in stdout.log (a win with JS errors does not count). No job had JS errors, no AI-creation failures, no crashes (all exit_code 0).
 
 | seed | result | game min | JS errors | artifacts |

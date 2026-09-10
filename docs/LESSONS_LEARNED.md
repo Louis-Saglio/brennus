@@ -771,3 +771,25 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
   import stripped — see tmp/test-forward-rally.mjs) catch first-call
   runtime bugs that `node --check` cannot; 18 assertions run in <1 s and
   are much cheaper than a kiln round.
+
+## 2026-09-10 (staging endgame failure mode: seed 17 timeout -> loss)
+
+- Century-sweep comparison a612a00 vs 689584f on seed 17: the two runs
+  are event-identical through the t=30m snapshot (same early raid, same
+  68->27 army wipe at ~29m — the wipe is NOT staging's fault; war stage
+  began 27.9m and the 149-strong wave made the gates refuse staging).
+  The runs diverge at the first staging order (t=31.2m).
+- Failure chain of the forward-staged remnant: staged at 504,558 ->
+  deny detachment fought 9 defenders with the blob in support range
+  (27->17; the home-rallied old run lost 1) -> swat/engage orders chased
+  3-11-strong raider squads 100-150 m from home while the second Roman
+  wave closed (enemyNear 189m -> 39m in 2 min) -> when the wave hit,
+  only 6 of the remnant garrisoned (gar=6); the old run garrisoned all
+  13 and held the CC, then rebuilt to pop 106 by t=38m. New run: CC
+  destroyed at ~38.5m, defeated.
+- Lesson: the staging strength gates only gate the RALLY order. The
+  swat-leftover-raiders, deny-detachment and engage-near-CC branches
+  still pull the war-stage army beyond the staging envelope and override
+  the retract when a serious enemy army exists — the gate must suppress
+  those branches (or they must honor the retract) for the staging
+  safety model to hold end-to-end.
