@@ -3,6 +3,27 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-10 (century verdict on the muster change: regression)
+
+- The 100-seed century at 3b9f55e (`sweeps/2026-09-10-cmust`) contradicts
+  the 15-seed muster validation below: 63W/34TO/3L vs the 689584f
+  baseline's 80W/20TO/0L — a clear regression, not the 14W/1TO the
+  validation promised. Military KD still improved (1.57 vs 1.48 aggregate,
+  1.64 vs 1.51 on wins, +7% kills/min) but wins come 2 min later on
+  average and 26 net games slip to timeout/loss.
+- Two compounding causes for the false positive: (1) the 15 validation
+  seeds were probe-selected for showing the arrow-bleed problem — a biased
+  sample; (2) the m4 anti-flap fix (`musterHoldUntil`) was validated on
+  only 3 seeds, and under m4 the other 12 degrade (2 win→loss, 2 win→TO,
+  slower wins). Validate the FINAL code state on ALL validation seeds —
+  a fix tested on 3 seeds can poison the other 12.
+- A ~15-seed validation cannot clear a behavior change in a chaotic bot:
+  century-scale is the only verdict that counts.
+- Determinism across kiln runners holds: seeds validated at exactly the
+  century code reproduce bit-identical game lengths on re-run (s57 27.0m,
+  s63 40.9m, s90 39.0m, different runners). Same code + same seed =
+  identical game; divergent re-runs mean the code differed.
+
 ## 2026-09-10 (raid early-warning muster + role-layered formation)
 
 - New defense layer (`detectWave` + `manageMuster`): a cluster of 8+ enemy
