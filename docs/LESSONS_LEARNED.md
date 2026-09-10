@@ -759,3 +759,31 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
   terrain traps the ram entered before the raid. One earlier wedge WAS a
   combat crowd jam (5 own + 1 foe within 8-12 m): rams are too heavy for
   the pushing system to clear a path through a brawl.
+
+## 2026-09-10 (century sweep c8e6d31: why 14 seeds timed out)
+
+- Trainer.js: a queued item reserves its population slots at Start()
+  (TryReservePopulationSlots); with no free slot it never starts and
+  retries later. At 300/300 with a continuous CC woman stream and the
+  dismiss-idle-civilian-for-a-trader cycle, every freed slot is re-reserved
+  instantly — queued rams starve forever (sweep seeds 20/24/47/55/87:
+  unitsTrained.Siege = 0 despite repeated "training a ram" queue lines;
+  s74: 5 queued, 1 spawned). Seeds with heavy battle churn train rams
+  fine (s13: 11) because deaths open slots. Gaul ram: 30 s build, 1 pop
+  (template_unit_siege_ram.xml + template_unit.xml).
+- Building placement can deadlock for the whole game: "no placement for
+  <market|arsenal> at any CC — rings crowded or enemy too close" repeated
+  every ~2 min for 13-25 min in 6 of 14 timeout seeds. s55 never placed a
+  market → never reached city phase (pop capped 284, no rams); s87/s47
+  never placed an arsenal in time → 0 rams → 0 raid launches.
+- Raid gate chain is serial: warOn (city researched) + armyCount>=75 +
+  >=2 rams with position + known enemy CC, and the serious-threat home
+  branch (8+ enemies within 120 m of an own CC) preempts offense entirely.
+  Petra camping 100-143 soldiers at eNear 100-260 m pinned the army home
+  all game in s13/s20/s38/s47 (400-600 kills each way, no march-out).
+- Late-raid seeds (30/37/41/66/96/52): chain completed but first raid at
+  30-40 min; s52 ground the last CC's defenders 100 -> 1 across 4 raids
+  and time expired at the kill moment (Petra built 0 CCs — it was her
+  only one). s96 razed 2 CCs and was marching on the 3rd at t=43.7.
+- Engine caps print() line length (~160 chars observed): long per-minute
+  snapshot lines lose their trailing fields (enemyArmy= etc.) in the log.
