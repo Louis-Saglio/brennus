@@ -3,6 +3,27 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-10 (bootstrap storehouse: the opener places the first storehouse)
+
+- The manageConstruction bootstrap now orders the first storehouse right
+  after the bootstrap farmstead: centered on the in-territory tree with
+  the most wood within 30 m, rush-built by the choppers like a demand
+  storehouse. The manageDropSites demand trigger covers everything past
+  the first, unchanged.
+- Engine quirk: a construct order is rejected SILENTLY (no foundation, no
+  error) when a mobile entity stands on the spot — the passability grid
+  and territory are both green (`placementOK=true terrOwner=own`), so the
+  rejection is only visible as a pendingBuilds 10-turn timeout. s8 failed
+  the same spot 3x in 6 s while a unit parked on it.
+- Consequence for any new build order: check `pendingBuilds`, not only
+  structures+foundations — otherwise the order re-fires (and re-spends)
+  every block until the timeout. And make opener placements one-shot:
+  failedSpots expire after 300 turns for storehouses, so a plain retry
+  re-picks the same best tree and fails identically; the demand trigger
+  is the designed fallback.
+- Validation: probes s7/s8/s9 + batch s1-s5/s8, 9/9 genuine wins (no
+  time-limit line), 0 JS errors, wood gathered 40-72k.
+
 ## 2026-09-08 (Louis's seed 50-53 replay review: two [WARNING]s, ram-stuck watchdog, 45m storehouse gate)
 
 - Two new telemetry alarms from Louis's replay notes. Contested-building

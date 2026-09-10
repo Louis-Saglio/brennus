@@ -460,6 +460,10 @@ BrennusBot.prototype.CustomInit = function(gameState)
 
 	this.rushBuilds = this.savedState?.rushBuilds || []; // [{x, z, turn}] storehouses whose builders come from the choppers
 
+	// One shot only: if the engine rejects the order, manageDropSites'
+	// demand trigger is the fallback — retrying re-picks the same best tree.
+	this.bootstrapStoreTried = this.savedState?.bootstrapStoreTried || false;
+
 	this.failedSpots = this.savedState?.failedSpots || [];
 
 	this.carry = this.savedState?.carry || {};
@@ -1961,9 +1965,10 @@ BrennusBot.prototype.manageConstruction = function()
 
 	};
 
-	// Bootstrap farmstead only: the first storehouse is the storehouse
-	// trigger's job (manageDropSites) — it builds one the moment choppers
-	// actually work beyond woodServeDist, and never when wood hugs the CC.
+	// Bootstrap: the opener spends on the two dropsites before anything else
+	// so the opening economy never walks — farmstead at the richest fruit
+	// cluster, storehouse at the in-territory clump with the most wood within
+	// 30m. The demand trigger in manageDropSites covers everything past these.
 	{
 		const type = gameState.applyCiv("structures/{civ}/farmstead");
 		if (!this.hasStructureOrFoundation(type, foundations) &&
@@ -1974,6 +1979,26 @@ BrennusBot.prototype.manageConstruction = function()
 		{
 			this.arbiter.spend(resources, "construction", { "wood": 100 }, "farmstead");
 			return;
+		}
+		const storeType = gameState.applyCiv("structures/{civ}/storehouse");
+		// pendingBuilds counts too: a rejected order leaves no foundation and
+		// would otherwise be re-placed (and re-spent) every block until its
+		// 10-turn timeout — the demand trigger's storePending does the same.
+		if (!this.hasStructureOrFoundation(storeType, foundations) &&
+			!this.bootstrapStoreTried &&
+			!this.pendingBuilds.some(pb => pb.template === storeType) &&
+			resources.canAfford({
+				"food": reserve.food || 0, "wood": (reserve.wood || 0) + 100,
+				"stone": reserve.stone || 0, "metal": reserve.metal || 0 }))
+		{
+			const pos = this.placeFirstStorehouse(storeType);
+			if (pos)
+			{
+				this.bootstrapStoreTried = true;
+				this.arbiter.spend(resources, "construction", { "wood": 100 }, "storehouse");
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m bootstrap storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)}\n`);
+				return;
+			}
 		}
 	}
 
@@ -2125,6 +2150,41 @@ BrennusBot.prototype.placeFirstFarmstead = function(type)
 		tried.push(cand[1]);
 		if (this.tryConstruct(type, "dropsite", cand[1]))
 			return true;
+		if (tried.length >= 5)
+			break;
+	}
+	return false;
+};
+
+/** The opening storehouse goes where it pays its 100 wood back fastest: centered on the in-territory tree with the most wood within 30m, rush-built by the choppers like a demand storehouse. */
+BrennusBot.prototype.placeFirstStorehouse = function(type)
+{
+	const gameState = this.gameState;
+	const cc = this.getCivicCentre();
+	if (!cc)
+		return false;
+	const region = this.accessibility.getAccessValue(cc.position());
+	const trees = gameState.getResourceSupplies("wood").toEntityArray()
+		.filter(s => s.position() && s.resourceSupplyAmount() > 30 &&
+			!this.nearEnemy(s.position(), 100, 60) &&
+			this.accessibility.getAccessValue(s.position()) === region);
+	const scored = trees.filter(t => this.inOwnTerritory(t.position()[0], t.position()[1]))
+		.map(t => {
+			let mass = 0;
+			for (const o of trees)
+				if (SquareDistance(t.position(), o.position()) < 30 * 30)
+					mass += o.resourceSupplyAmount();
+			return [mass, t.position()];
+		}).sort((a, b) => b[0] - a[0]);
+	const tried = [];
+	for (const cand of scored)
+	{
+		if (tried.some(p => SquareDistance(p, cand[1]) < 30 * 30))
+			continue;
+		tried.push(cand[1]);
+		const pos = this.tryConstruct(type, "dropsite", cand[1], true);
+		if (pos)
+			return pos;
 		if (tried.length >= 5)
 			break;
 	}
@@ -5591,6 +5651,7 @@ BrennusBot.prototype.Serialize = function()
 		"assignments": this.assignments,
 		"builderAssignments": this.builderAssignments,
 		"pendingBuilds": this.pendingBuilds,
+		"bootstrapStoreTried": this.bootstrapStoreTried,
 		"failedSpots": this.failedSpots,
 		"carry": this.carry,
 		"gatherTarget": this.gatherTarget,
