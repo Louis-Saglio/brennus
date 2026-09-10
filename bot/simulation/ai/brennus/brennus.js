@@ -501,6 +501,16 @@ BrennusBot.prototype.CustomInit = function(gameState)
 
 	this.expOn = this.savedState?.expOn || false;
 
+	// Relief expansion (pre-pop-300 CC orders when the base is stuck):
+	// latched once a trigger fires; placeFailSince tracks per-template
+	// continuous placement failure; reliefServedPeak is the high-water mark
+	// of dropsite-served supply per resource for the exhaustion check.
+	this.reliefOn = this.savedState?.reliefOn || false;
+
+	this.placeFailSince = this.savedState?.placeFailSince || {};
+
+	this.reliefServedPeak = this.savedState?.reliefServedPeak || {};
+
 	// Defense: standing army roster (entityID -> 1), command throttle, shelter memory.
 	this.army = this.savedState?.army || {};
 	this.rams = this.savedState?.rams || {};
@@ -2705,6 +2715,16 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 		if (kind !== "dropsite")
 		{
 			this.placeRetryAfter[templateType] = this.turn + 25;
+			// Relief-expansion signal: a field failing to place is routine
+			// (capped at 30 pre-expansion, rings simply full of fields — the
+			// relief1 goldens all false-fired on it), and a house failing only
+			// matters when the population is pinned at the limit and can never
+			// grow. Anything else failing continuously is a stuck base.
+			if (kind !== "field" &&
+				(kind !== "house" || this.gameState.getPopulation() >= this.gameState.getPopulationLimit()))
+				this.placeFailSince[templateType] = this.placeFailSince[templateType] || this.turn;
+			else
+				delete this.placeFailSince[templateType];
 			this.placeFailLog = this.placeFailLog || {};
 			if (this.turn - (this.placeFailLog[templateType] ?? -Infinity) >= 600)
 			{
@@ -2714,7 +2734,12 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 		}
 		return false;
 	}
-	return this.placeOrder(templateType, pos, rush) ? pos : false;
+	if (this.placeOrder(templateType, pos, rush))
+	{
+		delete this.placeFailSince[templateType];
+		return pos;
+	}
+	return false;
 };
 
 /** Built own CCs other than the home one, nearest to home first — fallback building lots for when the home ring is full. */
@@ -5204,10 +5229,101 @@ BrennusBot.prototype.computeExpansionPlan = function()
 	return { "spots": spots, "next": 0, "done": false, "simPct": 100 * covered / totalPassable };
 };
 
-/** Expansion program, one order per block: wonder, far markets, corral, then the next planned CC. */
+/**
+ * Relief expansion: found a CC before the pop-300 milestone when the base is
+ * demonstrably stuck — the FIRST market or arsenal unplaceable for a long
+ * continuous stretch, houses unplaceable while pop is pinned at the limit
+ * (tracked at record time in tryConstruct), or a resource the dropsites once
+ * served is exhausted (had it, lost it — a map that never had served stone
+ * is not a reason to expand). Only true capability deadlocks count: capacity
+ * wishes for a 2nd+ building and capped fields ride themselves out in
+ * healthy wins (relief1/relief2 goldens false-fired on field/house/
+ * temple/barracks), and even a first arsenal lands after 3.5 min of
+ * crowding in a normal game (golden s2) — hence the longer arsenal latch.
+ * Unlocks only the CC stream of manageExpansion; the expansion economy
+ * still waits for pop 300. (c8e6d31 sweep: s55/s87/s47/s20 deadlocked
+ * here — no room, pop stalled under 300, expansion never on, timeout.)
+ */
+BrennusBot.prototype.checkReliefExpansion = function()
+{
+	if (!this.gameState.isResearched("phase_town_generic"))
+		return;
+	const gameState = this.gameState;
+	const stuck = (templateType, latch) =>
+		this.placeFailSince[templateType] !== undefined &&
+		this.turn - this.placeFailSince[templateType] >= latch;
+	for (const [building, latch] of [["market", 750], ["arsenal", 1200]])
+	{
+		const type = gameState.applyCiv(`structures/{civ}/${building}`);
+		if (!stuck(type, latch))
+			continue;
+		let owned = false;
+		for (const ent of gameState.getOwnStructures().values())
+			if (ent.templateName() === type && ent.foundationProgress() === undefined)
+			{
+				owned = true;
+				break;
+			}
+		if (!owned)
+		{
+			this.reliefFire(`no room: first ${building} placement failing ${((this.turn - this.placeFailSince[type]) / 300).toFixed(1)}m`);
+			return;
+		}
+	}
+	const houseType = gameState.applyCiv("structures/{civ}/house");
+	if (stuck(houseType, 750))
+	{
+		this.reliefFire(`no room: houses unplaceable at the pop cap for ${((this.turn - this.placeFailSince[houseType]) / 300).toFixed(1)}m`);
+		return;
+	}
+	if (this.turn - (this.reliefResourceCheck || 0) < 150)
+		return;
+	this.reliefResourceCheck = this.turn;
+	const sites = this.dropsiteEdgeList();
+	for (const res of ["stone", "metal"])
+	{
+		let supply = 0;
+		for (const s of gameState.getResourceSupplies(res).values())
+			if (s.position() && s.resourceSupplyAmount() &&
+				this.edgeDistToSites(s.position(), sites) <= this.mineDistWarn)
+				supply += s.resourceSupplyAmount();
+		if (supply > (this.reliefServedPeak[res] || 0))
+			this.reliefServedPeak[res] = supply;
+		if (supply === 0 && this.reliefServedPeak[res] > 0)
+		{
+			this.reliefFire(`no served ${res} left (peak ${this.reliefServedPeak[res]})`);
+			return;
+		}
+	}
+	let wood = 0;
+	for (const s of gameState.getResourceSupplies("wood").values())
+		if (s.position() && s.resourceSupplyAmount() &&
+			this.edgeDistToSites(s.position(), sites) <= this.storehouseGateRadius)
+			wood += s.resourceSupplyAmount();
+	if (wood > (this.reliefServedPeak.wood || 0))
+		this.reliefServedPeak.wood = wood;
+	if (wood < this.storehouseMinWoodMass && this.reliefServedPeak.wood >= this.storehouseMinWoodMass)
+		this.reliefFire(`wood near dropsites exhausted (${wood} of peak ${this.reliefServedPeak.wood} left)`);
+};
+
+BrennusBot.prototype.reliefFire = function(why)
+{
+	this.reliefOn = true;
+	// Same land-region pin as expansionOn: a relief CC across a cliff or river
+	// would strand its builder party on an unreachable foundation.
+	const cc = this.getCivicCentre();
+	if (cc && this.expansionRegion === undefined)
+		this.expansionRegion = this.accessibility.getAccessValue(cc.position());
+	print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m relief expansion on (${why})\n`);
+};
+
+/** Expansion program, one order per block: wonder, far markets, corral, then the next planned CC. Under relief only the CC stream runs, one project at a time. */
 BrennusBot.prototype.manageExpansion = function()
 {
-	if (!this.expansionOn())
+	const full = this.expansionOn();
+	if (!full && !this.reliefOn)
+		this.checkReliefExpansion();
+	if (!full && !this.reliefOn)
 		return;
 	if (!this.expPlan || this.turn - (this.expPlan.turn || 0) >= 750)
 		// Recompute every 750 turns (2.5 min): raids raze Petra CCs and their
@@ -5222,7 +5338,7 @@ BrennusBot.prototype.manageExpansion = function()
 	const plan = this.expPlan;
 
 	// Wonder (Glorious Expansion +20% pop): ordered once the first expansion CC stands, before the CC stream.
-	if (!plan.wonderDone && plan.next >= 1)
+	if (full && !plan.wonderDone && plan.next >= 1)
 	{
 		const wonderType = gameState.applyCiv("structures/{civ}/wonder");
 		const builtWonder = gameState.getOwnStructures().toEntityArray()
@@ -5252,7 +5368,7 @@ BrennusBot.prototype.manageExpansion = function()
 		}
 	}
 
-	if ((plan.marketsPlaced || 0) < this.expMarkets)
+	if (full && (plan.marketsPlaced || 0) < this.expMarkets)
 	{
 		const marketType = gameState.applyCiv("structures/{civ}/market");
 		const base = this.getCivicCentre()?.position() || [384, 384];
@@ -5297,7 +5413,7 @@ BrennusBot.prototype.manageExpansion = function()
 
 	if (plan.corralDone === undefined)
 		plan.corralDone = false;
-	if (plan.corralDone === false)
+	if (full && plan.corralDone === false)
 	{
 		const corralType = gameState.applyCiv("structures/{civ}/corral");
 		const built = gameState.getOwnStructures().toEntityArray()
@@ -5320,8 +5436,9 @@ BrennusBot.prototype.manageExpansion = function()
 		// Two CC projects run concurrently (three once their army is broken):
 		// under Petra pressure a single sequential cursor starves the expansion
 		// (def9: 2 orders in 30 min). All entity collections are scanned once
-		// per call, not per spot.
-		const ccConcurrency = (this.enemyArmy || 0) < 60 ? 3 : 2;
+		// per call, not per spot. Relief expansion runs one project at a time:
+		// it fires mid-boom, when the economy cannot feed concurrent CCs yet.
+		const ccConcurrency = full ? ((this.enemyArmy || 0) < 60 ? 3 : 2) : 1;
 		const ownCCPos = [];
 		for (const ent of gameState.getOwnStructures().values())
 			if (ent.templateName() === ccType && ent.position())
@@ -5672,6 +5789,9 @@ BrennusBot.prototype.Serialize = function()
 		"mineId": this.mineId,
 		"expPlan": this.expPlan,
 		"expOn": this.expOn,
+		"reliefOn": this.reliefOn,
+		"placeFailSince": this.placeFailSince,
+		"reliefServedPeak": this.reliefServedPeak,
 		"army": this.army,
 		"arbiter": this.arbiter.serialize(),
 		"rams": this.rams,
