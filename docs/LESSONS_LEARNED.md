@@ -899,3 +899,22 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
   regenerates = frontier-gate or hot-area rotation, not empty plan.
   clr2's s13 win was a side effect of an op happening to fight the
   decisive battle — knife-edge seeds prove nothing about a design.
+
+## 2026-09-11 (sweep records: how the report columns are derived)
+
+- report.md "game min" = the LAST `t=<num>m` print in the job's
+  stdout.log (telemetry stops at game end), NOT turn_count/300 — the two
+  differ by up to 0.2 min. Timeouts are recorded as flat 45.0 regardless
+  of the last print.
+- Verdicts come from stats.json playerState for player 1, overridden to
+  `timeout` when stdout.log contains "time limit reached" (kiln marks
+  player 1 won at the cap regardless). Always also check for
+  "Failed to create AI player" and a present [HARNESS] line — a wrong AI
+  name exits 0 with an idle player.
+- results.tsv columns: seed, verdict, end_min, js_errors (count of
+  ERROR|script exception lines in stdout.log), clr_launches ("clearing
+  expansion spot"), clr_held ("held expansion spot").
+- Second hundred (seeds 101-200) at b041c34: 83W/15T/2L. New losses
+  s138 (28.0 min) and s141 (43.0) are the same pattern as s70: raids
+  grind the home CC while the army is elsewhere/thin. Wins averaged
+  31.8 min vs 34.5 on seeds 1-100 — map draw, not bot change.
