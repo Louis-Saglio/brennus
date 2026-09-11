@@ -815,3 +815,49 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
 - s88 regression (win 43.9 -> timeout): any build-order shift can move
   the endgame raid by ±1 min; seeds already winning within ~1 min of the
   cap are coin flips.
+
+## 2026-09-11 (s55 market stall dissected: affordability phase, then placement phase)
+
+- Premise check: in sweep 0db887a s55 the market WAS built (foundation
+  ~t=37.0, bartering by t=37.9; stats resourcesBought 1249 stone/612
+  metal) and city WAS reached (t=38.9). "Market never built, never city"
+  describes the PREVIOUS sweep c8e6d31 (s55: first market order t=44.3,
+  resourcesBought all 0, no phase_city line). The relief-expansion CC
+  accidentally rescued the 0db887a run.
+- The stall has two distinct phases, verifiable via the warning throttle
+  (the first "no placement" WARNING prints on the FIRST failed scan, so
+  no warnings before t=24 means no scan attempt before t=24):
+  1. t=12.2-24 affordability: the trio gate needs the market's full 300
+     wood in ONE block after defense/research/workers have spent. Surge
+     muster (enemyArmy 62-102 > musterTarget 60) plus 7 boom techs drain
+     ahead of construction; the field gate (wood >= 100) and dropsites
+     ignore nextTrioWood — only the house gate defers (visible as the
+     21-house plateau t=13-22). No block kept 300 wood for 12 min.
+  2. t=24-36.9 placement: every scan of the home ring found no 33x29 m
+     hole (the market is the largest civic footprint). By t=28 the ring
+     held 44 houses (18-70 m grid) + 31 fields (58-96 m grid); Petra
+     camped 150-230 m out t=26-35, vetoing the outer sector (nearEnemy:
+     100 m structures / 60 m mobiles, incl. hostile gaia); the own-
+     territory whole-box check fails at the jagged frontier. The only
+     scan anchor was the home CC — the "existing CC" lines in the
+     expansion-plan log list ALL map CCs (getStructures), incl. Petra's.
+- Why a missing market blocks city at all: the trio is sequential
+  (find-first-missing), so the market blocks the tavern. Barracks are
+  Village class; only temple+forge stood = 2 Town structures vs the
+  engine's 3-Town requirement for phase_city_generic. TechnologyManager
+  classCounts EXCLUDE foundations (OnGlobalOwnershipChanged) — the
+  tavern had to be BUILT, not just placed. With canResearch false,
+  managePhaseUp early-returns BEFORE setting the phaseBank reserve, so
+  the relief CCs (300s/250m each) legally drained the bank
+  (stone 939 -> 434). After market+tavern (t=37.1) research still
+  needed 6 barter deals (t=37.9-38.0) -> research 38.0 -> city 38.9 ->
+  6 min of war stage -> timeout.
+- The rescue itself was rickety: the first 5 market orders at the fresh
+  frontier CC (432,58 / 439,51) were silently engine-rejected with
+  placementOK=true terrOwner=1 — the mobile-standing-on-spot quirk from
+  the 2026-09-10 bootstrap entry; the 6th stuck.
+- Prevalence: 18/100 seeds in 0db887a show the market warning; s55 (7
+  warnings = ~13 min continuous failure) was the only timeout it caused
+  (other timeouts reached city at 13.9-27.4). Correction to the relief
+  entry above: s55 DID run placement scans from t=24 (placeFailSince
+  latched); what was missing t=12-24 was any ATTEMPT (canAfford gate).
