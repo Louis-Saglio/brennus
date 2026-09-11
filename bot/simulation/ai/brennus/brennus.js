@@ -511,6 +511,17 @@ BrennusBot.prototype.CustomInit = function(gameState)
 
 	this.reliefServedPeak = this.savedState?.reliefServedPeak || {};
 
+	// Spot clearing: expansion spots vetoed only by enemy presence
+	// (expContested: key -> {x, z, since, seen, proven?, until?}) are cleared
+	// by the army via clearOp ({x, z, key, turn, proven?, arrivedTurn?,
+	// everArrived?}); clearCool (key -> turn) holds a per-spot relaunch
+	// cooldown after an abort or a give-up.
+	this.expContested = this.savedState?.expContested || {};
+
+	this.clearOp = this.savedState?.clearOp;
+
+	this.clearCool = this.savedState?.clearCool || {};
+
 	// Defense: standing army roster (entityID -> 1), command throttle, shelter memory.
 	this.army = this.savedState?.army || {};
 	this.rams = this.savedState?.rams || {};
@@ -1942,6 +1953,42 @@ BrennusBot.prototype.manageConstruction = function()
 		{
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m construct FAILED: ${pb.template} at ${pb.x.toFixed(0)},${pb.z.toFixed(0)} ${this.diagnoseFailedSpot(pb)}\n`);
 			this.failedSpots.push([pb.x, pb.z, this.turn, pb.template]);
+			// A CC order that died with enemies around means the builder party
+			// was slaughtered en route (s47: 5 orders, 5 dead parties): mark
+			// the area contested so the clearing op sanitizes it before the
+			// plan sends the next party.
+			if (pb.template.indexOf("civil_centre") !== -1 &&
+				this.nearEnemy([pb.x, pb.z], 120, 120))
+			{
+				// Don't re-prove an area whose op just gave up: the army
+				// held it and no CC followed — the killers are not the
+				// blocker there (s13 churned 4 ops on one cursed spot).
+				let cooled = false;
+				for (const ck in this.clearCool)
+				{
+					if (this.turn - this.clearCool[ck] >= 1800)
+						continue;
+					const [cx, cz] = ck.split(",");
+					if (Math.abs(+cx - pb.x) < 100 && Math.abs(+cz - pb.z) < 100)
+					{
+						cooled = true;
+						break;
+					}
+				}
+				if (!cooled)
+				{
+					const key = `${pb.x.toFixed(0)},${pb.z.toFixed(0)}`;
+					const c = this.expContested[key];
+					this.expContested[key] = {
+						"x": pb.x, "z": pb.z,
+						"since": c ? c.since : this.turn, "seen": this.turn,
+						// A dead builder party proves the area lethal — no
+						// continuous-presence latch needed; the killers patrol and
+						// will be back (s47). Lives 3 min, extended per failure.
+						"proven": true, "until": this.turn + 900
+					};
+				}
+			}
 			return false;
 		}
 		return true;
@@ -3467,6 +3514,10 @@ BrennusBot.prototype.manageDefense = function()
 	{
 		// purge in progress, commands issued there
 	}
+	else if (this.manageClearance(gameState, armyEnts, healerEnts, mil, homePos))
+	{
+		// clearing a contested expansion spot, commands issued there
+	}
 	else if (homePos)
 	{
 		// No threat: if a siege camp loiters near home (Petra piles its
@@ -4281,6 +4332,279 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 	}
 	for (const ent of healerEnts)
 		ent.move(this.purge.x, this.purge.z);
+	return true;
+};
+
+/**
+ * Clearance: an expansion spot vetoed by enemy presence alone (no enemy CC —
+ * razing one is the raid's job) for 1.5 min straight gets the army sent to
+ * clear it, so the CC order can finally go through (s47: both plan spots
+ * blocked, the nearEnemy one re-vetoed 22 times while the army stood home).
+ * Sits below the purge in the chain and shares its donation rules: war-stage,
+ * 60+ to launch, 1.5x local superiority, no march while an enemy camp pins
+ * home, abort under 40 or after 3 min. Rams march only when a structure must
+ * fall — they are too slow for a mobile sweep.
+ */
+BrennusBot.prototype.manageClearance = function(gameState, armyEnts, healerEnts, mil, homePos)
+{
+	if (!this.warOn() || !armyEnts.length || !homePos)
+		return false;
+
+	const ramEnts = [];
+	for (const id in this.rams)
+	{
+		const ent = gameState.getEntityById(+id);
+		if (ent?.position())
+			ramEnts.push(ent);
+	}
+	const standDown = () => {
+		this.clearOp = undefined;
+		this.armyCmdTurn = 0;	// rally home next block
+		for (const ent of armyEnts)
+			ent.setStance("defensive");
+		for (const ram of ramEnts)
+			ram.move(homePos[0], homePos[1]);
+		for (const ent of healerEnts)
+			ent.move(homePos[0], homePos[1]);
+	};
+
+	if (this.clearOp)
+	{
+		const op = this.clearOp;
+		// Cached enemy positions: same veto predicate as the expansion scan.
+		const cleared = !this.nearEnemy([op.x, op.z], 100, 60);
+		const bubbleDown = () => {
+			// One op sanitizes the whole bubble: drop every contested entry
+			// within 100 m so the re-order to a neighbor spot is not blocked
+			// by a sibling failure's hot-area guard.
+			for (const key in this.expContested)
+			{
+				const c = this.expContested[key];
+				if (Math.abs(c.x - op.x) < 100 && Math.abs(c.z - op.z) < 100)
+					delete this.expContested[key];
+			}
+		};
+		if (cleared && !op.proven)
+		{
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m cleared expansion spot ${op.x.toFixed(0)},${op.z.toFixed(0)} (army=${armyEnts.length})\n`);
+			bubbleDown();
+			standDown();
+			return false;
+		}
+		if (op.proven)
+		{
+			// The killers patrol: a clean reading is not safety. Hold the
+			// ground until the escorted replacement CC stands — else the army
+			// leaves and the next builder party dies the same way (s47).
+			const nearOp = pos => pos && Math.abs(pos[0] - op.x) < 60 && Math.abs(pos[1] - op.z) < 60;
+			let ccDone = false, ccStarted = false;
+			for (const ent of gameState.getOwnStructures().values())
+				if (ent.position() && ent.hasClass("CivCentre") && nearOp(ent.position()))
+				{
+					if (ent.foundationProgress() === undefined)
+						ccDone = true;
+					else
+						ccStarted = true;
+				}
+			for (const f of gameState.getOwnFoundations().values())
+				if (f.position() && nearOp(f.position()) &&
+					gameState.getBuiltTemplate(f.templateName()).hasClass("CivCentre"))
+					ccStarted = true;
+			if (ccDone)
+			{
+				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m held expansion spot ${op.x.toFixed(0)},${op.z.toFixed(0)} until the CC stood (army=${armyEnts.length})\n`);
+				bubbleDown();
+				standDown();
+				return false;
+			}
+			// Escort-window clocks: the op exists to cover a replacement CC
+			// order. The arrival clock runs only while the area is verifiably
+			// ours — a returning patrol resets it, a live threat is exactly
+			// what the hold is for (s47). If the army never even arrives, the
+			// launch clock caps the wait instead (s13: the hold degenerated
+			// into a 3 min park on a statically unbuildable spot).
+			let atSpot = 0;
+			for (const ent of armyEnts)
+				if (ent.position() && SquareDistance(ent.position(), [op.x, op.z]) < 80 * 80)
+					atSpot++;
+			if (atSpot >= 5)
+			{
+				op.everArrived = true;
+				if (op.arrivedTurn === undefined)
+					op.arrivedTurn = this.turn;
+			}
+			if (!cleared)
+				op.arrivedTurn = undefined;
+			if (!ccStarted &&
+				(op.arrivedTurn !== undefined && this.turn - op.arrivedTurn > 300 ||
+				!op.everArrived && this.turn - op.turn > 450))
+			{
+				// No CC order came (escort gate, affordability, static
+				// obstruction, no in-bubble spot): parking the army buys
+				// nothing more. Long cooldown — don't churn ops on it.
+				const why = op.arrivedTurn !== undefined ? "held clean" : "never arrived";
+				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m cleared expansion spot ${op.x.toFixed(0)},${op.z.toFixed(0)}, no CC order followed (${why}, atSpot=${atSpot}, army=${armyEnts.length}) — standing down\n`);
+				this.clearCool[op.key] = this.turn;
+				standDown();
+				return false;
+			}
+		}
+		if (this.armyCount() < 40 || this.turn - op.turn > 900 || !this.expContested[op.key])
+		{
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m clearing aborted at ${op.x.toFixed(0)},${op.z.toFixed(0)} (age=${((this.turn - op.turn) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
+			this.clearCool[op.key] = this.turn;
+			standDown();
+			return false;
+		}
+		if (this.turn < this.armyCmdTurn)
+			return true;
+		this.armyCmdTurn = this.turn + 10;
+		// Same contest rule as the raid and the purge: soldiers clear enemy
+		// units standing within 100 m of the spot first; structures are
+		// attacked (capture allowed) only once the field is theirs.
+		const foes = [];
+		for (const ent of gameState.getEnemyUnits().values())
+		{
+			if (ent.owner() === 0)
+				continue;
+			const pos = ent.position();
+			if (pos && SquareDistance(pos, [op.x, op.z]) < 100 * 100)
+				foes.push(ent);
+		}
+		let struct, structDist;
+		for (const ent of gameState.getEnemyStructures().values())
+		{
+			if (ent.owner() === 0)
+				continue;
+			const pos = ent.position();
+			if (!pos || SquareDistance(pos, [op.x, op.z]) >= 100 * 100)
+				continue;
+			const d = SquareDistance(pos, [op.x, op.z]);
+			if (!struct || d < structDist)
+			{
+				struct = ent;
+				structDist = d;
+			}
+		}
+		for (const ent of armyEnts)
+		{
+			if (!ent.position())
+				continue;
+			if (SquareDistance(ent.position(), [op.x, op.z]) >= 60 * 60)
+			{
+				ent.attackMove(op.x, op.z, "Unit", false);
+				continue;
+			}
+			if (foes.length)
+			{
+				let best, bestDist;
+				for (const foe of foes)
+				{
+					const d = SquareDistance(foe.position(), ent.position());
+					if (best === undefined || d < bestDist)
+					{
+						best = foe;
+						bestDist = d;
+					}
+				}
+				ent.attack(best.id(), false);
+				continue;
+			}
+			if (struct)
+				ent.attack(struct.id(), true);
+		}
+		if (struct)
+			for (const ram of ramEnts)
+			{
+				if (SquareDistance(ram.position(), struct.position()) < 50 * 50)
+					ram.attack(struct.id(), false);
+				else
+					ram.attackMove(op.x, op.z, "Structure", false);
+			}
+		for (const ent of healerEnts)
+			ent.move(op.x, op.z);
+		return true;
+	}
+
+	if (this.armyCount() < 60)
+		return false;
+	// Clearing exists to unblock CC orders; with the expansion stages off
+	// there is nothing to unblock. (No plan-completeness gate: an exhausted
+	// plan is exactly when clearing is needed — the recompute adds spots.)
+	if (!this.reliefOn && !this.expansionOn())
+		return false;
+	// Their main force loitering near home pins the army (same rule as the purge).
+	let campN = 0;
+	for (const p of mil)
+		if (SquareDistance(p, homePos) < 220 * 220)
+			campN++;
+	// Longest-contested clearable spot wins. A scan-sourced entry needs 1.5 min
+	// of continuous presence before it is worth an army; a proven one (a dead
+	// builder party) is eligible at once, even with the killers momentarily
+	// gone — the march doubles as the re-order's escort, and the hold-through-
+	// gap is what lets the escorted order slip in (s47). A spot with no enemy
+	// left near it and nothing proven is dropped — the veto is already gone.
+	let best, bestKey, bestDef, bestProven, eligible = 0;
+	for (const key in this.expContested)
+	{
+		const c = this.expContested[key];
+		if (!c.proven && this.turn - c.since < 450)
+			continue;
+		if (this.turn - c.seen > 150 && (!c.proven || this.turn > c.until))
+			continue;
+		if (this.clearCool[key] && this.turn - this.clearCool[key] < 1800)
+			continue;	// 6 min: an area that resisted one op stays dangerous
+		let def = 0;
+		for (const p of this.enemyMobilesPos || [])
+			if (SquareDistance(p, [c.x, c.z]) < 100 * 100)
+				def++;
+		let fortress = false, structs = 0;
+		for (const ent of gameState.getEnemyStructures().values())
+		{
+			if (ent.owner() === 0)
+				continue;
+			const pos = ent.position();
+			if (pos && SquareDistance(pos, [c.x, c.z]) < 100 * 100)
+			{
+				structs++;
+				if (ent.hasClass("Fortress"))
+					fortress = true;
+			}
+		}
+		if (!def && !structs && !c.proven)
+		{
+			delete this.expContested[key];
+			continue;
+		}
+		eligible++;
+		// A fortress cannot be cracked without siege (the purge's rule).
+		if (fortress && ramEnts.length < 1)
+			continue;
+		if (best === undefined || def < bestDef)
+		{
+			best = c;
+			bestKey = key;
+			bestDef = def;
+			bestProven = c.proven;
+		}
+	}
+	if (!best || campN >= 15 || this.armyCount() < bestDef * 1.5)
+	{
+		// Blocked-launch forensics, throttled: which gate keeps a contested
+		// spot from getting its clearing op (camp pins, no superiority,
+		// fortress without rams, or no eligible candidate yet).
+		const entries = Object.keys(this.expContested).length;
+		if (entries && this.turn - (this.clearBlockedLog || -300) >= 300)
+		{
+			this.clearBlockedLog = this.turn;
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m clearing blocked (entries=${entries} eligible=${eligible} bestDef=${best === undefined ? "-" : bestDef} army=${this.armyCount()} camp=${campN})\n`);
+		}
+		return false;
+	}
+	this.clearOp = { "x": best.x, "z": best.z, "key": bestKey, "turn": this.turn, "proven": bestProven || undefined };
+	print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m clearing expansion spot ${best.x.toFixed(0)},${best.z.toFixed(0)} (defenders=${bestDef}, contested ${((this.turn - best.since) / 300).toFixed(1)}m${bestProven ? ", proven" : ""}, army=${armyEnts.length})\n`);
+	for (const ent of armyEnts)
+		ent.setStance("aggressive");
 	return true;
 };
 
@@ -5453,6 +5777,22 @@ BrennusBot.prototype.manageExpansion = function()
 			if (ent.hasClass("CivCentre") && ent.position())
 				ccSpots.push(ent.position());
 		let slots = ccConcurrency - ccFoundationPos.length - ccPending.length;
+		// Refresh the contested-spot memory: an entry stays hot while enemies
+		// remain near it (checked directly, independent of scan visits — a
+		// failed spot is skipped by the scan for 5 min). Scan-sourced entries
+		// die 150 turns after the area cools; proven ones live their 3 min
+		// regardless — patrols drift off and return. An entry with an active
+		// clearing op is never pruned.
+		for (const key in this.expContested)
+		{
+			if (this.clearOp && key === this.clearOp.key)
+				continue;
+			const c = this.expContested[key];
+			if (this.nearEnemy([c.x, c.z], 100, 60))
+				c.seen = this.turn;
+			else if (this.turn - c.seen > 150 && (!c.proven || this.turn > c.until))
+				delete this.expContested[key];
+		}
 		let scanned = 0;
 		while (slots > 0 && plan.next < plan.spots.length && scanned++ < plan.spots.length)
 		{
@@ -5478,6 +5818,33 @@ BrennusBot.prototype.manageExpansion = function()
 			{
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC spot ${spot[0].toFixed(0)},${spot[1].toFixed(0)} failed, skipping\n`);
 				plan.next++;
+				continue;
+			}
+
+			// Hot area: enemies proved lethal near a contested spot — the
+			// clearing op owns that area now, so don't feed it another builder
+			// party (s47: 5 parties of 6 walked into the same midfield blob).
+			// Scan-sourced entries guard while hot; proven ones for their whole
+			// life. Exception: the bubble around an active op — the army is
+			// there, orders inside it are the escorted re-order we wait for.
+			let hot = false;
+			for (const key in this.expContested)
+			{
+				const c = this.expContested[key];
+				if (this.clearOp &&
+					Math.abs(c.x - this.clearOp.x) < 100 && Math.abs(c.z - this.clearOp.z) < 100)
+					continue;
+				const alive = c.proven ? this.turn <= c.until : this.turn - c.seen <= 150;
+				if (alive && Math.abs(c.x - spot[0]) < 80 && Math.abs(c.z - spot[1]) < 80)
+				{
+					hot = true;
+					break;
+				}
+			}
+			if (hot)
+			{
+				plan.spots.splice(plan.next, 1);
+				plan.spots.push(spot);
 				continue;
 			}
 
@@ -5508,6 +5875,16 @@ BrennusBot.prototype.manageExpansion = function()
 					{
 						plan.staleRetries = plan.staleRetries || {};
 						const key = `${spot[0].toFixed(0)},${spot[1].toFixed(0)}`;
+						// Vetoed by enemy presence alone (a nearCC veto is the
+						// raid's job to clear): remember it for the clearing op.
+						if (enemyNear && !nearCC)
+						{
+							const c = this.expContested[key];
+							this.expContested[key] = {
+								"x": spot[0], "z": spot[1],
+								"since": c ? c.since : this.turn, "seen": this.turn
+							};
+						}
 						plan.staleRetries[key] = (plan.staleRetries[key] || 0) + 1;
 						if (plan.staleRetries[key] < 100)
 						{
@@ -5530,7 +5907,11 @@ BrennusBot.prototype.manageExpansion = function()
 			// s3: 4 CCs captured, 856 civilians lost). Spots adjacent to an
 			// existing CC are safe enough to keep the first ring (and the
 			// wonder) flowing; gated spots rotate to the back of the queue.
-			if (!ownCCPos.some(c => SquareDistance(c, spot) < 260 * 260) &&
+			// Exempt the bubble an active clearing op is holding: the army on
+			// the spot IS the coverage.
+			const covered = this.clearOp &&
+				Math.abs(this.clearOp.x - spot[0]) < 100 && Math.abs(this.clearOp.z - spot[1]) < 100;
+			if (!covered && !ownCCPos.some(c => SquareDistance(c, spot) < 260 * 260) &&
 				((this.enemyArmy || 0) > 100 || this.armyCount() < 50))
 			{
 				plan.spots.splice(plan.next, 1);
@@ -5792,6 +6173,9 @@ BrennusBot.prototype.Serialize = function()
 		"reliefOn": this.reliefOn,
 		"placeFailSince": this.placeFailSince,
 		"reliefServedPeak": this.reliefServedPeak,
+		"expContested": this.expContested,
+		"clearOp": this.clearOp,
+		"clearCool": this.clearCool,
 		"army": this.army,
 		"arbiter": this.arbiter.serialize(),
 		"rams": this.rams,
