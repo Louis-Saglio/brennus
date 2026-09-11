@@ -861,3 +861,41 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
   (other timeouts reached city at 13.9-27.4). Correction to the relief
   entry above: s55 DID run placement scans from t=24 (placeFailSince
   latched); what was missing t=12-24 was any ATTEMPT (canAfford gate).
+
+## 2026-09-11 (spot-clearing ops, b041c34: 91W/8T/1L vs 90W/9T/1L)
+
+- s47 pattern handled: a CC order that dies with enemies within 120 m
+  means the builder party was slaughtered — mark the spot contested
+  (proven) and send the army to HOLD it until the escorted replacement
+  CC stands. Launching on a patrol gap (defenders=0) is correct here:
+  the hold-through-gap is what lets the escorted order slip in while
+  the killers are away. A "never launch on empty ground" gate was tried
+  (clr8) and reverted: it delayed s47's op until the blob returned
+  mid-hold and the CC never stood.
+- placementOK/expansionSpotOK read passability+territory only — mobiles
+  never flip them. A `construct FAILED ... placementOK=false` line is a
+  static/territory failure even when enemies stand nearby; the army can
+  only fix the mobiles, so proven ops on such spots must give up fast.
+- nearEnemy(pos, structureDist, mobileDist) is true while ANY enemy
+  structure stands within structureDist — so a `cleared` check with a
+  100 m structure radius near an enemy building stays false until the
+  army captures it. An op can launch with defenders=0 (mobiles) yet be
+  blocked from reporting "clean" by one building.
+- The escorted re-order lands on a NEIGHBOR plan spot inside the 100 m
+  op bubble, not the failed coords (s47: failed 513,552, stood 516,559).
+  Repointing orders to the exact failed coords churns hard (clr5: 5
+  failed escorted orders on one statically-blocked spot).
+- Proven-hold give-up needs two clocks: 300 clean turns after the army
+  arrives (patrol flicker resets the arrival clock — that reset is
+  load-bearing, s47's hold only survives because returning killers keep
+  the threat live) and 450 turns from launch when the army never even
+  arrives (starved command turns / pinned by the war). A single 900 t
+  age-abort alone degenerates into 3-min army parks (s13).
+- s13's timeout is NOT a clearing problem: the op captured the forward
+  structure and held; the loss is upstream — Petra's 100+ field army
+  never gets a decisive battle, so the frontier gate (enemyArmy>100,
+  spots >260 m from own CCs) seals all far expansion. That rotation is
+  SILENT in the scan log: no stale/failed prints after the plan
+  regenerates = frontier-gate or hot-area rotation, not empty plan.
+  clr2's s13 win was a side effect of an op happening to fight the
+  decisive battle — knife-edge seeds prove nothing about a design.
