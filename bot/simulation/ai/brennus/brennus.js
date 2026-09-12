@@ -4975,22 +4975,30 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 };
 
 /**
+ * The wonder's funding window: from the expansion stage until it stands,
+ * capped at 15 min so an unplaceable wonder releases the tech tree, the
+ * champion stream and the expansion CC stream (5 min was not enough in
+ * s213 — ram churn ate the bought metal faster than it landed).
+ */
+BrennusBot.prototype.wonderHoldActive = function(gameState)
+{
+	if (!this.expansionOn() || this.expPlan?.wonderDone)
+		return false;
+	this.wonderHoldSince = this.wonderHoldSince || this.turn;
+	return this.turn - this.wonderHoldSince < 4500;
+};
+
+/**
  * One-time metal spends get funded before the continuous drains: while the
  * wonder or Will to Fight is still unfunded, the continuous spenders
  * (champion batches, metal-costing military techs) must leave 1700 metal
  * untouched — 1500 for Will to Fight plus the techMetal pad, 1100+ for the
- * wonder. The wonder hold expires after 15 min: an unplaceable wonder must
- * not freeze the tech tree and the champion stream forever (5 min was not
- * enough in s213 — ram churn ate the bought metal faster than it landed).
+ * wonder.
  */
 BrennusBot.prototype.warMachineMetalHold = function(gameState)
 {
-	if (this.expansionOn() && !(this.expPlan?.wonderDone))
-	{
-		this.wonderHoldSince = this.wonderHoldSince || this.turn;
-		if (this.turn - this.wonderHoldSince < 4500)
-			return 1700;
-	}
+	if (this.wonderHoldActive(gameState))
+		return 1700;
 	const fortressType = gameState.applyCiv("structures/{civ}/fortress");
 	const fortressUp = gameState.getOwnStructures().toEntityArray()
 		.some(ent => ent.templateName() === fortressType && ent.foundationProgress() === undefined);
@@ -4999,6 +5007,12 @@ BrennusBot.prototype.warMachineMetalHold = function(gameState)
 		return 1700;
 	return 0;
 };
+
+BrennusBot.prototype.heroChain = [
+	"units/{civ}/hero_vercingetorix",
+	"units/{civ}/hero_viridomarus",
+	"units/{civ}/hero_brennus"
+];
 
 /** Army production: barracks spearmen/javelineers (alternating) from the town phase on, temple fanatics after the boom; dismiss women for pop room only once the boom is done. */
 BrennusBot.prototype.manageDefenseTraining = function()
@@ -5121,6 +5135,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 				{
 					ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_infantry_swordsman"), milBatch, {});
 					this.arbiter.spend(res, "defenseTraining", { "food": 80 * milBatch, "wood": 60 * milBatch, "metal": 80 * milBatch }, `champions x${milBatch}`);
+					print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training champions x${milBatch}\n`);
 					continue;
 				}
 				const type = gameState.applyCiv(this.spearNext ?
@@ -5175,12 +5190,21 @@ BrennusBot.prototype.manageDefenseTraining = function()
 				assemblies.push(ent);
 		}
 		const assembly = assemblies[0];
-		if (assembly && !heroUp && !heroQueued &&
+		// Engine fact: MatchLimit counts how many times a template was trained
+		// over the whole match and never decrements on death (EntityLimits.js
+		// matchTemplateCount) — a dead hero can never retrain (validation s2
+		// spammed 173 futile retrain orders). Each hero template has its own
+		// cap, so fall down the chain: Vercingetorix for the raid aura,
+		// Viridomarus for the global gather bonus, Brennus for the loot.
+		const matchCounts = gameState.getEntityMatchCounts() || {};
+		const heroType = this.heroChain.map(t => gameState.applyCiv(t))
+			.find(t => (matchCounts[t] || 0) < 1);
+		if (assembly && !heroUp && !heroQueued && heroType &&
 			res.food >= 350 && res.wood >= 250 && res.metal >= 300)
 		{
-			assembly.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/hero_vercingetorix"), 1, {});
-			this.arbiter.spend(res, "defenseTraining", { "food": 300, "wood": 200, "metal": 250 }, "hero Vercingetorix");
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training hero Vercingetorix\n`);
+			assembly.train(gameState.getPlayerCiv(), heroType, 1, {});
+			this.arbiter.spend(res, "defenseTraining", { "food": 300, "wood": 200, "metal": 250 }, `hero ${heroType.split("/").pop()}`);
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training hero ${heroType.split("/").pop()}\n`);
 		}
 		else if (assembly && heroUp && carnyx < 2 && res.food >= 400 && res.metal >= 400)
 		{
@@ -6230,7 +6254,12 @@ BrennusBot.prototype.manageExpansion = function()
 				continue;
 			}
 			// Floors above the raw cost: the engine checks the real stock at processing.
-			if (!res.canAfford({ "wood": 400, "stone": 400, "metal": 300 }))
+			// While the wonder is pending it holds first claim on the ores —
+			// that is what lets 1550 stone and 1100 metal ever coexist in the
+			// bank (val s1: three expansion CCs ate 1200 stone while the
+			// wonder waited from t=35.6 to the end of the game).
+			const stoneReserve = this.wonderHoldActive(gameState) ? 1550 : 0;
+			if (!res.canAfford({ "wood": 400, "stone": 400 + stoneReserve, "metal": 300 + (stoneReserve ? 1100 : 0) }))
 				return;
 			if (!this.placeOrder(ccType, spot))
 				return;
