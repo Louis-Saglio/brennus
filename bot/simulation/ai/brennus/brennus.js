@@ -4064,10 +4064,26 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		this.offense.warned = foes.length;
 		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy CC at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} with ${foes.length} enemy unit(s) nearby (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 	}
+	// Rams raze by priority — fortress, then the CC, then towers — one shared
+	// focus so the siege train converges, picked only inside the army's 60 m
+	// bubble so the rams never wander out from under the escort.
+	if (this.offense.focusId !== undefined)
+	{
+		const focus = gameState.getEntityById(this.offense.focusId);
+		if (!focus || !focus.position() || focus.owner() === this.player)
+			this.offense.focusId = undefined;
+	}
+	if (this.offense.focusId === undefined)
+	{
+		const focus = this.pickRamFocus(gameState);
+		this.offense.focusId = focus ? focus.id() : this.offense.id;
+		if (focus && focus.id() !== this.offense.id)
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m rams focusing ${focus.templateName().split("/").pop()} at ${focus.position()[0].toFixed(0)},${focus.position()[1].toFixed(0)}\n`);
+	}
 	for (const ram of ramEnts)
 	{
 		if (SquareDistance(ram.position(), [this.offense.x, this.offense.z]) < 50 * 50)
-			ram.attack(this.offense.id, false);
+			ram.attack(this.offense.focusId, false);
 		else
 			ram.attackMove(this.offense.x, this.offense.z, "Structure", false);
 		this.trackRamMarch(ram, gameState);
@@ -4075,6 +4091,45 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 	for (const ent of healerEnts)
 		ent.move(this.offense.x, this.offense.z);
 	return true;
+};
+
+/**
+ * The raid's shared ram target: the highest-priority enemy structure inside
+ * the army's bubble around the raid target — built fortress first, then the
+ * CC, then towers/army camps, foundations of those last; ties break nearest
+ * the raid target. Returns undefined when nothing but the raid CC is there.
+ */
+BrennusBot.prototype.pickRamFocus = function(gameState)
+{
+	const center = [this.offense.x, this.offense.z];
+	const tierOf = ent => {
+		if (ent.hasClass("Fortress"))
+			return 0;
+		if (ent.hasClass("CivCentre"))
+			return 1;
+		if (ent.hasClass("Tower") || ent.hasClass("ArmyCamp"))
+			return 2;
+		return -1;
+	};
+	let best, bestScore;
+	for (const ent of gameState.getEnemyStructures().values())
+	{
+		const pos = ent.position();
+		if (!pos || SquareDistance(pos, center) > 60 * 60)
+			continue;
+		let tier = tierOf(ent);
+		if (tier < 0)
+			continue;
+		if (ent.foundationProgress() !== undefined)
+			tier += 3;
+		const score = tier * 100000 + SquareDistance(pos, center);
+		if (best === undefined || score < bestScore)
+		{
+			best = ent;
+			bestScore = score;
+		}
+	}
+	return best;
 };
 
 /**
