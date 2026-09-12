@@ -5845,6 +5845,48 @@ BrennusBot.prototype.reliefFire = function(why)
 	print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m relief expansion on (${why})\n`);
 };
 
+/**
+ * Raze storehouses the resource frontier has left behind: no wood/stone/metal
+ * supply within 55 m and no gatherer working within 45 m. The old self-raze
+ * rule (supply-only, any stage) threw away dropsites the choppers still used
+ * and collapsed the woodline mid-war (2026-08-29 findloss note); the worker
+ * gate and the expansion-stage latch keep this to genuinely dead buildings.
+ * One raze per 150 turns, so a scan sweep can never cascade.
+ */
+BrennusBot.prototype.manageStorehouseCleanup = function()
+{
+	if (this.turn < (this.nextCleanupTurn || 0))
+		return;
+	this.nextCleanupTurn = this.turn + 150;
+	const gameState = this.gameState;
+	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
+	const supplies = [];
+	for (const res of ["wood", "stone", "metal"])
+		for (const s of gameState.getResourceSupplies(res).values())
+			if (s.position() && s.resourceSupplyAmount())
+				supplies.push(s.position());
+	const workers = [];
+	for (const ent of gameState.getOwnUnits().values())
+		if (ent.isGatherer() && ent.position())
+			workers.push(ent.position());
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		if (ent.templateName() !== storeType || !ent.position() ||
+			ent.foundationProgress() !== undefined)
+			continue;
+		const pos = ent.position();
+		if (supplies.some(p => SquareDistance(p, pos) < 55 * 55))
+			continue;
+		if (workers.some(p => SquareDistance(p, pos) < 45 * 45))
+			continue;
+		if (this.nearEnemy(pos, 80, 60))
+			continue;
+		print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m razing dead storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} (no supply within 55m, no workers within 45m)\n`);
+		ent.destroy();
+		return;
+	}
+};
+
 /** Expansion program, one order per block: wonder, far markets, then the next planned CC. Under relief only the CC stream runs, one project at a time. */
 BrennusBot.prototype.manageExpansion = function()
 {
@@ -5853,6 +5895,8 @@ BrennusBot.prototype.manageExpansion = function()
 		this.checkReliefExpansion();
 	if (!full && !this.reliefOn)
 		return;
+	if (full)
+		this.manageStorehouseCleanup();
 	if (!this.expPlan || this.turn - (this.expPlan.turn || 0) >= 750)
 		// Recompute every 750 turns (2.5 min): raids raze Petra CCs and their
 		// territory reverts to neutral, opening spots the original plan —
