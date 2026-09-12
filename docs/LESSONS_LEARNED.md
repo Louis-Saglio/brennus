@@ -1018,3 +1018,16 @@ corrals useless; wonder too slow.
   per game, fortresses in 11/18, assemblies in 14/18, `attack_soldiers_will`
   researched (s13 probe 32.9, s217b 32.9), wonder ordered (s221 33.3,
   s223 31.5).
+- Sweep 2026-09-12-565bb9b (seeds 1-200): **189 win / 8 timeout /
+  3 loss, 0 JS errors** vs b041c34's 174/23/3 — 15 timeouts converted
+  (13, 24, 52, 74, 104, 121, 134, 136, 139, 142, 151, 152, 155, 158,
+  174), ZERO regressions, mean win 32.5 vs 33.2 min. Feature incidence:
+  champions 169/200 games (3065 units), fortress 142, assembly 159,
+  hero 142 (chain used past the first death, e.g. s83 trained
+  Vercingetorix then Viridomarus), will 35, wonder ordered 68, pop tech
+  23 (pop >300 in 4: 83, 105, 119, 121), warbuy 185, leveling 85,
+  razed storehouses 163 (887 total, no wood collapse), corral 0,
+  ram-focus trigger never occurred (fortress not by raid CCs — the
+  march filter is the part that fires). Remaining timeouts: 47, 55,
+  88, 96, 111, 125, 148, 170; losses are the 3 documented hard maps
+  (70, 138, 141).
