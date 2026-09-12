@@ -4936,6 +4936,11 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 		return;
 	const gameState = this.gameState;
 	const res = this.arbiter.books("milTechs");
+	// While the wonder or Will to Fight is unfunded, every other metal-costing
+	// tech must leave 1700 metal standing — probe s209 watched hack_02,
+	// pierce_02 and melee_03 snipe the barter-bought metal at the 550-800
+	// level for 6 minutes while the 1650 Will to Fight gate never filled.
+	const metalHold = this.warMachineMetalHold(gameState);
 	for (const [tech, cost] of this.militaryTechs)
 	{
 		if (gameState.isResearched(tech) || gameState.isResearching(tech))
@@ -4947,7 +4952,8 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 		// Will to Fight must not freeze every cheaper tech behind it.
 		if (!facility || !gameState.canResearch(tech))
 			continue;
-		if (!res.canAfford(cost) || res.metal < (cost.metal || 0) + this.arbiterParams.warChest.techMetal)
+		if (!res.canAfford(cost) || res.metal < (cost.metal || 0) + this.arbiterParams.warChest.techMetal +
+				(tech === "attack_soldiers_will" ? 0 : metalHold))
 			continue;
 		facility.research(tech);
 		this.arbiter.spend(res, "milTechs", cost, tech);
@@ -4958,16 +4964,21 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 };
 
 /**
- * Metal the champion batches must not eat while the war machine's big
- * one-time metal spends are unfunded: the wonder first (1150 — the barter
- * buys toward it), then Will to Fight once the fortress stands (1700 —
- * 1500 cost plus the techMetal pad). Zero once both are done, so the
- * champion stream runs free for the rest of the war.
+ * One-time metal spends get funded before the continuous drains: while the
+ * wonder or Will to Fight is still unfunded, the continuous spenders
+ * (champion batches, metal-costing military techs) must leave 1700 metal
+ * untouched — 1500 for Will to Fight plus the techMetal pad, 1100+ for the
+ * wonder. The wonder hold expires after 5 min: an unplaceable wonder must
+ * not freeze the tech tree and the champion stream forever.
  */
-BrennusBot.prototype.strategicMetalHold = function(gameState)
+BrennusBot.prototype.warMachineMetalHold = function(gameState)
 {
-	if (!(this.expPlan?.wonderDone))
-		return 1150;
+	if (this.expansionOn() && !(this.expPlan?.wonderDone))
+	{
+		this.wonderHoldSince = this.wonderHoldSince || this.turn;
+		if (this.turn - this.wonderHoldSince < 1500)
+			return 1700;
+	}
 	const fortressType = gameState.applyCiv("structures/{civ}/fortress");
 	const fortressUp = gameState.getOwnStructures().toEntityArray()
 		.some(ent => ent.templateName() === fortressType && ent.foundationProgress() === undefined);
@@ -5094,7 +5105,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 				if (boom && gameState.isResearched("unlock_champion_infantry") &&
 					(this.champTick = ((this.champTick || 0) + 1) % 3) === 0 &&
 					res.food >= 80 * milBatch && res.wood >= 60 * milBatch &&
-					res.metal >= 80 * milBatch + 50 + this.strategicMetalHold(gameState))
+					res.metal >= 80 * milBatch + 50 + this.warMachineMetalHold(gameState))
 				{
 					ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_infantry_swordsman"), milBatch, {});
 					this.arbiter.spend(res, "defenseTraining", { "food": 80 * milBatch, "wood": 60 * milBatch, "metal": 80 * milBatch }, `champions x${milBatch}`);
