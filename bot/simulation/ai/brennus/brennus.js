@@ -4158,7 +4158,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		if (SquareDistance(ram.position(), [this.offense.x, this.offense.z]) < 50 * 50)
 			ram.attack(this.offense.focusId, false);
 		else
-			ram.attackMove(this.offense.x, this.offense.z, "Structure", false);
+			ram.attackMove(this.offense.x, this.offense.z, this.ramMarchFilter, false);
 		this.trackRamMarch(ram, gameState);
 	}
 	for (const ent of healerEnts)
@@ -4204,6 +4204,16 @@ BrennusBot.prototype.pickRamFocus = function(gameState)
 	}
 	return best;
 };
+
+/**
+ * En-route target filter for ram marches: military structures, walls and
+ * gates only — Louis's review had rams grinding houses they passed instead
+ * of the fortress/CC/towers. Walls and gates stay attackable or a walled
+ * base becomes unreachable. Engine fact: attackMove's targetClasses must be
+ * an { "attack": ... } object — the plain "Structure" string used before
+ * has no .attack key and filtered NOTHING (UnitAI.js attackfilter).
+ */
+BrennusBot.prototype.ramMarchFilter = { "attack": "Fortress CivCentre Tower WallTower ArmyCamp Wall Gate" };
 
 /**
  * Stuck-ram watchdog for the raid march, run per command block. A ram
@@ -4468,7 +4478,7 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 		if (SquareDistance(ram.position(), [this.purge.x, this.purge.z]) < 50 * 50)
 			ram.attack(this.purge.id, false);
 		else
-			ram.attackMove(this.purge.x, this.purge.z, "Structure", false);
+			ram.attackMove(this.purge.x, this.purge.z, this.ramMarchFilter, false);
 	}
 	for (const ent of healerEnts)
 		ent.move(this.purge.x, this.purge.z);
@@ -4659,7 +4669,7 @@ BrennusBot.prototype.manageClearance = function(gameState, armyEnts, healerEnts,
 				if (SquareDistance(ram.position(), struct.position()) < 50 * 50)
 					ram.attack(struct.id(), false);
 				else
-					ram.attackMove(op.x, op.z, "Structure", false);
+					ram.attackMove(op.x, op.z, this.ramMarchFilter, false);
 			}
 		for (const ent of healerEnts)
 			ent.move(op.x, op.z);
