@@ -2672,6 +2672,41 @@ BrennusBot.prototype.manageBarter = function()
 
 		if (!this.manageExpansionBarter(market))
 		{
+			// Strategic buying: the war machine's big one-time spends — the
+			// wonder (1000 metal / 1500 stone) and Will to Fight (1500/1500) —
+			// starve on metal while the food mountain grows (probe s203: metal
+			// sat at 70-550 for 15 min with 8-10k food banked, so neither the
+			// wonder nor Will to Fight ever fired). Sell food toward the
+			// missing amounts before any other food deal.
+			if (this.turn % 15 === 0 && res.food >= 4000)
+			{
+				const fortressType = gameState.applyCiv("structures/{civ}/fortress");
+				const fortressUp = gameState.getOwnStructures().toEntityArray()
+					.some(ent => ent.templateName() === fortressType && ent.foundationProgress() === undefined);
+				const willPending = fortressUp &&
+					!gameState.isResearched("attack_soldiers_will") && !gameState.isResearching("attack_soldiers_will");
+				const wonderPending = !(this.expPlan?.wonderDone);
+				let want;
+				if (wonderPending && res.metal < 1150)
+					want = "metal";
+				else if (wonderPending && res.stone < 1600)
+					want = "stone";
+				else if (willPending && res.metal < 1700)
+					want = "metal";
+				else if (willPending && res.stone < 1700)
+					want = "stone";
+				if (want)
+				{
+					const prices = gameState.getBarterPrices();
+					if (prices.sell.food / prices.buy[want] >= 0.5)
+					{
+						market.barter(want, "food", 500);
+						this.arbiter.spendSell("barter", "food", 500, `barter food->${want}`);
+						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 food -> ${want} (war machine)\n`);
+						return;
+					}
+				}
+			}
 			// Bank leveling: past a 5k food/wood gap, sell the mountain for the
 			// poor resource — the gatherer shares correct the inflow, but a
 			// 20k food bank needs the market to ever become wood (Louis's
