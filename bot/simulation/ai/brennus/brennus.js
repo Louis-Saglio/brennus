@@ -85,11 +85,28 @@ BrennusBot.prototype.currentShares = function(total)
 			mining += 0.12;
 		}
 		const scale = Math.max(0, 1 - mining) / (base.food + base.wood);
-		shares.food = base.food * scale;
-		shares.wood = base.wood * scale;
+		const woodFrac = this.bankAwareWoodFrac(res, base.wood / (base.food + base.wood));
+		shares.food = (base.food + base.wood) * (1 - woodFrac) * scale;
+		shares.wood = (base.food + base.wood) * woodFrac * scale;
 		return shares;
 	}
 	return { ...base };
+};
+
+/**
+ * Wood's fraction of the food+wood gatherer pool, nudged by the banked
+ * imbalance: identical stocks keep the base split; past a 3k gap the split
+ * slides toward the poor resource (a 20k food mountain turns a 0.50 base
+ * into 0.85 wood). Barter levels the stock that already sits in the bank;
+ * this stops the inflow from digging the gap deeper.
+ */
+BrennusBot.prototype.bankAwareWoodFrac = function(res, baseFrac)
+{
+	const imb = res.food - res.wood;
+	if (Math.abs(imb) <= 3000)
+		return baseFrac;
+	const shift = Math.sign(imb) * Math.min(0.35, (Math.abs(imb) - 3000) / 40000);
+	return Math.max(0.15, Math.min(0.85, baseFrac + shift));
 };
 
 BrennusBot.prototype.houseTrainingTech = "unlock_civilians_house_generic";
@@ -2653,16 +2670,36 @@ BrennusBot.prototype.manageBarter = function()
 	else if (this.expansionOn())
 	{
 
-		if (!this.manageExpansionBarter(market) && (res.stone >= 600 || res.metal >= 600))
+		if (!this.manageExpansionBarter(market))
 		{
-
-			const excess = res.stone >= res.metal ? "stone" : "metal";
-			if (res[excess] >= 1000 && (res.wood < 250 || res.food < 200))
+			// Bank leveling: past a 5k food/wood gap, sell the mountain for the
+			// poor resource — the gatherer shares correct the inflow, but a
+			// 20k food bank needs the market to ever become wood (Louis's
+			// review: 20k food against a few hundred wood late game).
+			const rich = res.food >= res.wood ? "food" : "wood";
+			const poor = rich === "food" ? "wood" : "food";
+			if (res[rich] - res[poor] > 5000 && res[rich] > 6000 && this.turn % 15 === 0)
 			{
-				const want = res.wood < 250 ? "wood" : "food";
-				market.barter(want, excess, 500);
-				this.arbiter.spendSell("barter", excess, 500, `barter ${excess}->${want}`);
-				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${excess} -> ${want}\n`);
+				const prices = gameState.getBarterPrices();
+				if (prices.sell[rich] / prices.buy[poor] >= 0.5)
+				{
+					market.barter(poor, rich, 500);
+					this.arbiter.spendSell("barter", rich, 500, `barter ${rich}->${poor}`);
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${rich} -> ${poor} (bank leveling)\n`);
+					return;
+				}
+			}
+			if (res.stone >= 600 || res.metal >= 600)
+			{
+
+				const excess = res.stone >= res.metal ? "stone" : "metal";
+				if (res[excess] >= 1000 && (res.wood < 250 || res.food < 200))
+				{
+					const want = res.wood < 250 ? "wood" : "food";
+					market.barter(want, excess, 500);
+					this.arbiter.spendSell("barter", excess, 500, `barter ${excess}->${want}`);
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${excess} -> ${want}\n`);
+				}
 			}
 		}
 	}
@@ -5486,8 +5523,9 @@ BrennusBot.prototype.expansionShares = function(total)
 	}
 	const rest = 1 - mining;
 
-	shares.food = rest * 0.50;
-	shares.wood = rest * 0.50;
+	const woodFrac = this.bankAwareWoodFrac(this.arbiter.books("shares"), 0.5);
+	shares.food = rest * (1 - woodFrac);
+	shares.wood = rest * woodFrac;
 	return shares;
 };
 
