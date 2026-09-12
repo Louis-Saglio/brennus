@@ -4628,13 +4628,19 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 	const gameState = this.gameState;
 	const boom = this.warOn();
 	const wants = [
-		[gameState.applyCiv("structures/{civ}/barracks"), boom ? 4 : 3],
+		[gameState.applyCiv("structures/{civ}/barracks"), boom ? 4 : 3, { "wood": 300 }],
 		// Arsenal before temples post-city: the raid gate is rams, and agg6
 		// s2's arsenal landed ~10 min after city, pushing the first real raid
 		// to 33.7m.
-		[gameState.applyCiv("structures/{civ}/arsenal"), boom ? 2 : 0],
-		[gameState.applyCiv("structures/{civ}/temple"), boom ? 3 : 1],
-		[gameState.applyCiv("structures/{civ}/forge"), boom ? 1 : 0]
+		[gameState.applyCiv("structures/{civ}/arsenal"), boom ? 2 : 0, { "wood": 300 }],
+		[gameState.applyCiv("structures/{civ}/temple"), boom ? 3 : 1, { "wood": 300 }],
+		[gameState.applyCiv("structures/{civ}/forge"), boom ? 1 : 0, { "wood": 200 }],
+		// Assembly before the fortress: the hero it trains is pop-free army
+		// power, and 400 wood lands long before the fortress's 600 stone.
+		[gameState.applyCiv("structures/{civ}/assembly"), boom ? 1 : 0, { "wood": 400 }],
+		// The fortress exists for Will to Fight (+25% attack) — that tech is
+		// the whole point of paying 600 stone.
+		[gameState.applyCiv("structures/{civ}/fortress"), boom ? 1 : 0, { "wood": 300, "stone": 600 }]
 	];
 	// While any of these is missing, training holds a wood reserve (see
 	// manageDefenseTraining) so the buildings actually get funded — otherwise
@@ -4657,11 +4663,12 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 			missingAny = true;
 	}
 	this.arbiter.declare("defenseGap", missingAny);
-	for (const [type, want] of wants)
+	for (const [type, want, cost] of wants)
 	{
 		if (haveByType[type] >= want || this.pendingBuilds.some(pb => pb.template === type))
 			continue;
-		if (this.arbiter.books("defenseBuildings").wood < (boom ? 350 : 300))
+		const books = this.arbiter.books("defenseBuildings");
+		if (books.wood < (boom ? 350 : 300))
 		{
 			// Pre-boom the boom spends wood below the floor every block, so a
 			// muster building can wait minutes for stock that never
@@ -4685,9 +4692,15 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 			}
 			return;
 		}
+		// The full price must be in the books or the engine silently rejects
+		// the order (the fortress's 600 stone is the one the wood gate cannot
+		// see). Skip to the next want — a stone-poor war must not stall the
+		// buildings behind it.
+		if (!books.canAfford({ "wood": cost.wood || 0, "stone": cost.stone || 0, "food": 0, "metal": 0 }))
+			continue;
 		if (this.tryConstruct(type, "military"))
 		{
-			this.arbiter.spend(this.arbiter.books("defenseBuildings"), "defenseBuildings", { "wood": 300 }, type.split("/").pop());
+			this.arbiter.spend(books, "defenseBuildings", { "wood": cost.wood || 0, "stone": cost.stone || 0 }, type.split("/").pop());
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m defense building ${type.split("/").pop()}\n`);
 			this.arbiter.hold("construction");
 			return;
@@ -4757,7 +4770,11 @@ BrennusBot.prototype.placeTower = function(center, want)
 	return true;
 };
 
-/** Forge upgrades for the standing army, cheapest first. */
+/** War-stage research in priority order: forge tiers 1-2, Will to Fight
+ * (+25% attack to soldiers and siege — needs the fortress), forge tier 3,
+ * the barracks production techs, the tower line and the druid line. Costs
+ * are list prices; gaul's team bonus makes the forge ones 15% cheaper, so
+ * the gates stay conservative. */
 BrennusBot.prototype.militaryTechs = [
 	["soldier_attack_melee_01", { "food": 200, "metal": 100 }],
 	["soldier_attack_ranged_01", { "wood": 200, "metal": 100 }],
@@ -4766,7 +4783,24 @@ BrennusBot.prototype.militaryTechs = [
 	["soldier_attack_melee_02", { "food": 350, "metal": 250 }],
 	["soldier_attack_ranged_02", { "wood": 350, "metal": 250 }],
 	["soldier_resistance_hack_02", { "food": 350, "metal": 250 }],
-	["soldier_resistance_pierce_02", { "wood": 350, "metal": 250 }]
+	["soldier_resistance_pierce_02", { "wood": 350, "metal": 250 }],
+	["attack_soldiers_will", { "food": 1500, "wood": 1500, "stone": 1500, "metal": 1500 }],
+	["soldier_attack_melee_03", { "food": 500, "metal": 400 }],
+	["soldier_attack_ranged_03", { "wood": 500, "metal": 400 }],
+	["soldier_resistance_hack_03", { "food": 500, "metal": 400 }],
+	["soldier_resistance_pierce_03", { "wood": 500, "metal": 400 }],
+	["unlock_champion_infantry", { "food": 600 }],
+	["barracks_batch_training", { "food": 500 }],
+	["tower_watch", { "food": 500 }],
+	["tower_range", { "wood": 500, "metal": 250 }],
+	["tower_murderholes", { "wood": 250, "stone": 150 }],
+	["tower_crenellations", { "stone": 500, "metal": 250 }],
+	["tower_health", { "stone": 500, "metal": 100 }],
+	["heal_range", { "food": 200, "metal": 100 }],
+	["heal_rate", { "food": 200, "metal": 100 }],
+	["heal_range_2", { "food": 300, "metal": 150 }],
+	["heal_rate_2", { "food": 300, "metal": 150 }],
+	["cost_healer", { "food": 250, "stone": 100 }]
 ];
 
 BrennusBot.prototype.manageMilitaryTechs = function()
@@ -4782,10 +4816,12 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 		const facility = gameState.findResearchers(tech)?.toEntityArray()
 			.filter(ent => ent.foundationProgress() === undefined &&
 				(ent.trainingQueue()?.length || 0) <= 1)[0];
+		// Skip — never block the list: a missing fortress or an unaffordable
+		// Will to Fight must not freeze every cheaper tech behind it.
 		if (!facility || !gameState.canResearch(tech))
-			return;
+			continue;
 		if (!res.canAfford(cost) || res.metal < (cost.metal || 0) + this.arbiterParams.warChest.techMetal)
-			return;
+			continue;
 		facility.research(tech);
 		this.arbiter.spend(res, "milTechs", cost, tech);
 		print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${tech}\n`);
@@ -4900,6 +4936,20 @@ BrennusBot.prototype.manageDefenseTraining = function()
 				break;
 			if (ent.templateName() === barracksType)
 			{
+				// Every third barracks batch goes to champion swordsmen once
+				// unlocked: 200 HP and 16 hack against the basic infantry's
+				// paper armor, at metal the war chest can spare (the batch is
+				// priced in full here — the loop's floors only cover the 50/50
+				// basic batch).
+				if (boom && gameState.isResearched("unlock_champion_infantry") &&
+					(this.champTick = ((this.champTick || 0) + 1) % 3) === 0 &&
+					res.food >= 80 * milBatch && res.wood >= 60 * milBatch &&
+					res.metal >= 80 * milBatch + 50)
+				{
+					ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_infantry_swordsman"), milBatch, {});
+					this.arbiter.spend(res, "defenseTraining", { "food": 80 * milBatch, "wood": 60 * milBatch, "metal": 80 * milBatch }, `champions x${milBatch}`);
+					continue;
+				}
 				const type = gameState.applyCiv(this.spearNext ?
 					"units/{civ}/infantry_spearman_b" : "units/{civ}/infantry_javelineer_b");
 				this.spearNext = !this.spearNext;
@@ -4917,6 +4967,55 @@ BrennusBot.prototype.manageDefenseTraining = function()
 			ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_fanatic"), 5, {});
 			this.arbiter.spend(res, "defenseTraining", { "food": 600, "wood": 500 }, "fanatics x5");
 		}
+	// The Assembly of Princes: Vercingetorix rides with the raid — his aura is
+	// +20% damage and +1 capture for soldiers AND siege, i.e. a straight kill
+	//-clock multiplier — and heroes cost no population. Carnyxes debuff enemy
+	// soldiers in the brawl (−10% damage within 20 m). Metal floors keep rams
+	// and the tech tree ahead of both.
+	if (boom)
+	{
+		const assemblyType = gameState.applyCiv("structures/{civ}/assembly");
+		const carnyxType = gameState.applyCiv("units/{civ}/champion_infantry_trumpeter");
+		let heroUp = false, heroQueued = false, carnyx = 0;
+		for (const ent of gameState.getOwnUnits().values())
+		{
+			if (ent.hasClass("Hero"))
+				heroUp = true;
+			else if (ent.templateName() === carnyxType)
+				carnyx++;
+		}
+		const assemblies = [];
+		for (const ent of gameState.getOwnStructures().values())
+		{
+			if (ent.templateName() !== assemblyType || ent.foundationProgress() !== undefined)
+				continue;
+			for (const item of ent.trainingQueue() || [])
+			{
+				if (!item.unitTemplate)
+					continue;
+				if (item.unitTemplate.indexOf("/hero_") !== -1)
+					heroQueued = true;
+				else if (item.unitTemplate.indexOf("trumpeter") !== -1)
+					carnyx += item.count;
+			}
+			if ((ent.trainingQueue()?.length || 0) <= 1)
+				assemblies.push(ent);
+		}
+		const assembly = assemblies[0];
+		if (assembly && !heroUp && !heroQueued &&
+			res.food >= 350 && res.wood >= 250 && res.metal >= 300)
+		{
+			assembly.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/hero_vercingetorix"), 1, {});
+			this.arbiter.spend(res, "defenseTraining", { "food": 300, "wood": 200, "metal": 250 }, "hero Vercingetorix");
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training hero Vercingetorix\n`);
+		}
+		else if (assembly && heroUp && carnyx < 2 && res.food >= 400 && res.metal >= 400)
+		{
+			assembly.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_infantry_trumpeter"), 1, {});
+			this.arbiter.spend(res, "defenseTraining", { "food": 180, "metal": 120 }, "carnyx");
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a carnyx\n`);
+		}
+	}
 	// Pop room for a batch of 5: dismiss workers (idle first) until 5 slots are
 	// free, throttled and never below a floor that keeps the economy alive.
 	// Post-boom only: before city+300 the women are still racing to pop 300 and
@@ -5653,7 +5752,7 @@ BrennusBot.prototype.reliefFire = function(why)
 	print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m relief expansion on (${why})\n`);
 };
 
-/** Expansion program, one order per block: wonder, far markets, corral, then the next planned CC. Under relief only the CC stream runs, one project at a time. */
+/** Expansion program, one order per block: wonder, far markets, then the next planned CC. Under relief only the CC stream runs, one project at a time. */
 BrennusBot.prototype.manageExpansion = function()
 {
 	const full = this.expansionOn();
@@ -5666,15 +5765,17 @@ BrennusBot.prototype.manageExpansion = function()
 		// territory reverts to neutral, opening spots the original plan —
 		// computed while Petra held half the map — could never claim (def14:
 		// plans of 7 spots, 2 orders in 25 min). The freed land must be claimed
-		// before Petra rebuilds. wonder/corral/market flags are re-derived from
+		// before Petra rebuilds. wonder/market flags are re-derived from
 		// live state, so nothing is lost on rebuild.
 		this.expPlan = Object.assign(this.computeExpansionPlan(), { "turn": this.turn });
 	const gameState = this.gameState;
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const plan = this.expPlan;
 
-	// Wonder (Glorious Expansion +20% pop): ordered once the first expansion CC stands, before the CC stream.
-	if (full && !plan.wonderDone && plan.next >= 1)
+	// Wonder (Glorious Expansion +20% pop): ordered the moment the expansion
+	// stage can fund it — waiting for the first expansion CC to stand first
+	// pushed the pop tech minutes past the point the +60 pop mattered.
+	if (full && !plan.wonderDone)
 	{
 		const wonderType = gameState.applyCiv("structures/{civ}/wonder");
 		const builtWonder = gameState.getOwnStructures().toEntityArray()
@@ -5747,26 +5848,6 @@ BrennusBot.prototype.manageExpansion = function()
 		}
 	}
 
-	if (plan.corralDone === undefined)
-		plan.corralDone = false;
-	if (full && plan.corralDone === false)
-	{
-		const corralType = gameState.applyCiv("structures/{civ}/corral");
-		const built = gameState.getOwnStructures().toEntityArray()
-			.some(ent => ent.templateName() === corralType);
-		if (built || gameState.isResearched("gather_animals_stockbreeding"))
-			plan.corralDone = true;
-		else if (!this.pendingBuilds.some(pb => pb.template === corralType) &&
-			!this.arbiter.held("construction") && this.arbiter.books("expansion").wood >= 300)
-		{
-			const spot = this.findBuildingPosition(corralType, this.getCivicCentre().position(), 12, 120, true, this.expansionRegion);
-			if (spot && this.placeOrder(corralType, spot))
-			{
-				this.arbiter.spend(this.arbiter.books("expansion"), "expansion", { "wood": 100 }, "corral");
-				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m corral at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} for the tech tree\n`);
-			}
-		}
-	}
 	if (plan.next < plan.spots.length)
 	{
 		// Two CC projects run concurrently (three once their army is broken):
@@ -6018,6 +6099,9 @@ BrennusBot.prototype.manageTrade = function()
 };
 
 BrennusBot.prototype.expansionTechs = [
+	// +20% pop first: once the wonder stands, nothing else multiplies both the
+	// economy and the army ceiling — and the pop room unblocks the ram queue.
+	"wonder_population_cap",
 	"gather_mining_servants",
 
 	"gather_mining_serfs",
@@ -6043,9 +6127,7 @@ BrennusBot.prototype.expansionTechs = [
 	"trade_commercial_treaty",
 
 	"trader_health",
-	"gather_animals_stockbreeding",
-	"health_civilians_01",
-	"wonder_population_cap"
+	"health_civilians_01"
 
 ];
 
