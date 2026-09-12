@@ -942,3 +942,79 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
 - Once losses reopen pop the ram queue unblocks by itself (rams counted
   from the queue at line ~4850), so a ramless raid gets its siege
   mid-march without any relaunch logic.
+
+## 2026-09-12 (war machine: Louis's 12 review items — tech tree, heroes, rams, banks, storehouses)
+
+Louis's replay review: rams should prioritize fortresses/CCs/towers; no
+forge tier 3, no Will to Fight, no champions (unlock tech missing), no
+batch-speed tech, no heroes/carnyx, no druid or tower techs; 20k food
+vs a few hundred wood banked late; dead storehouses waste space;
+corrals useless; wonder too slow.
+
+- Engine/API facts verified in the pinned source:
+  - `attackMove(x, z, targetClasses)`: a plain `"Structure"` string is a
+    NO-OP filter — UnitAI's attackfilter reads `targetClasses.attack`,
+    which a string does not have. Petra always passes
+    `{ "attack": "Cls1 Cls2" }` (OR-ed by MatchesClassList). Rams en
+    route therefore battered every house they passed; the march filter
+    is now Fortress/CivCentre/Tower/WallTower/ArmyCamp/Wall/Gate (walls
+    and gates stay attackable or a walled base is unreachable).
+  - Hero `MatchLimit` counts every training of the TEMPLATE over the
+    whole match and never decrements on death (EntityLimits.js
+    `matchTemplateCount`, decremented only on queue cancel) — a dead
+    hero can never retrain (validation s2 spammed 173 futile orders).
+    Each hero template has its own cap: chain Vercingetorix →
+    Viridomarus → Brennus gated on `getEntityMatchCounts()`.
+  - Gaul's fortress TRAINS NOTHING (no Trainer list); its value is the
+    Researcher: `attack_soldiers_will` (1500 of each resource; +25%
+    attack to Soldier+Siege+Ship, champions/heroes included) and half
+    the tower techs. Heroes and the carnyx (`champion_infantry_trumpeter`,
+    "Carnucos") train at `structures/gaul/assembly` (Assembly of
+    Princes, 400 wood, 25x25), never at the fortress.
+  - Barracks techs: `unlock_champion_infantry` (600 food, city) unlocks
+    `champion_infantry_swordsman` (80f/60w/80m); `barracks_batch_training`
+    (500 food) takes BatchTimeModifier 0.8 → 0.7 (~15% faster batches
+    of 5). Temple techs: heal_range/rate + _2 (200-300f/100-150m),
+    cost_healer (250f/100s). Tower techs at the stone defense_tower:
+    watch (500f, x1.5 arrows), range (500w/250m), murderholes
+    (250w/150s, also at fortress), crenellations (500s/250m), health
+    (500s/100m). Wonder: 1000w/1500s/1000m; `wonder_population_cap`
+    (2000f/3000w/500s/500m) = +20% pop as a wonder aura — needs the
+    wonder STANDING.
+  - Barter sustained rate is capped by the global price-drift recovery
+    (~0.5/5s vs ~8/deal): ~0.75 500-deals/min before the ratio guard
+    (sell/buy >= 0.5) stalls selling. Bursts fine, floods impossible.
+- The metal funding chain (the real blocker behind "no Will to Fight /
+  wonder too slow"): both one-time spends starve while the continuous
+  drains (rams 150/death, champion batches 400, miltechs 250-400, hero)
+  eat metal as it lands. Fixed in layers, each proven by a probe:
+  barter-buy the relatively scarcer ore toward the targets (metal
+  2200/stone 1800 wonder, 1700/1700 will — metal-first ordering
+  starved stone for 10 min in s217); hold champion batches and
+  metal-costing miltechs behind a 1700-metal floor while pending (s209
+  watched hack_02/pierce_02/melee_03 snipe the bought metal for 6 min);
+  hold the expansion CC stream behind the wonder's stone/metal (val s1:
+  3 CCs ate 1200 stone while the wonder waited from t=35.6 to the end).
+  The wonder hold expires after 15 min (5 min was not enough in s213 —
+  ram churn out-ate the buying).
+- Corral removed: it existed only to unlock stockbreeding while never
+  training an animal, and more food income deepens the bank imbalance.
+- Bank leveling: gatherer food/wood split slides toward the poor
+  resource past a 3k banked gap (inflow), and the expansion barter
+  sells 500 of the richer of food/wood every 15 turns above a 5k gap
+  (stock). Probe s203's end bank went 20k-vs-hundreds → 10k/5.8k.
+- Dead-storehouse razing: no supply within 55 m AND no gatherer within
+  45 m, expansion stage only, 1 per 150 turns, never near enemies — the
+  worker gate is what the old self-raze rule lacked (it razed dropsites
+  choppers still walked to; 2026-08-29 findloss note).
+- Raid rams pick one shared focus inside the army's 60 m bubble:
+  fortress > CC > tower/army camp (foundations demoted), latched until
+  it falls. Rarely triggered in probes (Petra's fortresses are forward,
+  not by her CC) — correct but quiet.
+- Validation (18 seeds, baseline b041c34 10W/5T/3L): **13W/2T/3L**, 0
+  JS errors; s13/s52/s104 timeout → win, losses held (70/138/141 are
+  the documented hard maps). Probe: s55 (perennial holdout) won.
+  Champions trained in bulk (s13: 32, s55: 37), heroes + 2-3 carnyxes
+  per game, fortresses in 11/18, assemblies in 14/18, `attack_soldiers_will`
+  researched (s13 probe 32.9, s217b 32.9), wonder ordered (s221 33.3,
+  s223 31.5).
