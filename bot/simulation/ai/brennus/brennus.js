@@ -2687,9 +2687,9 @@ BrennusBot.prototype.manageBarter = function()
 					!gameState.isResearched("attack_soldiers_will") && !gameState.isResearching("attack_soldiers_will");
 				const wonderPending = !(this.expPlan?.wonderDone);
 				let want;
-				if (wonderPending && res.metal < 1150)
+				if (wonderPending && res.metal < 2200)
 					want = "metal";
-				else if (wonderPending && res.stone < 1600)
+				else if (wonderPending && res.stone < 1800)
 					want = "stone";
 				else if (willPending && res.metal < 1700)
 					want = "metal";
@@ -4968,15 +4968,16 @@ BrennusBot.prototype.manageMilitaryTechs = function()
  * wonder or Will to Fight is still unfunded, the continuous spenders
  * (champion batches, metal-costing military techs) must leave 1700 metal
  * untouched — 1500 for Will to Fight plus the techMetal pad, 1100+ for the
- * wonder. The wonder hold expires after 5 min: an unplaceable wonder must
- * not freeze the tech tree and the champion stream forever.
+ * wonder. The wonder hold expires after 15 min: an unplaceable wonder must
+ * not freeze the tech tree and the champion stream forever (5 min was not
+ * enough in s213 — ram churn ate the bought metal faster than it landed).
  */
 BrennusBot.prototype.warMachineMetalHold = function(gameState)
 {
 	if (this.expansionOn() && !(this.expPlan?.wonderDone))
 	{
 		this.wonderHoldSince = this.wonderHoldSince || this.turn;
-		if (this.turn - this.wonderHoldSince < 1500)
+		if (this.turn - this.wonderHoldSince < 4500)
 			return 1700;
 	}
 	const fortressType = gameState.applyCiv("structures/{civ}/fortress");
