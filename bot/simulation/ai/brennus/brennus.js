@@ -3893,6 +3893,10 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		if (ent?.position())
 			ramEnts.push(ent);
 	}
+	// A ram costs 3 pop; popUsed already counts training reservations. At the
+	// cap the siege the raid gate waits for can never train, so the gate would
+	// never open — raid regardless instead of deadlocking at full pop.
+	const ramBlocked = gameState.getPopulationLimit() - gameState.getPopulation() < 3;
 	const sendRamsHome = () => {
 		if (homePos)
 			for (const ram of ramEnts)
@@ -3925,12 +3929,14 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			sendRamsHome();
 			sendHealersHome();
 		}
-		else if (ramEnts.length < 1 || this.turn - (this.offense.turn || 0) > 1800)
+		else if ((ramEnts.length < 1 && !ramBlocked && !this.offense.ramless) || this.turn - (this.offense.turn || 0) > 1800)
 		{
 			// Abort a stalled raid: no rams left means nobody razes the CC —
 			// the infantry just dies under its arrows while Petra reinforces
-			// (agg7 s1: one raid ground on for 12+ min at full army). The age
-			// cap is 6 min, not 2: the walk alone to a far CC takes ~2 min, and
+			// (agg7 s1: one raid ground on for 12+ min at full army), unless
+			// the raid was launched pop-blocked — then it is the deadlock
+			// break and its losses reopen ram pop. The age cap is 6 min, not
+			// 2: the walk alone to a far CC takes ~2 min, and
 			// agg8 s1 abort/relaunched twice at the 2-min mark — the army walked
 			// home and back each time and the second CC never even got attacked.
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid aborted at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} (rams=${ramEnts.length}, age=${((this.turn - (this.offense.turn || 0)) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
@@ -3950,8 +3956,10 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		// No rams, no raze: basic infantry cannot burn a garrisoned CC before
 		// reinforcements arrive — agg6 s2 raided with 0 rams at 20-21m and
 		// spent the army twice for nothing (the "arsenal not built yet"
-		// exception let those raids fire).
-		if (ramEnts.length < 2)
+		// exception let those raids fire). Except when pop-blocked: the siege
+		// can never train then, so waiting deadlocks the war stage at full
+		// pop — the raid goes in ramless and its losses reopen ram pop.
+		if (ramEnts.length < 2 && !ramBlocked)
 			return false;
 		if (enemyCCs.length < 1)
 			return false;
@@ -3973,10 +3981,14 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		if (!best)
 			return false;
 		const bp = best.position();
-		this.offense = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn };
+		this.offense = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn,
+			// Latch the pop-block waiver: pop flickers across the 3-pop
+			// line as the raid trades losses, and re-checking ramBlocked
+			// per block abort/relaunches the raid every few seconds.
+			"ramless": ramBlocked && ramEnts.length < 2 ? true : undefined };
 		this.ramMarch = {};	// fresh stuck-ram tracking for the new march
 		this.purge = undefined;	// the raid takes precedence over any purge
-		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${Math.floor(bestScore / 10000)}, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${Math.floor(bestScore / 10000)}, army=${armyEnts.length}, rams=${ramEnts.length}${this.offense.ramless ? ", no pop room for rams" : ""})\n`);
 		for (const ent of armyEnts)
 			ent.setStance("aggressive");
 	}

@@ -918,3 +918,27 @@ current mod: all 15 reproduced as genuine defeats, 0 JS errors. Verified:
   s138 (28.0 min) and s141 (43.0) are the same pattern as s70: raids
   grind the home CC while the army is elsewhere/thin. Wins averaged
   31.8 min vs 34.5 on seeds 1-100 — map draw, not bot change.
+
+## 2026-09-12 (pop-cap raid deadlock: pop flicker needs a latched waiver)
+
+- `getPopulation()` (playerData.popCount) is Player `popUsed`, which
+  INCLUDES pop reserved by started training items
+  (Trainer.js TryReservePopulationSlots). So
+  `getPopulationLimit() - getPopulation() < N` is exactly "a N-pop unit
+  can never train" and matches the engine's own check — a ram costs 3
+  pop (template_unit_siege.xml).
+- Deadlock shape (seeds 104/121/136/142/151/174): at 300/300 with <2
+  rams fielded, the raid gate (rams >= 2) never opens, ram training sits
+  pop-blocked, and the civilian-dismiss path only fires while the army
+  is below target — nothing ever frees pop. Fix: launch the raid
+  regardless when pop room < 3.
+- A pop threshold waiver OSCILLATES: pop hovers across the line as the
+  raid trades losses, so a per-block re-check abort/relaunched the raid
+  every few seconds (s104: 23 launches / 21 aborts in 7 min). Latch the
+  waiver on the raid object at launch (offense.ramless); abort only on
+  the 6-min age cap or army < 50. Result on the same 6 seeds: 2 launches
+  / 0-1 aborts per game, first CC razed 0.2-4.5 min sooner, 6/6 genuine
+  wins.
+- Once losses reopen pop the ram queue unblocks by itself (rams counted
+  from the queue at line ~4850), so a ramless raid gets its siege
+  mid-march without any relaunch logic.
