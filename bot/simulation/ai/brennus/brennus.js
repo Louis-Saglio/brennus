@@ -4957,6 +4957,26 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 	}
 };
 
+/**
+ * Metal the champion batches must not eat while the war machine's big
+ * one-time metal spends are unfunded: the wonder first (1150 — the barter
+ * buys toward it), then Will to Fight once the fortress stands (1700 —
+ * 1500 cost plus the techMetal pad). Zero once both are done, so the
+ * champion stream runs free for the rest of the war.
+ */
+BrennusBot.prototype.strategicMetalHold = function(gameState)
+{
+	if (!(this.expPlan?.wonderDone))
+		return 1150;
+	const fortressType = gameState.applyCiv("structures/{civ}/fortress");
+	const fortressUp = gameState.getOwnStructures().toEntityArray()
+		.some(ent => ent.templateName() === fortressType && ent.foundationProgress() === undefined);
+	if (fortressUp && !gameState.isResearched("attack_soldiers_will") &&
+		!gameState.isResearching("attack_soldiers_will"))
+		return 1700;
+	return 0;
+};
+
 /** Army production: barracks spearmen/javelineers (alternating) from the town phase on, temple fanatics after the boom; dismiss women for pop room only once the boom is done. */
 BrennusBot.prototype.manageDefenseTraining = function()
 {
@@ -5067,11 +5087,14 @@ BrennusBot.prototype.manageDefenseTraining = function()
 				// unlocked: 200 HP and 16 hack against the basic infantry's
 				// paper armor, at metal the war chest can spare (the batch is
 				// priced in full here — the loop's floors only cover the 50/50
-				// basic batch).
+				// basic batch). Champions hold while the war machine's big
+				// one-time metal spends are unfunded — probe s205/s207 bought
+				// ~3000 metal by barter and the champion batches ate it as it
+				// landed, so neither the wonder nor Will to Fight ever fired.
 				if (boom && gameState.isResearched("unlock_champion_infantry") &&
 					(this.champTick = ((this.champTick || 0) + 1) % 3) === 0 &&
 					res.food >= 80 * milBatch && res.wood >= 60 * milBatch &&
-					res.metal >= 80 * milBatch + 50)
+					res.metal >= 80 * milBatch + 50 + this.strategicMetalHold(gameState))
 				{
 					ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_infantry_swordsman"), milBatch, {});
 					this.arbiter.spend(res, "defenseTraining", { "food": 80 * milBatch, "wood": 60 * milBatch, "metal": 80 * milBatch }, `champions x${milBatch}`);
