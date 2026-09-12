@@ -2685,16 +2685,17 @@ BrennusBot.prototype.manageBarter = function()
 					.some(ent => ent.templateName() === fortressType && ent.foundationProgress() === undefined);
 				const willPending = fortressUp &&
 					!gameState.isResearched("attack_soldiers_will") && !gameState.isResearching("attack_soldiers_will");
-				const wonderPending = !(this.expPlan?.wonderDone);
+				let wonderPending = !(this.expPlan?.wonderDone);
+				if (wonderPending && res.metal >= 2200 && res.stone >= 1800)
+					wonderPending = false;
 				let want;
-				if (wonderPending && res.metal < 2200)
-					want = "metal";
-				else if (wonderPending && res.stone < 1800)
-					want = "stone";
-				else if (willPending && res.metal < 1700)
-					want = "metal";
-				else if (willPending && res.stone < 1700)
-					want = "stone";
+				if (wonderPending)
+					// Metal-first ordering starved stone for 10 minutes in
+					// probe s217 (the CC stream ate every stone deal) — buy
+					// whichever ore is relatively scarcer against the target.
+					want = res.metal / 2200 <= res.stone / 1800 ? "metal" : "stone";
+				else if (willPending && (res.metal < 1700 || res.stone < 1700))
+					want = res.metal <= res.stone ? "metal" : "stone";
 				if (want)
 				{
 					const prices = gameState.getBarterPrices();
