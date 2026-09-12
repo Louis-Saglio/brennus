@@ -37,7 +37,7 @@ def main(jobs_tsv, outdir):
             continue
         seed, batch, job = line.split()
         src = Path(f"/var/lib/kiln/results/kimi-agent/{batch}/{job}")
-        out = Path(outdir) / f"s{seed}"
+        out = Path(outdir) / "artifacts" / f"s{seed}"
         out.mkdir(parents=True, exist_ok=True)
         if not (out / "stdout.log").exists():
             subprocess.run(["sudo", "tar", "-xzf", str(src / "artifacts.tar.gz"), "-C", str(out)], check=False)
