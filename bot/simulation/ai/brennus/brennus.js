@@ -48,7 +48,11 @@ BrennusBot.prototype.currentShares = function(total)
 			for (const tech of ["gather_farming_plows", "gather_farming_training", "gather_farming_harvester"])
 				if (!this.gameState.isResearched(tech) && !this.gameState.isResearching(tech))
 					grainMetal += this.gameState.getTemplate(tech).cost().metal || 0;
-			const target = { "stone": 850, "metal": 850 + grainMetal };
+			// The stone target carries the slinger revolving fund past the
+			// 850 city bank: slinger batches spend it back down and the
+			// miners refill, so the pre-war stone stream lives through the
+			// whole muster window instead of stopping at the bank.
+			const target = { "stone": 850 + this.arbiterParams.slingers.fund, "metal": 850 + grainMetal };
 			let mining = 0;
 			for (const res2 of ["stone", "metal"])
 			{
@@ -246,6 +250,17 @@ BrennusBot.prototype.arbiterParams = {
 	"surge": {
 		"cap": 100,
 		"batch": 3
+	},
+	// slingers — the pre-war stone contingent: every "every"-th pre-war
+	// barracks batch trains slingers instead of spear/javelin (45 m range —
+	// they pelt raiders over the melee line in dense urban chokes where a
+	// 30 m javelin cannot shoot past its own spearmen). A slinger batch only
+	// fires above the 850-stone city bank, and "fund" keeps the phase-2
+	// stone miners working past the bank so the stream does not die after
+	// the first batches.
+	"slingers": {
+		"every": 3,
+		"fund": 450
 	},
 	"warChest": {
 		"fundWood": 150,
@@ -5026,7 +5041,7 @@ BrennusBot.prototype.heroChain = [
 	"units/{civ}/hero_brennus"
 ];
 
-/** Army production: barracks spearmen/javelineers (alternating) from the town phase on, temple fanatics after the boom; dismiss women for pop room only once the boom is done. */
+/** Army production: barracks spearmen/javelineers (alternating, slingers every third batch pre-war) from the town phase on, temple fanatics after the boom; dismiss women for pop room only once the boom is done. */
 BrennusBot.prototype.manageDefenseTraining = function()
 {
 	if (!this.defenseOn())
@@ -5149,6 +5164,23 @@ BrennusBot.prototype.manageDefenseTraining = function()
 					this.arbiter.spend(res, "defenseTraining", { "food": 80 * milBatch, "wood": 60 * milBatch, "metal": 80 * milBatch }, `champions x${milBatch}`);
 					print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training champions x${milBatch}\n`);
 					continue;
+				}
+				// Pre-war, every slingers.every-th barracks batch is slingers:
+				// 45 m range pelts raiders over the melee line in dense urban
+				// chokes where a 30 m javelin cannot shoot past its own
+				// spearmen. Gated on the 850-stone city bank staying funded —
+				// a slinger never eats the phase research money; the mining
+				// target's revolving fund refills what the stream spends.
+				if (!boom)
+				{
+					this.slingerTick = ((this.slingerTick || 0) + 1) % this.arbiterParams.slingers.every;
+					if (this.slingerTick === 0 && res.stone >= 850 + 30 * milBatch)
+					{
+						ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/infantry_slinger_b"), milBatch, {});
+						this.arbiter.spend(res, "defenseTraining", { "food": 50 * milBatch, "wood": 20 * milBatch, "stone": 30 * milBatch }, `slingers x${milBatch}`);
+						print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training slingers x${milBatch}\n`);
+						continue;
+					}
 				}
 				const type = gameState.applyCiv(this.spearNext ?
 					"units/{civ}/infantry_spearman_b" : "units/{civ}/infantry_javelineer_b");
