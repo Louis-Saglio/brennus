@@ -1091,3 +1091,38 @@ wonder). 200-seed sweep vs the 565bb9b baseline, identical settings.
   butterfly effect, not evidence. The 200-seed tally is the signal.
 - Kept the new order: it converts a metal gate that filled in 35/200
   games into researched techs in 171/200 games at zero measured cost.
+
+## 2026-09-13 (pre-war slingers: 65dc63c sweep 187/10/3 vs 188/9/3, hard-seed bucket 12 → 3 held)
+
+Louis: brennus never trained slingers; train some for early fights in
+dense urban chokes where their range helps. Every 3rd pre-war barracks
+batch is now slingers (`slingers.every`), gated on stone >= 850 + batch
+cost (never eats the city bank); the phase-2 stone target carries a +450
+revolving fund (`slingers.fund`) so mining outlives the bank. War stage
+unchanged.
+
+- Gaul slinger (pinned templates): 50f/20w/30s, range 45, 11.5 pierce +
+  1.1 crush per 1.5 s (8.4 dps), spread 3, armor 1/1 — javelineer: range
+  30, 16 pierce (10.7 dps), 50f/50w, identical armor. Slinger trades ~20%
+  dps for +50% range and moves 20% faster.
+- Stream works: 6570 slinger batches in 194/200 games, first at t=11-16
+  (the wave window); the 6 no-slinger games are stone-poor/short — the
+  gate degrades to the old spear/javelin mix. Stone gathered +15%
+  (1.03M -> 1.19M) with NO boom cost: war-stage median 18.4 -> 18.7,
+  paired mean -0.11, defense-stage bit-identical, infantry -0.5%.
+- Melee batches print nothing — counting only "training slingers" lines
+  overestimates the share; measured slingers are ~36% of infantry
+  (s138 stats: 75 of 211), matching the 1/3 design.
+- 200-seed sweep: 187W/10T/3L vs 188W/9T/3L, 0 JS errors. All 3
+  documented hard losses (70/138/141) + 6 of 9 timeouts converted; 10
+  comfortable baseline wins (26.5-39.6m) churned out — 7 to timeout,
+  s61/s113/s199 to losses with documented pre-existing shapes
+  (even-fight annihilation, early eco massacre, recall walk into a
+  121+4-siege blob). Aggregate K/D 1.173 -> 1.178 (wash). Paired wins:
+  mean -0.05 min, median -0.30.
+- Churn calibration: 19 flips here vs 1 flip for the f2e9433 research
+  reorder — changing army composition perturbs every game; verdict-level
+  churn on comfortable-win seeds is the price of any unit-mix change.
+  The tally and the aggregates are the signal; both are neutral.
+- Kept per doctrine: theoretically sound, no harmful mechanism found,
+  hard-seed bucket 12 -> 3 held (47, 88, 170).
