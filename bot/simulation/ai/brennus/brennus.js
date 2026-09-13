@@ -2672,30 +2672,27 @@ BrennusBot.prototype.manageBarter = function()
 
 		if (!this.manageExpansionBarter(market))
 		{
-			// Strategic buying: the war machine's big one-time spends — the
-			// wonder (1000 metal / 1500 stone) and Will to Fight (1500/1500) —
-			// starve on metal while the food mountain grows (probe s203: metal
-			// sat at 70-550 for 15 min with 8-10k food banked, so neither the
-			// wonder nor Will to Fight ever fired). Sell food toward the
-			// missing amounts before any other food deal.
+			// Strategic buying: the war machine's big one-time spends — Will
+			// to Fight (1500 metal / 1500 stone) first, then the wonder
+			// (1000 metal / 1500 stone) — starve on metal while the food
+			// mountain grows (probe s203: metal sat at 70-550 for 15 min
+			// with 8-10k food banked, so neither the wonder nor Will to
+			// Fight ever fired). Sell food toward the missing amounts before
+			// any other food deal.
 			if (this.turn % 15 === 0 && res.food >= 4000)
 			{
-				const fortressType = gameState.applyCiv("structures/{civ}/fortress");
-				const fortressUp = gameState.getOwnStructures().toEntityArray()
-					.some(ent => ent.templateName() === fortressType && ent.foundationProgress() === undefined);
-				const willPending = fortressUp &&
-					!gameState.isResearched("attack_soldiers_will") && !gameState.isResearching("attack_soldiers_will");
-				let wonderPending = !(this.expPlan?.wonderDone);
+				const willPending = this.willToFightPending(gameState);
+				let wonderPending = !willPending && !(this.expPlan?.wonderDone);
 				if (wonderPending && res.metal >= 2200 && res.stone >= 1800)
 					wonderPending = false;
 				let want;
-				if (wonderPending)
+				if (willPending && (res.metal < 1700 || res.stone < 1700))
+					want = res.metal <= res.stone ? "metal" : "stone";
+				else if (wonderPending)
 					// Metal-first ordering starved stone for 10 minutes in
 					// probe s217 (the CC stream ate every stone deal) — buy
 					// whichever ore is relatively scarcer against the target.
 					want = res.metal / 2200 <= res.stone / 1800 ? "metal" : "stone";
-				else if (willPending && (res.metal < 1700 || res.stone < 1700))
-					want = res.metal <= res.stone ? "metal" : "stone";
 				if (want)
 				{
 					const prices = gameState.getBarterPrices();
@@ -4908,11 +4905,12 @@ BrennusBot.prototype.placeTower = function(center, want)
 	return true;
 };
 
-/** War-stage research in priority order: forge tiers 1-2, Will to Fight
- * (+25% attack to soldiers and siege — needs the fortress), forge tier 3,
- * the barracks production techs, the tower line and the druid line. Costs
- * are list prices; gaul's team bonus makes the forge ones 15% cheaper, so
- * the gates stay conservative. */
+/** War-stage research in priority order: the full forge line through tier 3
+ * (tier 3 supersedes tier 2, so the chain runs in order), then Will to
+ * Fight (+25% attack to soldiers and siege — needs the fortress), the
+ * barracks production techs, the tower line and the druid line. Costs are
+ * list prices; gaul's team bonus makes the forge ones 15% cheaper, so the
+ * gates stay conservative. */
 BrennusBot.prototype.militaryTechs = [
 	["soldier_attack_melee_01", { "food": 200, "metal": 100 }],
 	["soldier_attack_ranged_01", { "wood": 200, "metal": 100 }],
@@ -4922,11 +4920,11 @@ BrennusBot.prototype.militaryTechs = [
 	["soldier_attack_ranged_02", { "wood": 350, "metal": 250 }],
 	["soldier_resistance_hack_02", { "food": 350, "metal": 250 }],
 	["soldier_resistance_pierce_02", { "wood": 350, "metal": 250 }],
-	["attack_soldiers_will", { "food": 1500, "wood": 1500, "stone": 1500, "metal": 1500 }],
 	["soldier_attack_melee_03", { "food": 500, "metal": 400 }],
 	["soldier_attack_ranged_03", { "wood": 500, "metal": 400 }],
 	["soldier_resistance_hack_03", { "food": 500, "metal": 400 }],
 	["soldier_resistance_pierce_03", { "wood": 500, "metal": 400 }],
+	["attack_soldiers_will", { "food": 1500, "wood": 1500, "stone": 1500, "metal": 1500 }],
 	["unlock_champion_infantry", { "food": 600 }],
 	["barracks_batch_training", { "food": 500 }],
 	["tower_watch", { "food": 500 }],
@@ -4947,10 +4945,13 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 		return;
 	const gameState = this.gameState;
 	const res = this.arbiter.books("milTechs");
-	// While the wonder or Will to Fight is unfunded, every other metal-costing
-	// tech must leave 1700 metal standing — probe s209 watched hack_02,
-	// pierce_02 and melee_03 snipe the barter-bought metal at the 550-800
-	// level for 6 minutes while the 1650 Will to Fight gate never filled.
+	// The forge line outranks the war machine's big one-time spends and is
+	// exempt from their metal hold; the techs listed behind Will to Fight
+	// must leave 1700 metal standing while Will or the wonder is unfunded —
+	// probe s209 watched hack_02, pierce_02 and melee_03 snipe the
+	// barter-bought metal at the 550-800 level for 6 minutes while the 1650
+	// Will to Fight gate never filled (that was under the old Will-first
+	// order; the forge line now goes first on purpose).
 	const metalHold = this.warMachineMetalHold(gameState);
 	for (const [tech, cost] of this.militaryTechs)
 	{
@@ -4964,7 +4965,7 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 		if (!facility || !gameState.canResearch(tech))
 			continue;
 		if (!res.canAfford(cost) || res.metal < (cost.metal || 0) + this.arbiterParams.warChest.techMetal +
-				(tech === "attack_soldiers_will" ? 0 : metalHold))
+				(tech.startsWith("soldier_") ? 0 : metalHold))
 			continue;
 		facility.research(tech);
 		this.arbiter.spend(res, "milTechs", cost, tech);
@@ -4975,23 +4976,38 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 };
 
 /**
- * The wonder's funding window: from the expansion stage until it stands,
+ * Will to Fight is pending only while a completed fortress can research it
+ * — without the fortress the tech is unreachable, and the wonder must not
+ * queue behind it forever.
+ */
+BrennusBot.prototype.willToFightPending = function(gameState)
+{
+	if (gameState.isResearched("attack_soldiers_will") || gameState.isResearching("attack_soldiers_will"))
+		return false;
+	const fortressType = gameState.applyCiv("structures/{civ}/fortress");
+	return gameState.getOwnStructures().toEntityArray()
+		.some(ent => ent.templateName() === fortressType && ent.foundationProgress() === undefined);
+};
+
+/**
+ * The wonder's funding window: from the moment Will to Fight is funded
+ * (the spend order is forge line, Will, wonder) until the wonder stands,
  * capped at 15 min so an unplaceable wonder releases the tech tree, the
  * champion stream and the expansion CC stream (5 min was not enough in
  * s213 — ram churn ate the bought metal faster than it landed).
  */
 BrennusBot.prototype.wonderHoldActive = function(gameState)
 {
-	if (!this.expansionOn() || this.expPlan?.wonderDone)
+	if (!this.expansionOn() || this.expPlan?.wonderDone || this.willToFightPending(gameState))
 		return false;
 	this.wonderHoldSince = this.wonderHoldSince || this.turn;
 	return this.turn - this.wonderHoldSince < 4500;
 };
 
 /**
- * One-time metal spends get funded before the continuous drains: while the
- * wonder or Will to Fight is still unfunded, the continuous spenders
- * (champion batches, metal-costing military techs) must leave 1700 metal
+ * One-time metal spends get funded before the continuous drains: while
+ * Will to Fight or the wonder is still unfunded, the continuous spenders
+ * (champion batches, the techs listed behind them) must leave 1700 metal
  * untouched — 1500 for Will to Fight plus the techMetal pad, 1100+ for the
  * wonder.
  */
@@ -4999,11 +5015,7 @@ BrennusBot.prototype.warMachineMetalHold = function(gameState)
 {
 	if (this.wonderHoldActive(gameState))
 		return 1700;
-	const fortressType = gameState.applyCiv("structures/{civ}/fortress");
-	const fortressUp = gameState.getOwnStructures().toEntityArray()
-		.some(ent => ent.templateName() === fortressType && ent.foundationProgress() === undefined);
-	if (fortressUp && !gameState.isResearched("attack_soldiers_will") &&
-		!gameState.isResearching("attack_soldiers_will"))
+	if (this.willToFightPending(gameState))
 		return 1700;
 	return 0;
 };
@@ -6014,9 +6026,11 @@ BrennusBot.prototype.manageExpansion = function()
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const plan = this.expPlan;
 
-	// Wonder (Glorious Expansion +20% pop): ordered the moment the expansion
-	// stage can fund it — waiting for the first expansion CC to stand first
-	// pushed the pop tech minutes past the point the +60 pop mattered.
+	// Wonder (Glorious Expansion +20% pop): ordered once Will to Fight is
+	// funded — the spend order is forge line, Will, wonder — and the
+	// expansion stage can pay for it (waiting for the first expansion CC to
+	// stand first pushed the pop tech minutes past the point the +60 pop
+	// mattered).
 	if (full && !plan.wonderDone)
 	{
 		const wonderType = gameState.applyCiv("structures/{civ}/wonder");
@@ -6029,7 +6043,8 @@ BrennusBot.prototype.manageExpansion = function()
 		{
 
 		}
-		else if (!this.pendingBuilds.some(pb => pb.template === wonderType) &&
+		else if (!this.willToFightPending(gameState) &&
+			!this.pendingBuilds.some(pb => pb.template === wonderType) &&
 			!this.arbiter.held("construction"))
 		{
 			const res = this.arbiter.books("expansion");
