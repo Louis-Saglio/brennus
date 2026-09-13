@@ -1063,3 +1063,31 @@ only, no war machine) on the same settings.
 - Chaos caveat: near-cap verdicts are coin flips across runners; the
   12/3 split has noise, the tally (23 → 8, zero regressions) is the
   signal.
+
+## 2026-09-13 (war-machine spend order: forge line → Will → wonder is neutral)
+
+Question (Louis): research the tier-3 forge techs before Will to Fight and
+the wonder instead of after both. Implemented in f2e9433 (forge line exempt
+from the 1700-metal hold; wonder order, wonder holds and war-machine barter
+gated on Will funded via `willToFightPending()` — pending only while a
+completed fortress stands, so a missing/razed fortress never deadlocks the
+wonder). 200-seed sweep vs the 565bb9b baseline, identical settings.
+
+- **Exactly neutral**: 188W/9T/3L vs 189W/8T/3L (one flip, s135
+  win→timeout, zero conversions); 188 paired wins mean +0.03 min, median
+  0.00, 29 seeds ≥1 min faster, 29 slower. War-stage/expansion/first-raid
+  medians identical to the decimal across all 200 games (18.4/25.1/24.8).
+- Feature shift: forge tier-3 techs 0 → 171 games (566 techs), Will to
+  Fight 35 → 3, wonder 68 → 56, pop tech 23 → 15. The forge line eats
+  Will's metal window almost everywhere.
+- **Attack/armor tech level is not the bottleneck** vs diff-3 aggressive
+  Petra: the 35 games that had Will at baseline did not slow without it
+  (median −0.1 min), and 171 games of tier-3s bought no speed either.
+  Neither +25% (Will) nor the cumulative forge line moves wins or kill
+  clock. The levers that matter remain army numbers, rams/pop room, raid
+  cadence.
+- Chaos calibration: s135's whole game drifted ~5 min late with every
+  macro timing unchanged — a one-seed flip between two nearby mods is
+  butterfly effect, not evidence. The 200-seed tally is the signal.
+- Kept the new order: it converts a metal gate that filled in 35/200
+  games into researched techs in 171/200 games at zero measured cost.
