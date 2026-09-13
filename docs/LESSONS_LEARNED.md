@@ -3,6 +3,41 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-13 (cavalry: stable + sword-cav contingent + ram/ranged targeting)
+
+- New military production lines must be FIRST-CLASS like the rams: a new
+  trainer type added to the manageDefenseTraining infantry loop, gated
+  behind the shared muster floors and the Will-to-Fight metal hold, never
+  fires (smoke s42: stable stood 4 min, 0 batches — wood 103 after the
+  building spree, metal 336 vs the 1700 hold). The ram pattern is the fix:
+  collect the stables separately, `arbiter.reserve()` one batch, train
+  BEFORE the infantry loop, and size the metal floor to what the line
+  actually threatens (24 cav = 240 metal total; holding 1700 for Will is
+  nonsense at that scale).
+- Big-footprint military buildings (stable 25x25, arsenal 29x29,
+  fortress) routinely find no hole in the crowded home rings late: the
+  pre-fix cav sweep logged 5-7 consecutive stable placement failures on 4
+  of 10 seeds (one seed never placed it). Military production does not
+  need a central spot — tryConstruct now scans out to 200 m for kind
+  "military" (dropsites/civic unchanged). Post-fix: 0 failures on the
+  same 5 worst seeds, stables land 7-12 min earlier.
+- Citizen cavalry is a gatherer (meat only): without an explicit guard,
+  manageDemobilization sends trained cav to herd and manageHerding
+  conscripts any Cavalry as the replacement herder (army enrollment skips
+  herderId — a sword cavalryman would vanish from the roster). Demob now
+  skips Cavalry; herding accepts only the cavalry_javelineer template.
+- Game-data facts (0.28.0): gaul stable is VILLAGE phase, 250 wood (civ
+  bonus: no stone); sword cav (Eporedos) 100f/40w/10m, 1 pop, 9 hack @
+  0.75 s, run 25.2 m/s, auto-buffed +10% by "Superior Cavalry". Siege ram
+  armor is 7 hack / 35 PIERCE — javelins are useless against rams, hack
+  cavalry is the counter (siege-first target choice verified firing in
+  the s77 smoke: "engaging 0 enemies (siege=1) (army=42, cav=5)").
+- Validation: 10-seed A/B vs baseline (1-10) showed 9 wins + 1 time-limit
+  draw (s4, chaotic — BOTH builds wiped their first raid there; baseline
+  also has 45m stalls on other seeds historically), wins 1.7-4.8 min
+  faster when the contingent fields; after the placement fix the
+  placement-worst seeds all win (s4 flipped to the fastest win, 25.4m).
+
 ## 2026-09-10 (bootstrap storehouse: the opener places the first storehouse)
 
 - The manageConstruction bootstrap now orders the first storehouse right

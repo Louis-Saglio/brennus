@@ -239,6 +239,10 @@ BrennusBot.prototype.arbiterParams = {
 		"workerCap": 150,
 		"dismissFloor": 145,
 		"armyTarget": 120,
+		// Mounted contingent inside armyTarget: sword cavalry counts as
+		// Soldiers, so the 120-pop army budget is unchanged — this only
+		// caps how much of it the stable fills.
+		"cavalry": 24,
 		"healersWar": 10,
 		"healersEarly": 4,
 		"rams": 6,
@@ -1251,8 +1255,13 @@ BrennusBot.prototype.manageHerding = function()
 		herder = undefined;
 	if (!herder)
 	{
+		// Only the javelineer herds: the wound-then-steer routine is built
+		// around a ranged poke, and a trained sword cavalryman must never be
+		// kidnapped into herding — the army roster skips the herder, so it
+		// would silently vanish from the war machine.
 		for (const ent of gameState.getOwnUnits().values())
-			if (ent.position() && ent.isGatherer() && ent.hasClass("Cavalry"))
+			if (ent.position() && ent.isGatherer() &&
+				ent.templateName().indexOf("cavalry_javelineer") !== -1)
 			{
 				herder = ent;
 				break;
@@ -1728,8 +1737,9 @@ BrennusBot.prototype.trainWorkers = function()
 		return;
 
 	// War-stage pop discipline: hold workers at the pop-partition cap and
-	// leave the rest of the 300 cap free for the army (120) + healers (10) +
-	// rams (6 × 3 pop) = 298 total. 175 workers pop-blocked the army at ~60
+	// leave the rest of the 300 cap free for the army (120, up to
+	// popPartition.cavalry of them mounted) + healers (10) + rams
+	// (6 × 3 pop) = 298 total. 175 workers pop-blocked the army at ~60
 	// until dismissal kicked in 15 min after city (agg11 s3), and the war
 	// economy runs a 10k+ food surplus anyway.
 	// Refilling army losses with women only to dismiss them on the next
@@ -2826,7 +2836,12 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 		pos = this.findBuildingPosition(templateType, center || ccPos, 10, 28, true, region);
 	else
 
-		pos = this.findBuildingPosition(templateType, center || ccPos, 10, 130, true, region);
+		// Military production buildings need no central spot (unlike dropsites)
+		// and the big ones (stable 25x25, arsenal 29x29, fortress) find no hole
+		// in the crowded home rings late — the cav sweep logged 5-7 consecutive
+		// stable placement failures on 4 of 10 seeds, and no stable at all on
+		// one. Scan out to 200 m for them.
+		pos = this.findBuildingPosition(templateType, center || ccPos, 10, kind === "military" ? 200 : 130, true, region);
 	if (!pos && kind !== "dropsite")
 
 		pos = this.findBuildingPosition(templateType, ccPos, 12, 120, true, region);
@@ -3144,6 +3159,39 @@ BrennusBot.prototype.armyCount = function()
 };
 
 /**
+ * Cavalry target choice: nearest Siege first — rams are the enemy's kill
+ * clock, and their 35 pierce / 7 hack armor makes javelins useless while
+ * sword cavalry's hack (plus gaul's +10% cavalry damage bonus) cuts
+ * through; else nearest Ranged — the enemy back line folds once a melee
+ * unit touches it, and cavalry's run speed gets it around the frontline.
+ * Returns undefined when no preferred target exists: the caller falls back
+ * to the shared order (attackMove / nearest foe) so cavalry still fights
+ * as a normal soldier.
+ */
+BrennusBot.prototype.pickCavalryTarget = function(foes, pos)
+{
+	let siege, siegeDist, ranged, rangedDist;
+	for (const foe of foes)
+	{
+		const d = SquareDistance(foe.position(), pos);
+		if (foe.hasClass("Siege"))
+		{
+			if (siege === undefined || d < siegeDist)
+			{
+				siege = foe;
+				siegeDist = d;
+			}
+		}
+		else if (foe.hasClass("Ranged") && (ranged === undefined || d < rangedDist))
+		{
+			ranged = foe;
+			rangedDist = d;
+		}
+	}
+	return siege || ranged;
+};
+
+/**
  * Eject roster soldiers/healers from every own holder. Garrisoned units
  * have no position and drop out of armyEnts, so any consumer downstream of
  * the garrison order (swat, raid, purge, rally) silently runs at reduced
@@ -3256,7 +3304,9 @@ BrennusBot.prototype.manageDemobilization = function(gameState, incoming)
 		if (this.demobilized[id])
 			continue;
 		const ent = gameState.getEntityById(+id);
-		if (!ent?.position() || !ent.isGatherer())
+		// Cavalry never demobilizes: it only gathers meat, and the war
+		// machine trained it to fight, not to herd.
+		if (!ent?.position() || !ent.isGatherer() || ent.hasClass("Cavalry"))
 			continue;
 		this.demobilized[id] = 1;
 		delete this.assignments[id];
@@ -3495,7 +3545,13 @@ BrennusBot.prototype.manageDefense = function()
 			// mission continues untouched.
 		}
 		if (!this.hadThreat)
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m engaging ${threat.n} enemies (siege=${threat.siegeN}) near CC ${threat.x.toFixed(0)},${threat.z.toFixed(0)} (army=${armyEnts.length})\n`);
+		{
+			let cavN = 0;
+			for (const ent of armyEnts)
+				if (ent.hasClass("Cavalry"))
+					cavN++;
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m engaging ${threat.n} enemies (siege=${threat.siegeN}) near CC ${threat.x.toFixed(0)},${threat.z.toFixed(0)} (army=${armyEnts.length}${cavN ? `, cav=${cavN}` : ""})\n`);
+		}
 		if (this.turn >= this.armyCmdTurn)
 		{
 			this.armyCmdTurn = this.turn + 10;
@@ -3535,8 +3591,38 @@ BrennusBot.prototype.manageDefense = function()
 				// the fight may have moved CCs since they hid) and take the
 				// fight to them.
 				this.ejectArmyGarrisons(gameState);
+				// Cavalry hunts its preferred targets directly (siege first,
+				// then the ranged back line) instead of blobbing in with the
+				// attackMove — an attackMove would drop it onto the enemy's
+				// melee frontline, which is exactly where it is weakest.
+				// The foe scan runs at most once per command round and only
+				// when cavalry is actually among the responders.
+				let cavFoes;
 				for (const ent of responders)
+				{
+					if (ent.hasClass("Cavalry"))
+					{
+						if (cavFoes === undefined)
+						{
+							cavFoes = [];
+							for (const foe of gameState.getEnemyUnits().values())
+							{
+								if (foe.owner() === 0 || (!foe.hasClass("Soldier") && !foe.hasClass("Siege")))
+									continue;
+								const fp = foe.position();
+								if (fp && SquareDistance(fp, [threat.x, threat.z]) < 100 * 100)
+									cavFoes.push(foe);
+							}
+						}
+						const target = this.pickCavalryTarget(cavFoes, ent.position());
+						if (target)
+						{
+							ent.attack(target.id(), false);
+							continue;
+						}
+					}
 					ent.attackMove(threat.x, threat.z, "Unit", false);
+				}
 				if (!split)
 					for (const ent of healerEnts)
 						ent.move(threat.x, threat.z);
@@ -4127,6 +4213,18 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		}
 		if (foes.length)
 		{
+			// Cavalry flanks: siege first, then the ranged back line — its run
+			// speed carries it around the melee frontline that pins the
+			// infantry. Nearest-foe remains the fallback.
+			if (ent.hasClass("Cavalry"))
+			{
+				const cavTarget = this.pickCavalryTarget(foes, ent.position());
+				if (cavTarget)
+				{
+					ent.attack(cavTarget.id(), false);
+					continue;
+				}
+			}
 			let best, bestDist;
 			for (const foe of foes)
 			{
@@ -4790,7 +4888,12 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 		[gameState.applyCiv("structures/{civ}/assembly"), boom ? 1 : 0, { "wood": 400 }],
 		// The fortress exists for Will to Fight (+25% attack) — that tech is
 		// the whole point of paying 600 stone.
-		[gameState.applyCiv("structures/{civ}/fortress"), boom ? 1 : 0, { "wood": 300, "stone": 600 }]
+		[gameState.applyCiv("structures/{civ}/fortress"), boom ? 1 : 0, { "wood": 300, "stone": 600 }],
+		// The stable comes last: sword cavalry is a force multiplier on top of
+		// the infantry/ram/hero core, not a substitute for it. War stage only —
+		// before the economy is developed a 250-wood building whose output
+		// cannot gather (citizen cavalry only herds meat) is a pure drain.
+		[gameState.applyCiv("structures/{civ}/stable"), boom ? 1 : 0, { "wood": 250 }]
 	];
 	// While any of these is missing, training holds a wood reserve (see
 	// manageDefenseTraining) so the buildings actually get funded — otherwise
@@ -4942,6 +5045,10 @@ BrennusBot.prototype.militaryTechs = [
 	["attack_soldiers_will", { "food": 1500, "wood": 1500, "stone": 1500, "metal": 1500 }],
 	["unlock_champion_infantry", { "food": 600 }],
 	["barracks_batch_training", { "food": 500 }],
+	// Stable line: Horse Racing before Horse Breeding — the flank/ram-snipe
+	// tactics lean on the speed more than on the HP.
+	["cavalry_movement_speed", { "food": 100, "metal": 50 }],
+	["cavalry_health", { "food": 200, "metal": 75 }],
 	["tower_watch", { "food": 500 }],
 	["tower_range", { "wood": 500, "metal": 250 }],
 	["tower_murderholes", { "wood": 250, "stone": 150 }],
@@ -5050,16 +5157,29 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	const res = this.arbiter.books("defenseTraining");
 	const barracksType = gameState.applyCiv("structures/{civ}/barracks");
 	const templeType = gameState.applyCiv("structures/{civ}/temple");
+	const stableType = gameState.applyCiv("structures/{civ}/stable");
 	let queued = 0;
 	const trainers = [];
+	const stables = [];
+	let cavQueued = 0;
 	for (const ent of gameState.getOwnStructures().values())
 	{
 		if (ent.foundationProgress() !== undefined)
 			continue;
-		if (ent.templateName() !== barracksType && ent.templateName() !== templeType)
+		if (ent.templateName() !== barracksType && ent.templateName() !== templeType &&
+			ent.templateName() !== stableType)
 			continue;
 		for (const item of ent.trainingQueue() || [])
 			queued += item.count;
+		if (ent.templateName() === stableType)
+		{
+			for (const item of ent.trainingQueue() || [])
+				if (item.unitTemplate && item.unitTemplate.indexOf("cavalry") !== -1)
+					cavQueued += item.count;
+			if ((ent.trainingQueue()?.length || 0) <= 1)
+				stables.push(ent);
+			continue;
+		}
 		if ((ent.trainingQueue()?.length || 0) <= 1)
 			trainers.push(ent);
 	}
@@ -5137,6 +5257,40 @@ BrennusBot.prototype.manageDefenseTraining = function()
 		surging ? this.arbiterParams.surge.batch : this.arbiterParams.foodSplit.musterBatch;
 	const floorF = boom ? this.arbiterParams.warChest.musterFood : this.arbiterParams.foodSplit.musterFloor.food;
 	const floorW = boom ? (this.arbiter.declared("defenseGap") ? this.arbiterParams.warChest.musterWoodGap : this.arbiterParams.warChest.musterWood) : this.arbiterParams.foodSplit.musterFloor.wood;
+	// Sword cavalry, first-class like the rams: the contingent trains BEFORE
+	// the infantry loop and holds its own reserve — smoke s42 showed the
+	// alternative: gated behind the infantry floors and the Will-to-Fight
+	// metal hold, a stable stood 4 minutes and trained nothing. War stage
+	// only (citizen cavalry cannot gather or build — meat herding aside —
+	// so before the boom it is a pure drain). The metal floor is only the
+	// tech stream's: the whole contingent costs 240 metal, one-seventh of a
+	// Will to Fight; holding 1700 for it would re-create the s42 stall.
+	if (boom && stables.length)
+	{
+		const cavCap = this.arbiterParams.popPartition.cavalry;
+		let cavCount = cavQueued;
+		for (const id in this.army)
+		{
+			const ent = gameState.getEntityById(+id);
+			if (ent?.hasClass("Cavalry"))
+				cavCount++;
+		}
+		if (cavCount < cavCap)
+		{
+			this.arbiter.reserve("cavalry", { "food": 100 * milBatch, "wood": 40 * milBatch, "metal": 10 * milBatch });
+			for (const stable of stables)
+			{
+				if (cavCount >= cavCap ||
+					res.food < 100 * milBatch || res.wood < 40 * milBatch ||
+					res.metal < 10 * milBatch + this.arbiterParams.warChest.techMetal)
+					break;
+				stable.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/cavalry_swordsman_b"), milBatch, {});
+				this.arbiter.spend(res, "defenseTraining", { "food": 100 * milBatch, "wood": 40 * milBatch, "metal": 10 * milBatch }, `cavalry x${milBatch}`);
+				cavCount += milBatch;
+				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training cavalry x${milBatch} (${cavCount}/${cavCap})\n`);
+			}
+		}
+	}
 	// The shared balance is the allocator: re-check the floors before every
 	// trainer instead of issuing the whole round on one entry check — orders
 	// the balance cannot cover are denied here, not failed at the engine.
