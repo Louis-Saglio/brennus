@@ -1031,3 +1031,35 @@ corrals useless; wonder too slow.
   march filter is the part that fires). Remaining timeouts: 47, 55,
   88, 96, 111, 125, 148, 170; losses are the 3 documented hard maps
   (70, 138, 141).
+
+## 2026-09-13 (timeout attribution: ablation of the 565bb9b sweep gains)
+
+Question (Louis): which features actually cut timeouts 23 → 8? Ran the
+15 flipped seeds at 30c5cd6 (baseline + pop-cap ramless-raid latch
+only, no war machine) on the same settings.
+
+- **12 of 15 flipped seeds already win with the latch alone** (13, 24,
+  74, 104, 121, 136, 139, 142, 151, 155, 158, 174). The pop-cap latch
+  (30c5cd6, commissioned earlier, first sweep here) is the dominant
+  timeout killer: the b041c34 timeout mass was mostly the 300/300-pop
+  ram-starvation deadlock, and it describes far more than the 6 seeds
+  it was tuned on.
+- **Only 3 seeds needed the war machine**: 52, 134, 152 (timeout at
+  30c5cd6, win at 565bb9b) — the "raid bounces / kill clock expires"
+  shape. s52 ground 119 defenders to 35 and won at 38.3.
+- Paired kill-clock effect of the war machine (174 seeds winning at
+  both sweeps): mean win 33.24 → 32.20 (**−1.04 min**, median −0.8;
+  faster on 103 seeds, slower on 67; best s62 −14.6, s19 −12.6,
+  s98 −11.4). The flipped logs show first raids 10-20 min earlier and
+  first razed CCs at 26-41 min vs never/42+ — the champions/hero/techs
+  army + the military-only ram march filter complete razes sooner.
+  Cannot isolate march-filter vs champions vs techs without per-feature
+  ablation sweeps; not run.
+- Storehouse razing, bank leveling, corral removal are hygiene changes
+  (space, bank shape, dead buildings) — no verdict signal attached.
+- Remaining 8 timeouts (47, 55, 88, 96, 111, 125, 148, 170) were
+  timeouts at BOTH sweeps: the standoff/camped-CC shape none of the
+  changes address.
+- Chaos caveat: near-cap verdicts are coin flips across runners; the
+  12/3 split has noise, the tally (23 → 8, zero regressions) is the
+  signal.
