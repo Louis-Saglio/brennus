@@ -186,9 +186,9 @@ ResourceArbiter.prototype.spenders = [
 	["research", bot => bot.boomManager.manageResearch()],
 	["workers", bot => bot.boomManager.trainWorkers()],
 	["construction", bot => bot.constructionManager.manageConstruction()],
-	["barter", bot => bot.manageBarter()],
-	["expansion", bot => bot.manageExpansion()],
-	["trade", bot => bot.manageTrade()]
+	["barter", bot => bot.expansionManager.manageBarter()],
+	["expansion", bot => bot.expansionManager.manageExpansion()],
+	["trade", bot => bot.expansionManager.manageTrade()]
 ];
 
 ResourceArbiter.prototype.runSpenders = function()

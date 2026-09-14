@@ -1,4 +1,3 @@
-import { BrennusBot } from "simulation/ai/brennus/brennus.js";
 import { SquareDistance } from "simulation/ai/brennus/helpers.js";
 
 export function ConstructionManager(bot)
@@ -179,8 +178,8 @@ ConstructionManager.prototype.manageConstruction = function()
 				if (!cooled)
 				{
 					const key = `${pb.x.toFixed(0)},${pb.z.toFixed(0)}`;
-					const c = this.bot.expContested[key];
-					this.bot.expContested[key] = {
+					const c = this.bot.expansionManager.expContested[key];
+					this.bot.expansionManager.expContested[key] = {
 						"x": pb.x, "z": pb.z,
 						"since": c ? c.since : this.bot.turn, "seen": this.bot.turn,
 						// A dead builder party proves the area lethal — no
@@ -297,7 +296,7 @@ ConstructionManager.prototype.manageConstruction = function()
 	for (const res of Object.values(this.bot.economyManager.assignments))
 		if (res === "food")
 			foodGatherers++;
-	const fieldCap = this.bot.expansionOn() ? 60 : (gameState.currentPhase() === 1 ? 4 : 30);
+	const fieldCap = this.bot.expansionManager.expansionOn() ? 60 : (gameState.currentPhase() === 1 ? 4 : 30);
 	// Fields open at t=1:30 or when served fruit runs low: they must stand before the fruit runs out.
 	const desiredFields = this.bot.economyManager.fruitStock < 4000 || gameState.getTimeElapsed() > 90000 ?
 		Math.min(fieldCap, Math.max(2, Math.ceil(foodGatherers / 3) + 1)) : 0;
@@ -389,7 +388,7 @@ ConstructionManager.prototype.hasStructureOrFoundation = function(type, foundati
  * center selection, opening placement) is self-contained and replaceable in
  * CustomInit without touching the rest. The bot keeps the shared machinery:
  * the per-block context (buildDropsiteContext), the placement scans
- * (tryConstruct, findExpansionWoodStorehouse, findMinimaxSpot, placeOrder)
+ * (tryConstruct, findMinimaxSpot, placeOrder)
  * and the serve-distance metrics.
  *
  * Contract: run(bot, ctx) places at most one build order and returns true,
@@ -467,7 +466,7 @@ export const WoodStorehouseStrategy = {
 		let demand = underserved;
 		if (!demand.length && (bot.economyManager.woodFreeSlots ?? Infinity) < bot.woodSlotMargin)
 			demand = frontier;
-		if (demand.length && ctx.storeCount < (bot.expansionOn() ? 40 : 18) &&
+		if (demand.length && ctx.storeCount < (bot.expansionManager.expansionOn() ? 40 : 18) &&
 			resources.wood >= 100)
 		{
 			// The richest-looking clump is not always worth serving: gate each
@@ -508,8 +507,8 @@ export const WoodStorehouseStrategy = {
 				if (ctx.storePending(center))
 					continue;
 				bot.arbiter.declare("dropsite", { "wood": 100 });
-				const placed = bot.expansionOn() ?
-					bot.findExpansionWoodStorehouse(ctx.storeType, center) :
+				const placed = bot.expansionManager.expansionOn() ?
+					bot.expansionManager.findExpansionWoodStorehouse(ctx.storeType, center) :
 					bot.placementManager.tryConstruct(ctx.storeType, "dropsite", center, true);
 				if (placed)
 				{
@@ -535,7 +534,7 @@ export const MineStorehouseStrategy = {
 		const gameState = bot.gameState;
 		const resources = ctx.resources;
 
-		if (ctx.storeCount < (bot.expansionOn() ? 40 : 18))
+		if (ctx.storeCount < (bot.expansionManager.expansionOn() ? 40 : 18))
 		{
 			let worst, worstDist = bot.mineGatherServeDist;
 			const underserved = [];
@@ -561,8 +560,8 @@ export const MineStorehouseStrategy = {
 			// It also skips the mine-storehouse cooldown and the reserve-padded
 			// wood floor — every turn at 40+ m costs more than the 100 wood.
 			const far = underserved.filter(p => bot.economyManager.edgeDistToSites(p, ctx.woodSites) > bot.mineDistWarn);
-			if ((underserved.length >= (bot.expansionOn() ? 5 : 2) || far.length >= 2) &&
-				!(bot.expansionOn() && far.length < 2 && bot.turn - (this.lastMineStoreTurn || -1000) < 40))
+			if ((underserved.length >= (bot.expansionManager.expansionOn() ? 5 : 2) || far.length >= 2) &&
+				!(bot.expansionManager.expansionOn() && far.length < 2 && bot.turn - (this.lastMineStoreTurn || -1000) < 40))
 			{
 				bot.arbiter.declare("dropsite", { "wood": 100 });
 				const sMine = bot.economyManager.mineId.stone !== undefined ?
@@ -609,7 +608,7 @@ export const MineStorehouseStrategy = {
 			}
 		}
 
-		if (bot.expansionOn() && resources.wood >= ctx.woodFloor &&
+		if (bot.expansionManager.expansionOn() && resources.wood >= ctx.woodFloor &&
 			ctx.storeCount < 40 && bot.turn - (this.lastMineStoreTurn || -1000) > 40)
 		{
 			const region = bot.accessibility.getAccessValue(ctx.cc.position());
@@ -871,122 +870,4 @@ ConstructionManager.prototype.manageDropSites = function(foundations, reserve)
 		if (strategy.run(this.bot, ctx))
 			return true;
 	return false;
-};
-
-/** Barter: while banking, surplus food/wood buys the missing stone/metal;
- * mining surplus far past the bank is sold back for wood/food. */
-BrennusBot.prototype.manageBarter = function()
-{
-	const gameState = this.gameState;
-	if (gameState.currentPhase() < 2)
-		return;
-	const market = gameState.getOwnStructures().toEntityArray()
-		.find(ent => ent.hasClass("Market") && ent.foundationProgress() === undefined);
-	if (!market)
-		return;
-	const res = this.arbiter.books("barter");
-
-	// One deal per block; 500-unit deals drift prices ~8%, so alternate the sold resource.
-	if (!gameState.isResearched("phase_city_generic"))
-	{
-
-		if ((res.stone < 750 || res.metal < 750))
-		{
-			const want = res.stone <= res.metal ? "stone" : "metal";
-			const sell = res.food >= res.wood ? "food" : "wood";
-			if (res[sell] >= 700)
-			{
-				market.barter(want, sell, 500);
-				this.arbiter.spendSell("barter", sell, 500, `barter ${sell}->${want}`);
-				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${sell} -> ${want}\n`);
-				return;
-			}
-			if (res[sell] >= 400)
-			{
-				market.barter(want, sell, 100);
-				this.arbiter.spendSell("barter", sell, 100, `barter ${sell}->${want}`);
-				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 100 ${sell} -> ${want}\n`);
-				return;
-			}
-		}
-
-		const excess = res.stone - 800 >= res.metal - 800 ? "stone" : "metal";
-		if (res[excess] >= 1300 && (res.wood < 250 || res.food < 200))
-		{
-			const want = res.wood < 250 ? "wood" : "food";
-			market.barter(want, excess, 500);
-			this.arbiter.spendSell("barter", excess, 500, `barter ${excess}->${want}`);
-			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${excess} -> ${want}\n`);
-			return;
-		}
-	}
-	else if (this.expansionOn())
-	{
-
-		if (!this.manageExpansionBarter(market))
-		{
-			// Strategic buying: the war machine's big one-time spends — Will
-			// to Fight (1500 metal / 1500 stone) first, then the wonder
-			// (1000 metal / 1500 stone) — starve on metal while the food
-			// mountain grows (probe s203: metal sat at 70-550 for 15 min
-			// with 8-10k food banked, so neither the wonder nor Will to
-			// Fight ever fired). Sell food toward the missing amounts before
-			// any other food deal.
-			if (this.turn % 15 === 0 && res.food >= 4000)
-			{
-				const willPending = this.buildupManager.willToFightPending(gameState);
-				let wonderPending = !willPending && !(this.expPlan?.wonderDone);
-				if (wonderPending && res.metal >= 2200 && res.stone >= 1800)
-					wonderPending = false;
-				let want;
-				if (willPending && (res.metal < 1700 || res.stone < 1700))
-					want = res.metal <= res.stone ? "metal" : "stone";
-				else if (wonderPending)
-					// Metal-first ordering starved stone for 10 minutes in
-					// probe s217 (the CC stream ate every stone deal) — buy
-					// whichever ore is relatively scarcer against the target.
-					want = res.metal / 2200 <= res.stone / 1800 ? "metal" : "stone";
-				if (want)
-				{
-					const prices = gameState.getBarterPrices();
-					if (prices.sell.food / prices.buy[want] >= 0.5)
-					{
-						market.barter(want, "food", 500);
-						this.arbiter.spendSell("barter", "food", 500, `barter food->${want}`);
-						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 food -> ${want} (war machine)\n`);
-						return;
-					}
-				}
-			}
-			// Bank leveling: past a 5k food/wood gap, sell the mountain for the
-			// poor resource — the gatherer shares correct the inflow, but a
-			// 20k food bank needs the market to ever become wood (Louis's
-			// review: 20k food against a few hundred wood late game).
-			const rich = res.food >= res.wood ? "food" : "wood";
-			const poor = rich === "food" ? "wood" : "food";
-			if (res[rich] - res[poor] > 5000 && res[rich] > 6000 && this.turn % 15 === 0)
-			{
-				const prices = gameState.getBarterPrices();
-				if (prices.sell[rich] / prices.buy[poor] >= 0.5)
-				{
-					market.barter(poor, rich, 500);
-					this.arbiter.spendSell("barter", rich, 500, `barter ${rich}->${poor}`);
-					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${rich} -> ${poor} (bank leveling)\n`);
-					return;
-				}
-			}
-			if (res.stone >= 600 || res.metal >= 600)
-			{
-
-				const excess = res.stone >= res.metal ? "stone" : "metal";
-				if (res[excess] >= 1000 && (res.wood < 250 || res.food < 200))
-				{
-					const want = res.wood < 250 ? "wood" : "food";
-					market.barter(want, excess, 500);
-					this.arbiter.spendSell("barter", excess, 500, `barter ${excess}->${want}`);
-					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 ${excess} -> ${want}\n`);
-				}
-			}
-		}
-	}
 };

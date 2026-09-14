@@ -368,7 +368,7 @@ DefenseManager.prototype.manageDefense = function()
 		// the whole 60-strong muster into Petra's 75-106 blob at 16m and the
 		// base fell 9 minutes later.
 		let sortie = false;
-		if (this.bot.warOn())
+		if (this.bot.expansionManager.warOn())
 		{
 			let campN = 0, cx = 0, cz = 0;
 			for (const p of mil)
@@ -468,7 +468,7 @@ DefenseManager.prototype.manageDefense = function()
 			else
 			{
 				this.swatting = false;
-				if (this.bot.warOn())
+				if (this.bot.expansionManager.warOn())
 				{
 				// Rally: at a pending expansion CC (escort the builders) else home.
 				let rally = homePos;
@@ -654,10 +654,10 @@ DefenseManager.prototype.manageDeny = function(gameState, armyEnts, mil, homePos
  */
 DefenseManager.prototype.findDenyTarget = function(mil, homePos)
 {
-	if (!this.bot.defenseOn() || !homePos || this.bot.offenseManager.target || this.deny)
+	if (!this.bot.expansionManager.defenseOn() || !homePos || this.bot.offenseManager.target || this.deny)
 		return undefined;
 	const gameState = this.bot.gameState;
-	const spots = this.bot.expPlan?.spots || [];
+	const spots = this.bot.expansionManager.expPlan?.spots || [];
 	let best, bestScore, bestDef = 0;
 	for (const ent of gameState.getEnemyStructures().values())
 	{

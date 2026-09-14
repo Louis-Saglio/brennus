@@ -22,7 +22,7 @@ BoomManager.prototype.managePhaseUp = function()
 	// 9.1/9.5m, then starved). 300 strangled the house stream (agg5 s1: pop
 	// cap stalled at 120); 150 is one barracks at a time. Must be set before
 	// the early returns below so the money accumulates through every hold.
-	if (!this.bot.warOn() && this.bot.arbiter.declared("defenseGap"))
+	if (!this.bot.expansionManager.warOn() && this.bot.arbiter.declared("defenseGap"))
 		this.bot.arbiter.reserve("phaseBank", { "wood": this.bot.arbiterParams.warChest.fundWood });
 	if (!tech || gameState.isResearching(tech) || gameState.isResearched(tech))
 		return;
@@ -89,7 +89,7 @@ BoomManager.prototype.trainWorkers = function()
 	// stream at the cap once the war stage is on. Gating this on army <
 	// target yo-yoed (army full → train to the cap → dismiss for the next
 	// batch → retrain…).
-	if (this.bot.warOn() &&
+	if (this.bot.expansionManager.warOn() &&
 		gameState.getPopulation() >= gameState.getPopulationLimit() - this.bot.arbiterParams.popPartition.warPopHeadroom)
 		return;
 
@@ -102,7 +102,7 @@ BoomManager.prototype.trainWorkers = function()
 	// Refilling army losses with women only to dismiss them on the next
 	// soldier batch is a pure food leak — def10-12 logged 400-900 dismissals
 	// per game (≈ 20-45k food).
-	if (this.bot.warOn())
+	if (this.bot.expansionManager.warOn())
 	{
 		let workers = 0;
 		for (const u of gameState.getOwnUnits().values())
@@ -120,7 +120,7 @@ BoomManager.prototype.trainWorkers = function()
 	// 100 starved the boom techs and stalled city phase, and agg6's 130
 	// still meant city at 18.5-20.2m — city gates fanatics/rams/raids, so
 	// every minute here is a minute off the kill clock.
-	if (this.bot.defenseOn() && !this.bot.warOn())
+	if (this.bot.expansionManager.defenseOn() && !this.bot.expansionManager.warOn())
 	{
 		let workers = 0;
 		for (const u of gameState.getOwnUnits().values())
@@ -201,7 +201,7 @@ BoomManager.prototype.manageResearch = function()
 		return;
 	}
 
-	if (this.bot.manageExpansionTechs())
+	if (this.bot.expansionManager.manageExpansionTechs())
 		return;
 
 	for (const tech of this.bot.boomTechs)
@@ -237,5 +237,5 @@ BoomManager.prototype.manageResearch = function()
 		return;
 	}
 
-	this.bot.manageExpansionTechs();
+	this.bot.expansionManager.manageExpansionTechs();
 };

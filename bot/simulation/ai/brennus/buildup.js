@@ -18,10 +18,10 @@ export function BuildupManager(bot)
 /** Military buildings: 3 barracks + 5 home towers from the town phase on (the early-muster package — 5 towers because a garrisoned stone tower is 9 arrows, and the wave arrives before the war stage does); after the boom the full set — 4 barracks, temples, forge, arsenal + 4 towers per expansion CC. Stone is plentiful on mainland; towers are our cheapest defense. */
 BuildupManager.prototype.manageDefenseBuildings = function()
 {
-	if (!this.bot.defenseOn() || this.bot.arbiter.held("construction"))
+	if (!this.bot.expansionManager.defenseOn() || this.bot.arbiter.held("construction"))
 		return;
 	const gameState = this.bot.gameState;
-	const boom = this.bot.warOn();
+	const boom = this.bot.expansionManager.warOn();
 	const wants = [
 		[gameState.applyCiv("structures/{civ}/barracks"), boom ? 4 : 3, { "wood": 300 }],
 		// Arsenal before temples post-city: the raid gate is rams, and agg6
@@ -122,7 +122,7 @@ BuildupManager.prototype.manageDefenseBuildings = function()
 			cc.foundationProgress() !== undefined)
 			continue;
 		const isHome = cc.id() === home.id();
-		if (!isHome && (this.bot.armyManager.armyCount() < 30 || !this.bot.warOn()))
+		if (!isHome && (this.bot.armyManager.armyCount() < 30 || !this.bot.expansionManager.warOn()))
 			continue;	// no point fortifying a frontier the army cannot reach yet
 		if (this.placeTower(cc.position(), isHome ? 5 : 4))
 			return;
@@ -210,7 +210,7 @@ BuildupManager.prototype.militaryTechs = [
 
 BuildupManager.prototype.manageMilitaryTechs = function()
 {
-	if (!this.bot.warOn() || this.bot.arbiter.held("construction"))
+	if (!this.bot.expansionManager.warOn() || this.bot.arbiter.held("construction"))
 		return;
 	const gameState = this.bot.gameState;
 	const res = this.bot.arbiter.books("milTechs");
@@ -267,7 +267,7 @@ BuildupManager.prototype.willToFightPending = function(gameState)
  */
 BuildupManager.prototype.wonderHoldActive = function(gameState)
 {
-	if (!this.bot.expansionOn() || this.bot.expPlan?.wonderDone || this.willToFightPending(gameState))
+	if (!this.bot.expansionManager.expansionOn() || this.bot.expansionManager.expPlan?.wonderDone || this.willToFightPending(gameState))
 		return false;
 	this.wonderHoldSince = this.wonderHoldSince || this.bot.turn;
 	return this.bot.turn - this.wonderHoldSince < 4500;
@@ -298,7 +298,7 @@ BuildupManager.prototype.heroChain = [
 /** Army production: barracks spearmen/javelineers (alternating, slingers every third batch pre-war) from the town phase on, temple fanatics after the boom; dismiss women for pop room only once the boom is done. */
 BuildupManager.prototype.manageDefenseTraining = function()
 {
-	if (!this.bot.defenseOn())
+	if (!this.bot.expansionManager.defenseOn())
 		return;
 	const gameState = this.bot.gameState;
 	const res = this.bot.arbiter.books("defenseTraining");
@@ -338,8 +338,8 @@ BuildupManager.prototype.manageDefenseTraining = function()
 	// a full army AND the boom). Mustering back to 60 after a 100+ wave
 	// re-fields half a wave every time (loss review: s55 met 120 with 60;
 	// s70/s81 sat at army~20 for 15 min after the first wave).
-	const baseTarget = this.bot.warOn() ? this.bot.arbiterParams.popPartition.armyTarget : this.bot.arbiterParams.foodSplit.musterTarget;
-	const surging = !this.bot.warOn() && (this.bot.armyManager.enemyArmy || 0) > baseTarget;
+	const baseTarget = this.bot.expansionManager.warOn() ? this.bot.arbiterParams.popPartition.armyTarget : this.bot.arbiterParams.foodSplit.musterTarget;
+	const surging = !this.bot.expansionManager.warOn() && (this.bot.armyManager.enemyArmy || 0) > baseTarget;
 	const target = surging ? Math.min(this.bot.armyManager.enemyArmy, this.bot.arbiterParams.surge.cap) : baseTarget;
 	if (surging && !this.surgeLogged)
 	{
@@ -350,7 +350,7 @@ BuildupManager.prototype.manageDefenseTraining = function()
 	// While the early muster is still drawing, the women stream leaves
 	// musterShare × the estimated food flow unspent (trainWorkers). Declared
 	// — and cleared — every block, so the claim dies with the early window.
-	this.bot.arbiter.declare("musterActive", !this.bot.warOn() && missing > 0 ? true : null);
+	this.bot.arbiter.declare("musterActive", !this.bot.expansionManager.warOn() && missing > 0 ? true : null);
 	// Siege plan, first-class: rams are the kill clock — basic infantry cannot
 	// raze a garrisoned CC before Petra reinforces. While a ram is
 	// missing, one ram's cost is reserved from the later pipeline stages and
@@ -399,7 +399,7 @@ BuildupManager.prototype.manageDefenseTraining = function()
 	// per-block cadence). After city, batches of 5 with a wood reserve while
 	// temples/forge/arsenal are outstanding (def11-13: starving the
 	// construction budget froze the muster).
-	const boom = this.bot.warOn();
+	const boom = this.bot.expansionManager.warOn();
 	const milBatch = boom ? this.bot.arbiterParams.warChest.musterBatch :
 		surging ? this.bot.arbiterParams.surge.batch : this.bot.arbiterParams.foodSplit.musterBatch;
 	const floorF = boom ? this.bot.arbiterParams.warChest.musterFood : this.bot.arbiterParams.foodSplit.musterFloor.food;

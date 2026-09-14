@@ -10,8 +10,8 @@ BrennusBot.prototype.currentShares = function(total)
 {
 	const phase = this.gameState.currentPhase();
 
-	if (this.expansionOn() && phase === 3)
-		return this.expansionShares(total);
+	if (this.expansionManager.expansionOn() && phase === 3)
+		return this.expansionManager.expansionShares(total);
 	let base = this.gathererShares[phase] || this.gathererShares[1];
 	if (phase === 2)
 	{
@@ -59,7 +59,7 @@ BrennusBot.prototype.currentShares = function(total)
 	// 40 metal for 11 minutes after city and the first ram trained at 31.4m,
 	// 11 min after the arsenals were ordered. Rams, forge techs and towers
 	// all eat metal/stone continuously; mine until a war chest is banked.
-	if (phase === 3 && this.warOn())
+	if (phase === 3 && this.expansionManager.warOn())
 	{
 		const res = this.arbiter.books("shares");
 		const shares = { ...base };

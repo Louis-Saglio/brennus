@@ -47,7 +47,7 @@ OffenseManager.prototype.deserialize = function(data)
  */
 OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, homePos)
 {
-	if (!this.bot.warOn() || !armyEnts.length)
+	if (!this.bot.expansionManager.warOn() || !armyEnts.length)
 		return false;
 
 	const ramEnts = [];
@@ -410,7 +410,7 @@ OffenseManager.prototype.trackRamMarch = function(ram, gameState)
  */
 OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, homePos)
 {
-	if (!this.bot.warOn() || !armyEnts.length || !homePos)
+	if (!this.bot.expansionManager.warOn() || !armyEnts.length || !homePos)
 		return false;
 
 	const ramEnts = [];
@@ -466,7 +466,7 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 				campN++;
 		if (campN >= 15)
 			return false;
-		const spots = this.bot.expPlan?.spots || [];
+		const spots = this.bot.expansionManager.expPlan?.spots || [];
 		let best, bestScore, bestDef;
 		for (const ent of gameState.getEnemyStructures().values())
 		{
@@ -600,7 +600,7 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
  */
 OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, mil, homePos)
 {
-	if (!this.bot.warOn() || !armyEnts.length || !homePos)
+	if (!this.bot.expansionManager.warOn() || !armyEnts.length || !homePos)
 		return false;
 
 	const ramEnts = [];
@@ -630,11 +630,11 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 			// One op sanitizes the whole bubble: drop every contested entry
 			// within 100 m so the re-order to a neighbor spot is not blocked
 			// by a sibling failure's hot-area guard.
-			for (const key in this.bot.expContested)
+			for (const key in this.bot.expansionManager.expContested)
 			{
-				const c = this.bot.expContested[key];
+				const c = this.bot.expansionManager.expContested[key];
 				if (Math.abs(c.x - op.x) < 100 && Math.abs(c.z - op.z) < 100)
-					delete this.bot.expContested[key];
+					delete this.bot.expansionManager.expContested[key];
 			}
 		};
 		if (cleared && !op.proven)
@@ -702,7 +702,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 				return false;
 			}
 		}
-		if (this.bot.armyManager.armyCount() < 40 || this.bot.turn - op.turn > 900 || !this.bot.expContested[op.key])
+		if (this.bot.armyManager.armyCount() < 40 || this.bot.turn - op.turn > 900 || !this.bot.expansionManager.expContested[op.key])
 		{
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m clearing aborted at ${op.x.toFixed(0)},${op.z.toFixed(0)} (age=${((this.bot.turn - op.turn) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
 			this.clearCool[op.key] = this.bot.turn;
@@ -784,7 +784,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 	// Clearing exists to unblock CC orders; with the expansion stages off
 	// there is nothing to unblock. (No plan-completeness gate: an exhausted
 	// plan is exactly when clearing is needed — the recompute adds spots.)
-	if (!this.bot.reliefOn && !this.bot.expansionOn())
+	if (!this.bot.expansionManager.reliefOn && !this.bot.expansionManager.expansionOn())
 		return false;
 	// Their main force loitering near home pins the army (same rule as the purge).
 	let campN = 0;
@@ -798,9 +798,9 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 	// gap is what lets the escorted order slip in (s47). A spot with no enemy
 	// left near it and nothing proven is dropped — the veto is already gone.
 	let best, bestKey, bestDef, bestProven, eligible = 0;
-	for (const key in this.bot.expContested)
+	for (const key in this.bot.expansionManager.expContested)
 	{
-		const c = this.bot.expContested[key];
+		const c = this.bot.expansionManager.expContested[key];
 		if (!c.proven && this.bot.turn - c.since < 450)
 			continue;
 		if (this.bot.turn - c.seen > 150 && (!c.proven || this.bot.turn > c.until))
@@ -826,7 +826,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 		}
 		if (!def && !structs && !c.proven)
 		{
-			delete this.bot.expContested[key];
+			delete this.bot.expansionManager.expContested[key];
 			continue;
 		}
 		eligible++;
@@ -846,7 +846,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 		// Blocked-launch forensics, throttled: which gate keeps a contested
 		// spot from getting its clearing op (camp pins, no superiority,
 		// fortress without rams, or no eligible candidate yet).
-		const entries = Object.keys(this.bot.expContested).length;
+		const entries = Object.keys(this.bot.expansionManager.expContested).length;
 		if (entries && this.bot.turn - (this.clearBlockedLog || -300) >= 300)
 		{
 			this.clearBlockedLog = this.bot.turn;

@@ -589,7 +589,7 @@ EconomyManager.prototype.findSupply = function(unit, resource)
 			!foodSites.some(d => SquareDistance(supplyPos, d) < 45 * 45))
 			continue;
 
-		if (mineRes && this.bot.expansionOn() &&
+		if (mineRes && this.bot.expansionManager.expansionOn() &&
 			this.servedMineIds && !this.servedMineIds.has(supply.id()))
 			continue;
 
@@ -614,7 +614,7 @@ EconomyManager.prototype.findSupply = function(unit, resource)
 		return undefined;
 	if (bestTerr)
 		return bestTerr;
-	if (this.bot.expansionOn() || !firstAny)
+	if (this.bot.expansionManager.expansionOn() || !firstAny)
 		return undefined;
 	for (const s of this.bot.gameState.getResourceSupplies(resource).values())
 	{

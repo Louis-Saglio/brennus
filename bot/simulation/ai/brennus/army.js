@@ -56,7 +56,7 @@ ArmyManager.prototype.maintainRoster = function(gameState)
 	for (const id in recalled)
 		if (!this.army[id])
 			delete recalled[id];
-	if (this.bot.defenseOn())
+	if (this.bot.expansionManager.defenseOn())
 		for (const ent of gameState.getOwnUnits().values())
 		{
 			const id = ent.id();
@@ -259,7 +259,7 @@ ArmyManager.prototype.manageDemobilization = function(gameState, incoming)
 	if (incoming)
 		this.lastIncomingTurn = this.bot.turn;
 
-	if (incoming || this.bot.warOn() || !this.bot.defenseOn())
+	if (incoming || this.bot.expansionManager.warOn() || !this.bot.expansionManager.defenseOn())
 	{
 		const home = this.bot.getCivicCentre()?.position();
 		let n = 0;

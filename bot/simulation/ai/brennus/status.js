@@ -57,7 +57,7 @@ BrennusBot.prototype.logStatus = function()
 	}
 
 	const dropsiteDist = this.meanDropsiteDistances();
-	const terr = this.expansionOn() ? this.territoryPercent() : undefined;
+	const terr = this.expansionManager.expansionOn() ? this.expansionManager.territoryPercent() : undefined;
 	print(`[HARNESS] t=${Math.round(gameState.getTimeElapsed() / 60000)}m ` +
 		`pop=${gameState.getPopulation()}/${gameState.getPopulationLimit()} idle=${idle} starved=${this.economyManager.starvedUnits || 0} ` +
 		`gatherers food=${counts.food} wood=${counts.wood} stone=${counts.stone} metal=${counts.metal} ` +
@@ -223,45 +223,4 @@ BrennusBot.prototype.farMineGatherers = function()
 			"terr": this.inOwnTerritory(m.pos[0], m.pos[1]) });
 	}
 	return bad;
-};
-
-BrennusBot.prototype.findExpansionWoodStorehouse = function(storeType, center)
-{
-	const pos = this.placementManager.findBuildingPosition(storeType, center, 10, 90, true, this.expansionRegion);
-	return pos && this.placementManager.placeOrder(storeType, pos, false) ? pos : false;
-};
-
-BrennusBot.prototype.findWonderSpot = function(wonderType)
-{
-	const template = this.gameState.getTemplate(wonderType);
-	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
-	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
-	const angle = this.placementManager.getPlacementAngle();
-	const pass = this.gameState.getPassabilityMap();
-	const mask = this.gameState.getPassabilityClassMask("building-land");
-	const terr = this.territoryMap;
-	const ccType = this.gameState.applyCiv("structures/{civ}/civil_centre");
-	const anchors = [];
-	const cc = this.getCivicCentre();
-	if (cc)
-		anchors.push([cc.position(), 95]);
-	for (const ent of this.gameState.getOwnStructures().values())
-		if (ent.templateName() === ccType && ent.position() && ent.id() !== cc?.id())
-			anchors.push([ent.position(), 60]);
-	for (const anchor of anchors)
-		for (let r = 12; r <= anchor[1]; r += 2)
-			for (let a = 0; a < 64; ++a)
-			{
-				const ang = a * 2 * Math.PI / 64;
-				const x = anchor[0][0] + r * Math.cos(ang);
-				const z = anchor[0][1] + r * Math.sin(ang);
-				if (this.placementManager.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
-					continue;
-				if (this.armyManager.nearEnemy([x, z], 100, 60))
-					continue;
-				if (!this.placementManager.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
-					continue;
-				return [x, z];
-			}
-	return undefined;
 };

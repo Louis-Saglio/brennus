@@ -16,7 +16,7 @@ import { EconomyManager } from "simulation/ai/brennus/economy.js";
 import { OffenseManager } from "simulation/ai/brennus/offense.js";
 import { ConstructionManager } from "simulation/ai/brennus/construction.js";
 import "simulation/ai/brennus/config.js";
-import "simulation/ai/brennus/expansion.js";
+import { ExpansionManager } from "simulation/ai/brennus/expansion.js";
 import { PlacementManager } from "simulation/ai/brennus/placement.js";
 import "simulation/ai/brennus/status.js";
 
@@ -49,22 +49,10 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.economyManager.deserialize(this.savedState?.economy);
 	this.boomManager = new BoomManager(this);
 
-	this.expPlan = this.savedState?.expPlan || null; // {spots, next, done, simPct}
-
-	this.expOn = this.savedState?.expOn || false;
-
-	// Relief expansion (pre-pop-300 CC orders when the base is stuck):
-	// latched once a trigger fires; placeFailSince tracks per-template
-	// continuous placement failure; reliefServedPeak is the high-water mark
-	// of dropsite-served supply per resource for the exhaustion check.
-	this.reliefOn = this.savedState?.reliefOn || false;
-
-	this.reliefServedPeak = this.savedState?.reliefServedPeak || {};
-
-	// Spot clearing: expansion spots vetoed only by enemy presence
-	// (expContested: key -> {x, z, since, seen, proven?, until?}) are cleared
-	// by the army via the offense manager's clearing ops.
-	this.expContested = this.savedState?.expContested || {};
+	// Expansion program (CC lattice, relief expansion, wonder/trade/barter)
+	// and the defense/war/expansion stage latches.
+	this.expansionManager = new ExpansionManager(this);
+	this.expansionManager.deserialize(this.savedState?.expansion);
 
 	this.offenseManager = new OffenseManager(this);
 	this.offenseManager.deserialize(this.savedState?.offense);
@@ -124,11 +112,7 @@ BrennusBot.prototype.OnUpdate = function()
 BrennusBot.prototype.Serialize = function()
 {
 	return {
-		"expPlan": this.expPlan,
-		"expOn": this.expOn,
-		"reliefOn": this.reliefOn,
-		"reliefServedPeak": this.reliefServedPeak,
-		"expContested": this.expContested,
+		"expansion": this.expansionManager.serialize(),
 		"construction": this.constructionManager.serialize(),
 		"placement": this.placementManager.serialize(),
 		"economy": this.economyManager.serialize(),
