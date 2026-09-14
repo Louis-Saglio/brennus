@@ -14,10 +14,10 @@ import { BuildupManager } from "simulation/ai/brennus/buildup.js";
 import { DefenseManager } from "simulation/ai/brennus/defense.js";
 import { EconomyManager } from "simulation/ai/brennus/economy.js";
 import { OffenseManager } from "simulation/ai/brennus/offense.js";
-import { FarmsteadStrategy, MineStorehouseStrategy, WoodStorehouseStrategy } from "simulation/ai/brennus/construction.js";
+import { ConstructionManager } from "simulation/ai/brennus/construction.js";
 import "simulation/ai/brennus/config.js";
 import "simulation/ai/brennus/expansion.js";
-import "simulation/ai/brennus/placement.js";
+import { PlacementManager } from "simulation/ai/brennus/placement.js";
 import "simulation/ai/brennus/status.js";
 
 export function BrennusBot(settings)
@@ -37,19 +37,12 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.arbiter = new ResourceArbiter(this);
 	this.arbiter.deserialize(this.savedState?.arbiter);
 
-	this.ccAngle = undefined;
-
-	this.builderAssignments = this.savedState?.builderAssignments || {};
-
-	this.pendingBuilds = this.savedState?.pendingBuilds || []; // [{template, x, z, turn}]
-
-	this.rushBuilds = this.savedState?.rushBuilds || []; // [{x, z, turn}] storehouses whose builders come from the choppers
-
-	// One shot only: if the engine rejects the order, manageDropSites'
-	// demand trigger is the fallback — retrying re-picks the same best tree.
-	this.bootstrapStoreTried = this.savedState?.bootstrapStoreTried || false;
-
-	this.failedSpots = this.savedState?.failedSpots || [];
+	// Builder assignment, pending/rush build tracking and dropsite strategies.
+	this.constructionManager = new ConstructionManager(this);
+	this.constructionManager.deserialize(this.savedState?.construction);
+	// Building-spot scans, the shared placement angle and the failed-spot list.
+	this.placementManager = new PlacementManager(this);
+	this.placementManager.deserialize(this.savedState?.placement);
 
 	// Gathering assignment, herding, mine pinning and gather-rate telemetry.
 	this.economyManager = new EconomyManager(this);
@@ -66,8 +59,6 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	// of dropsite-served supply per resource for the exhaustion check.
 	this.reliefOn = this.savedState?.reliefOn || false;
 
-	this.placeFailSince = this.savedState?.placeFailSince || {};
-
 	this.reliefServedPeak = this.savedState?.reliefServedPeak || {};
 
 	// Spot clearing: expansion spots vetoed only by enemy presence
@@ -83,17 +74,6 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.armyManager.deserialize(this.savedState?.army);
 	this.defenseManager = new DefenseManager(this);
 	this.buildupManager = new BuildupManager(this);
-
-	// Dropsite placement strategies, in priority order (wood, mine, farmstead)
-	// — the first strategy to fire places the block's one dropsite order.
-	// Self-contained per-resource policies with their own gates: swap one here
-	// to change placement for a map/biome. Instances are recreated fresh on
-	// deserialization, like the other transient dropsite state they hold.
-	this.woodStrategy = Object.create(WoodStorehouseStrategy);
-	this.mineStrategy = Object.create(MineStorehouseStrategy);
-	this.farmsteadStrategy = Object.create(FarmsteadStrategy);
-	this.dropsiteStrategies = [this.woodStrategy, this.mineStrategy, this.farmsteadStrategy];
-
 };
 
 BrennusBot.prototype.OnUpdate = function()
@@ -112,7 +92,7 @@ BrennusBot.prototype.OnUpdate = function()
 		// poisoned while the woodline keeps receding. Other failures are
 		// mostly war damage, and the spot is fine once the frontier moves
 		// (def14: 7-20 dead spots).
-		this.failedSpots = this.failedSpots.filter(f =>
+		this.placementManager.failedSpots = this.placementManager.failedSpots.filter(f =>
 			this.turn - (f[2] || 0) < (f[3] && f[3].indexOf("storehouse") !== -1 ? 300 : 1500));
 
 		// A research or defense-building order holds construction for the rest of the block: research + construct in the same block would overdraw the pre-command resource snapshot.
@@ -144,16 +124,13 @@ BrennusBot.prototype.OnUpdate = function()
 BrennusBot.prototype.Serialize = function()
 {
 	return {
-		"builderAssignments": this.builderAssignments,
-		"pendingBuilds": this.pendingBuilds,
-		"bootstrapStoreTried": this.bootstrapStoreTried,
-		"failedSpots": this.failedSpots,
 		"expPlan": this.expPlan,
 		"expOn": this.expOn,
 		"reliefOn": this.reliefOn,
-		"placeFailSince": this.placeFailSince,
 		"reliefServedPeak": this.reliefServedPeak,
 		"expContested": this.expContested,
+		"construction": this.constructionManager.serialize(),
+		"placement": this.placementManager.serialize(),
 		"economy": this.economyManager.serialize(),
 		"offense": this.offenseManager.serialize(),
 		"army": this.armyManager.serialize(),

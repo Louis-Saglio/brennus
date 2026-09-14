@@ -65,7 +65,7 @@ BrennusBot.prototype.logStatus = function()
 		`rates ${rates} ` +
 		`foodmix ${foodmix} ` +
 		`dist wood=${dropsiteDist.wood}m grain=${dropsiteDist.grain}m fruit=${dropsiteDist.fruit}m ` +
-		`founds=${gameState.getOwnFoundations().toEntityArray().length} failedSpots=${(this.failedSpots || []).length} ` +
+		`founds=${gameState.getOwnFoundations().toEntityArray().length} failedSpots=${(this.placementManager.failedSpots || []).length} ` +
 		`fruitStock=${Math.round(this.economyManager.fruitStock)} ` +
 		`enemyArmy=${this.armyManager.enemyArmy || 0} siege=${this.armyManager.enemySiege || 0} enemyNear=${(this.armyManager.enemyNearestHome || 0).toFixed(0)}m ` +
 		`army=${this.armyManager.armyCount ? this.armyManager.armyCount() : 0} gar=${gar} demob=${demob} ` +
@@ -227,8 +227,8 @@ BrennusBot.prototype.farMineGatherers = function()
 
 BrennusBot.prototype.findExpansionWoodStorehouse = function(storeType, center)
 {
-	const pos = this.findBuildingPosition(storeType, center, 10, 90, true, this.expansionRegion);
-	return pos && this.placeOrder(storeType, pos, false) ? pos : false;
+	const pos = this.placementManager.findBuildingPosition(storeType, center, 10, 90, true, this.expansionRegion);
+	return pos && this.placementManager.placeOrder(storeType, pos, false) ? pos : false;
 };
 
 BrennusBot.prototype.findWonderSpot = function(wonderType)
@@ -236,7 +236,7 @@ BrennusBot.prototype.findWonderSpot = function(wonderType)
 	const template = this.gameState.getTemplate(wonderType);
 	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
 	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
-	const angle = this.getPlacementAngle();
+	const angle = this.placementManager.getPlacementAngle();
 	const pass = this.gameState.getPassabilityMap();
 	const mask = this.gameState.getPassabilityClassMask("building-land");
 	const terr = this.territoryMap;
@@ -255,11 +255,11 @@ BrennusBot.prototype.findWonderSpot = function(wonderType)
 				const ang = a * 2 * Math.PI / 64;
 				const x = anchor[0][0] + r * Math.cos(ang);
 				const z = anchor[0][1] + r * Math.sin(ang);
-				if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
+				if (this.placementManager.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
 					continue;
 				if (this.armyManager.nearEnemy([x, z], 100, 60))
 					continue;
-				if (!this.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
+				if (!this.placementManager.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
 					continue;
 				return [x, z];
 			}

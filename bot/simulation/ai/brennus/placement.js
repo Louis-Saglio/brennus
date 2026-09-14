@@ -1,16 +1,46 @@
-import { BrennusBot } from "simulation/ai/brennus/brennus.js";
 import { SquareDistance } from "simulation/ai/brennus/helpers.js";
 
-// ---------------------------------------------------------------- placement
-BrennusBot.prototype.findMinimaxSpot = function(templateType, points, region)
+export function PlacementManager(bot)
 {
-	const template = this.gameState.getTemplate(templateType);
+	this.bot = bot;
+	// All buildings share the home CC's orientation, latched on first use.
+	this.ccAngle = undefined;
+	// Engine-rejected build spots [x, z, turn, template] (the entry's OnUpdate
+	// expires them) and the per-template continuous-failure latch the
+	// relief-expansion check reads.
+	this.failedSpots = [];
+	this.placeFailSince = {};
+	// Transient scan caches and log throttles, lazily init'd (reset on load).
+	this.placeRetryAfter = undefined;
+	this.placeFailLog = undefined;
+	this._housePlots = undefined;
+	this._fieldPlots = undefined;
+}
+
+PlacementManager.prototype.serialize = function()
+{
+	return {
+		"failedSpots": this.failedSpots,
+		"placeFailSince": this.placeFailSince
+	};
+};
+
+PlacementManager.prototype.deserialize = function(data)
+{
+	this.failedSpots = data?.failedSpots || [];
+	this.placeFailSince = data?.placeFailSince || {};
+};
+
+// ---------------------------------------------------------------- placement
+PlacementManager.prototype.findMinimaxSpot = function(templateType, points, region)
+{
+	const template = this.bot.gameState.getTemplate(templateType);
 	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
 	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
 	const angle = this.getPlacementAngle();
-	const pass = this.gameState.getPassabilityMap();
-	const mask = this.gameState.getPassabilityClassMask("building-land");
-	const terr = this.territoryMap;
+	const pass = this.bot.gameState.getPassabilityMap();
+	const mask = this.bot.gameState.getPassabilityClassMask("building-land");
+	const terr = this.bot.territoryMap;
 	let sx = 0, sz = 0;
 	for (const p of points)
 	{
@@ -27,9 +57,9 @@ BrennusBot.prototype.findMinimaxSpot = function(templateType, points, region)
 			const z = cz + r * Math.sin(ang);
 			if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
 				continue;
-			if (this.armyManager.nearEnemy([x, z], 100, 60))
+			if (this.bot.armyManager.nearEnemy([x, z], 100, 60))
 				continue;
-			if (this.accessibility.getAccessValue([x, z]) !== region)
+			if (this.bot.accessibility.getAccessValue([x, z]) !== region)
 				continue;
 			if (!this.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
 				continue;
@@ -49,20 +79,20 @@ BrennusBot.prototype.findMinimaxSpot = function(templateType, points, region)
 	return best;
 };
 
-BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
+PlacementManager.prototype.tryConstruct = function(templateType, kind, center, rush)
 {
 	// A full placement failure means a fine scan of every candidate ring came
 	// up empty — expensive, and the obstruction it reports changes on
 	// building-completion timescales. Retry at most every 25 turns.
 	this.placeRetryAfter = this.placeRetryAfter || {};
-	if (this.turn < (this.placeRetryAfter[templateType] || 0))
+	if (this.bot.turn < (this.placeRetryAfter[templateType] || 0))
 		return false;
-	const cc = this.getCivicCentre();
+	const cc = this.bot.getCivicCentre();
 	if (!cc)
 		return false;
 	const ccPos = cc.position();
 
-	const region = this.accessibility.getAccessValue(ccPos);
+	const region = this.bot.accessibility.getAccessValue(ccPos);
 	// Only place in the CC's land region: a spot across a cliff or river sits unbuilt forever.
 	let pos;
 	if (kind === "house")
@@ -91,7 +121,7 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 		for (const exp of this.expansionCivicCentres())
 		{
 			const ep = exp.position();
-			pos = this.findBuildingPosition(templateType, ep, 10, 130, true, this.accessibility.getAccessValue(ep));
+			pos = this.findBuildingPosition(templateType, ep, 10, 130, true, this.bot.accessibility.getAccessValue(ep));
 			if (pos)
 				break;
 		}
@@ -99,22 +129,22 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 	{
 		if (kind !== "dropsite")
 		{
-			this.placeRetryAfter[templateType] = this.turn + 25;
+			this.placeRetryAfter[templateType] = this.bot.turn + 25;
 			// Relief-expansion signal: a field failing to place is routine
 			// (capped at 30 pre-expansion, rings simply full of fields — the
 			// relief1 goldens all false-fired on it), and a house failing only
 			// matters when the population is pinned at the limit and can never
 			// grow. Anything else failing continuously is a stuck base.
 			if (kind !== "field" &&
-				(kind !== "house" || this.gameState.getPopulation() >= this.gameState.getPopulationLimit()))
-				this.placeFailSince[templateType] = this.placeFailSince[templateType] || this.turn;
+				(kind !== "house" || this.bot.gameState.getPopulation() >= this.bot.gameState.getPopulationLimit()))
+				this.placeFailSince[templateType] = this.placeFailSince[templateType] || this.bot.turn;
 			else
 				delete this.placeFailSince[templateType];
 			this.placeFailLog = this.placeFailLog || {};
-			if (this.turn - (this.placeFailLog[templateType] ?? -Infinity) >= 600)
+			if (this.bot.turn - (this.placeFailLog[templateType] ?? -Infinity) >= 600)
 			{
-				this.placeFailLog[templateType] = this.turn;
-				print(`[WARNING] t=${Math.round(this.gameState.getTimeElapsed() / 60000)}m no placement for ${templateType.split("/").pop()} at any CC — rings crowded or enemy too close\n`);
+				this.placeFailLog[templateType] = this.bot.turn;
+				print(`[WARNING] t=${Math.round(this.bot.gameState.getTimeElapsed() / 60000)}m no placement for ${templateType.split("/").pop()} at any CC — rings crowded or enemy too close\n`);
 			}
 		}
 		return false;
@@ -128,15 +158,15 @@ BrennusBot.prototype.tryConstruct = function(templateType, kind, center, rush)
 };
 
 /** Built own CCs other than the home one, nearest to home first — fallback building lots for when the home ring is full. */
-BrennusBot.prototype.expansionCivicCentres = function()
+PlacementManager.prototype.expansionCivicCentres = function()
 {
-	const home = this.getCivicCentre();
+	const home = this.bot.getCivicCentre();
 	if (!home)
 		return [];
-	const ccType = this.gameState.applyCiv("structures/{civ}/civil_centre");
+	const ccType = this.bot.gameState.applyCiv("structures/{civ}/civil_centre");
 	const hp = home.position();
 	const exps = [];
-	for (const ent of this.gameState.getOwnStructures().values())
+	for (const ent of this.bot.gameState.getOwnStructures().values())
 		if (ent.templateName() === ccType && ent.id() !== home.id() &&
 			ent.position() && ent.foundationProgress() === undefined)
 			exps.push(ent);
@@ -144,35 +174,35 @@ BrennusBot.prototype.expansionCivicCentres = function()
 	return exps;
 };
 
-BrennusBot.prototype.placeOrder = function(templateType, pos, rush)
+PlacementManager.prototype.placeOrder = function(templateType, pos, rush)
 {
-	const builder = this.gameState.getOwnUnits().filter(ent =>
-		(!this.armyManager.army || !this.armyManager.army[ent.id()]) && (!this.armyManager.rams || !this.armyManager.rams[ent.id()]) &&
-		(!this.armyManager.healers || !this.armyManager.healers[ent.id()])).filterNearest(pos, 1).toEntityArray()[0];
+	const builder = this.bot.gameState.getOwnUnits().filter(ent =>
+		(!this.bot.armyManager.army || !this.bot.armyManager.army[ent.id()]) && (!this.bot.armyManager.rams || !this.bot.armyManager.rams[ent.id()]) &&
+		(!this.bot.armyManager.healers || !this.bot.armyManager.healers[ent.id()])).filterNearest(pos, 1).toEntityArray()[0];
 	if (!builder)
 		return false;
 	builder.construct(templateType, pos[0], pos[1], this.getPlacementAngle(), undefined);
-	this.pendingBuilds.push({ "template": templateType, "x": pos[0], "z": pos[1], "turn": this.turn });
+	this.bot.constructionManager.pendingBuilds.push({ "template": templateType, "x": pos[0], "z": pos[1], "turn": this.bot.turn });
 	if (rush)
-		this.rushBuilds.push({ "x": pos[0], "z": pos[1], "turn": this.turn });
+		this.bot.constructionManager.rushBuilds.push({ "x": pos[0], "z": pos[1], "turn": this.bot.turn });
 	return true;
 };
 
 /** All buildings share the CC's orientation angle (keeps the grids consistent). */
-BrennusBot.prototype.getPlacementAngle = function()
+PlacementManager.prototype.getPlacementAngle = function()
 {
 	if (this.ccAngle === undefined)
 	{
-		const cc = this.getCivicCentre();
+		const cc = this.bot.getCivicCentre();
 		if (!cc)
 			return 0;
 		this.ccAngle = cc.angle() ?? 0;
-		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(2)}m placement angle=${(this.ccAngle * 180 / Math.PI).toFixed(1)}°\n`);
+		print(`[HARNESS] t=${(this.bot.gameState.getTimeElapsed() / 60000).toFixed(2)}m placement angle=${(this.ccAngle * 180 / Math.PI).toFixed(1)}°\n`);
 	}
 	return this.ccAngle;
 };
 
-BrennusBot.prototype.housePlots = function(ccPos)
+PlacementManager.prototype.housePlots = function(ccPos)
 {
 	if (this._housePlots)
 		return this._housePlots;
@@ -196,7 +226,7 @@ BrennusBot.prototype.housePlots = function(ccPos)
 	return plots;
 };
 
-BrennusBot.prototype.fieldPlots = function(ccPos)
+PlacementManager.prototype.fieldPlots = function(ccPos)
 {
 	if (this._fieldPlots)
 		return this._fieldPlots;
@@ -220,38 +250,38 @@ BrennusBot.prototype.fieldPlots = function(ccPos)
 	return plots;
 };
 
-BrennusBot.prototype.findGridSpot = function(templateType, plots, region)
+PlacementManager.prototype.findGridSpot = function(templateType, plots, region)
 {
-	const template = this.gameState.getTemplate(templateType);
+	const template = this.bot.gameState.getTemplate(templateType);
 	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
 	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
 	const angle = this.getPlacementAngle();
-	const pass = this.gameState.getPassabilityMap();
-	const mask = this.gameState.getPassabilityClassMask("building-land");
+	const pass = this.bot.gameState.getPassabilityMap();
+	const mask = this.bot.gameState.getPassabilityClassMask("building-land");
 	for (const [x, z] of plots)
 	{
 		if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
 			continue;
-		if (this.armyManager.nearEnemy([x, z], 100, 60))
+		if (this.bot.armyManager.nearEnemy([x, z], 100, 60))
 			continue;
-		if (this.accessibility.getAccessValue([x, z]) !== region)
+		if (this.bot.accessibility.getAccessValue([x, z]) !== region)
 			continue;
-		if (this.placementOK(x, z, halfW, halfD, angle, pass, mask, this.territoryMap))
+		if (this.placementOK(x, z, halfW, halfD, angle, pass, mask, this.bot.territoryMap))
 			return [x, z];
 	}
 	return undefined;
 };
 
-BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRadius, maxRadius, fine, region, extraCheck)
+PlacementManager.prototype.findBuildingPosition = function(templateType, center, minRadius, maxRadius, fine, region, extraCheck)
 {
-	const gameState = this.gameState;
+	const gameState = this.bot.gameState;
 	const template = gameState.getTemplate(templateType);
 	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
 	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
 	const angle = this.getPlacementAngle();
 	const pass = gameState.getPassabilityMap();
 	const mask = gameState.getPassabilityClassMask("building-land");
-	const terr = this.territoryMap;
+	const terr = this.bot.territoryMap;
 	const angles = fine ? 64 : 32;
 	const step = fine ? 2 : 3;
 
@@ -263,9 +293,9 @@ BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRa
 			const z = center[1] + r * Math.sin(ang);
 			if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
 				continue;
-			if (this.armyManager.nearEnemy([x, z], 100, 60))
+			if (this.bot.armyManager.nearEnemy([x, z], 100, 60))
 				continue;
-			if (region !== undefined && this.accessibility.getAccessValue([x, z]) !== region)
+			if (region !== undefined && this.bot.accessibility.getAccessValue([x, z]) !== region)
 				continue;
 			if (extraCheck && !extraCheck(x, z))
 				continue;
@@ -276,7 +306,7 @@ BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRa
 };
 
 /** Placement prefilter: true rotated footprint (inflated 0.75 m) passable, territory box own. */
-BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mask, terr)
+PlacementManager.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mask, terr)
 {
 	const hw = halfW + 0.75, hd = halfD + 0.75;
 	const ex = hw * Math.abs(Math.cos(angle)) + hd * Math.abs(Math.sin(angle));
@@ -308,21 +338,21 @@ BrennusBot.prototype.placementOK = function(x, z, halfW, halfD, angle, pass, mas
 		return false;
 	for (let j = tz0; j <= tz1; ++j)
 		for (let i = tx0; i <= tx1; ++i)
-			if ((terr.data[i + j * terr.width] & 0x1F) !== this.player)
+			if ((terr.data[i + j * terr.width] & 0x1F) !== this.bot.player)
 				return false;
 	return true;
 };
 
 /** Rejection forensics for the construct FAILED log (engine rejections are silent): whether the spot still passes our placement check, and who owns its territory cell now. */
-BrennusBot.prototype.diagnoseFailedSpot = function(pb)
+PlacementManager.prototype.diagnoseFailedSpot = function(pb)
 {
-	const template = this.gameState.getTemplate(pb.template);
+	const template = this.bot.gameState.getTemplate(pb.template);
 	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
 	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
 	const ok = this.placementOK(pb.x, pb.z, halfW, halfD, this.getPlacementAngle(),
-		this.gameState.getPassabilityMap(), this.gameState.getPassabilityClassMask("building-land"),
-		this.territoryMap);
-	const terr = this.territoryMap;
+		this.bot.gameState.getPassabilityMap(), this.bot.gameState.getPassabilityClassMask("building-land"),
+		this.bot.territoryMap);
+	const terr = this.bot.territoryMap;
 	const cell = terr.cellSize;
 	const owner = terr.data[Math.floor(pb.x / cell) + Math.floor(pb.z / cell) * terr.width] & 0x1F;
 	return `(placementOK=${ok} terrOwner=${owner})`;

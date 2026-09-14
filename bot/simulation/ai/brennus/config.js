@@ -15,7 +15,7 @@ BrennusBot.prototype.currentShares = function(total)
 	let base = this.gathererShares[phase] || this.gathererShares[1];
 	if (phase === 2)
 	{
-		const trioDone = this.trioTypes()
+		const trioDone = this.constructionManager.trioTypes()
 			.every(t => this.gameState.getOwnStructures().toEntityArray()
 				.some(ent => ent.templateName() === t));
 		if (trioDone)

@@ -472,7 +472,7 @@ DefenseManager.prototype.manageDefense = function()
 				{
 				// Rally: at a pending expansion CC (escort the builders) else home.
 				let rally = homePos;
-				for (const pb of this.bot.pendingBuilds)
+				for (const pb of this.bot.constructionManager.pendingBuilds)
 					if (pb.template === ccType)
 					{
 						rally = [pb.x, pb.z];

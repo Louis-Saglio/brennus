@@ -1,33 +1,74 @@
 import { BrennusBot } from "simulation/ai/brennus/brennus.js";
 import { SquareDistance } from "simulation/ai/brennus/helpers.js";
 
-BrennusBot.prototype.nextTrioWood = function()
+export function ConstructionManager(bot)
 {
-	if (this.gameState.currentPhase() < 2)
-		return 0;
-	const foundations = this.gameState.getOwnFoundations().toEntityArray();
-	const next = this.trioTypes()
-		.find(t => !this.hasStructureOrFoundation(t, foundations));
-	return next ? (this.gameState.getTemplate(next).cost().wood || 0) : 0;
+	this.bot = bot;
+	this.builderAssignments = {};
+	this.pendingBuilds = []; // [{template, x, z, turn}]
+	this.rushBuilds = []; // [{x, z, turn}] storehouses whose builders come from the choppers
+	// One shot only: if the engine rejects the order, manageDropSites'
+	// demand trigger is the fallback — retrying re-picks the same best tree.
+	this.bootstrapStoreTried = false;
+	// Civ-resolved civic-trio template names, cached by trioTypes.
+	this._trioTypes = undefined;
+	// Dropsite placement strategies, in priority order (wood, mine, farmstead)
+	// — the first strategy to fire places the block's one dropsite order.
+	// Self-contained per-resource policies with their own gates: swap one here
+	// to change placement for a map/biome. Instances are recreated fresh on
+	// deserialization, like the other transient dropsite state they hold.
+	this.woodStrategy = Object.create(WoodStorehouseStrategy);
+	this.mineStrategy = Object.create(MineStorehouseStrategy);
+	this.farmsteadStrategy = Object.create(FarmsteadStrategy);
+	this.dropsiteStrategies = [this.woodStrategy, this.mineStrategy, this.farmsteadStrategy];
+}
+
+ConstructionManager.prototype.serialize = function()
+{
+	return {
+		"builderAssignments": this.builderAssignments,
+		"pendingBuilds": this.pendingBuilds,
+		"bootstrapStoreTried": this.bootstrapStoreTried
+	};
 };
 
-BrennusBot.prototype.trioTypes = function()
+ConstructionManager.prototype.deserialize = function(data)
+{
+	this.builderAssignments = data?.builderAssignments || {};
+	this.pendingBuilds = data?.pendingBuilds || [];
+	// Never written to the blob, and the pre-manager entry never serialized it
+	// either: rushBuilds always restarts empty after a load.
+	this.rushBuilds = data?.rushBuilds || [];
+	this.bootstrapStoreTried = data?.bootstrapStoreTried || false;
+};
+
+ConstructionManager.prototype.nextTrioWood = function()
+{
+	if (this.bot.gameState.currentPhase() < 2)
+		return 0;
+	const foundations = this.bot.gameState.getOwnFoundations().toEntityArray();
+	const next = this.trioTypes()
+		.find(t => !this.hasStructureOrFoundation(t, foundations));
+	return next ? (this.bot.gameState.getTemplate(next).cost().wood || 0) : 0;
+};
+
+ConstructionManager.prototype.trioTypes = function()
 {
 	if (!this._trioTypes)
 	{
-		const third = this.gameState.getTemplate(this.gameState.applyCiv("structures/{civ}/tavern")) ?
+		const third = this.bot.gameState.getTemplate(this.bot.gameState.applyCiv("structures/{civ}/tavern")) ?
 			"tavern" : "temple";
 		this._trioTypes = ["forge", "market", third]
-			.map(t => this.gameState.applyCiv(`structures/{civ}/${t}`));
+			.map(t => this.bot.gameState.applyCiv(`structures/{civ}/${t}`));
 	}
 	return this._trioTypes;
 };
 
 // ---------------------------------------------------------------- construction
-BrennusBot.prototype.manageConstruction = function()
+ConstructionManager.prototype.manageConstruction = function()
 {
-	const gameState = this.gameState;
-	const resources = this.arbiter.books("construction");
+	const gameState = this.bot.gameState;
+	const resources = this.bot.arbiter.books("construction");
 	const foundations = gameState.getOwnFoundations().toEntityArray();
 
 	// Sticky, non-overlapping builders per foundation (dropsites 4, houses 2-3, fields 2, CC 10, wonder 16); the herder is excluded.
@@ -56,7 +97,7 @@ BrennusBot.prototype.manageConstruction = function()
 
 		const rush = this.rushBuilds.some(r => Math.abs(r.x - fpos[0]) < 6 && Math.abs(r.z - fpos[1]) < 6);
 
-		const target = (isField ? 2 : isHouse ? (this.gameState.currentPhase() === 1 ? 2 : 3) :
+		const target = (isField ? 2 : isHouse ? (this.bot.gameState.currentPhase() === 1 ? 2 : 3) :
 			isCC ? 10 : isWonder ? 16 : rush ? 8 : 4);
 		let cur = assigned[foundation.id()];
 		if (!cur)
@@ -66,10 +107,10 @@ BrennusBot.prototype.manageConstruction = function()
 			continue;
 		const builders = gameState.getOwnUnits()
 			.filter(ent => ent.isGatherer() && ent.isBuilder() && ent.position() &&
-				!(ent.id() === this.economyManager.herderId && !this.economyManager.herdingDone) &&
-				!this.armyManager.army[ent.id()] &&
+				!(ent.id() === this.bot.economyManager.herderId && !this.bot.economyManager.herdingDone) &&
+				!this.bot.armyManager.army[ent.id()] &&
 				!taken.has(ent.id()) &&
-				(!rush || this.economyManager.assignments[ent.id()] === "wood"))
+				(!rush || this.bot.economyManager.assignments[ent.id()] === "wood"))
 			.filterNearest(fpos, needed);
 		if (rush && !cur.length)
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m rush-building storehouse at ${fpos[0].toFixed(0)},${fpos[1].toFixed(0)} (${needed} wood choppers)\n`);
@@ -85,7 +126,7 @@ BrennusBot.prototype.manageConstruction = function()
 		const done = gameState.getOwnStructures().toEntityArray().some(s =>
 			s.templateName() === storeType && s.position() &&
 			Math.abs(s.position()[0] - r.x) < 6 && Math.abs(s.position()[1] - r.z) < 6);
-		return !done && this.turn - r.turn < 200;
+		return !done && this.bot.turn - r.turn < 200;
 	});
 
 	this.pendingBuilds = this.pendingBuilds.filter(pb => {
@@ -107,26 +148,26 @@ BrennusBot.prototype.manageConstruction = function()
 		// frontier spot needs minutes, and a premature timeout poisoned the
 		// spot while the party was still walking (def15 s5: the same far spot
 		// failed and re-poisoned itself every recompute cycle).
-		const home = this.getCivicCentre()?.position() || [384, 384];
+		const home = this.bot.getCivicCentre()?.position() || [384, 384];
 		const ccTimeout = 150 + Math.ceil(Math.hypot(pb.x - home[0], pb.z - home[1]) / 1.5);
-		if (this.turn - pb.turn > (pb.template.indexOf("civil_centre") !== -1 ? ccTimeout : 10))
+		if (this.bot.turn - pb.turn > (pb.template.indexOf("civil_centre") !== -1 ? ccTimeout : 10))
 		{
-			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m construct FAILED: ${pb.template} at ${pb.x.toFixed(0)},${pb.z.toFixed(0)} ${this.diagnoseFailedSpot(pb)}\n`);
-			this.failedSpots.push([pb.x, pb.z, this.turn, pb.template]);
+			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m construct FAILED: ${pb.template} at ${pb.x.toFixed(0)},${pb.z.toFixed(0)} ${this.bot.placementManager.diagnoseFailedSpot(pb)}\n`);
+			this.bot.placementManager.failedSpots.push([pb.x, pb.z, this.bot.turn, pb.template]);
 			// A CC order that died with enemies around means the builder party
 			// was slaughtered en route (s47: 5 orders, 5 dead parties): mark
 			// the area contested so the clearing op sanitizes it before the
 			// plan sends the next party.
 			if (pb.template.indexOf("civil_centre") !== -1 &&
-				this.armyManager.nearEnemy([pb.x, pb.z], 120, 120))
+				this.bot.armyManager.nearEnemy([pb.x, pb.z], 120, 120))
 			{
 				// Don't re-prove an area whose op just gave up: the army
 				// held it and no CC followed — the killers are not the
 				// blocker there (s13 churned 4 ops on one cursed spot).
 				let cooled = false;
-				for (const ck in this.offenseManager.clearCool)
+				for (const ck in this.bot.offenseManager.clearCool)
 				{
-					if (this.turn - this.offenseManager.clearCool[ck] >= 1800)
+					if (this.bot.turn - this.bot.offenseManager.clearCool[ck] >= 1800)
 						continue;
 					const [cx, cz] = ck.split(",");
 					if (Math.abs(+cx - pb.x) < 100 && Math.abs(+cz - pb.z) < 100)
@@ -138,14 +179,14 @@ BrennusBot.prototype.manageConstruction = function()
 				if (!cooled)
 				{
 					const key = `${pb.x.toFixed(0)},${pb.z.toFixed(0)}`;
-					const c = this.expContested[key];
-					this.expContested[key] = {
+					const c = this.bot.expContested[key];
+					this.bot.expContested[key] = {
 						"x": pb.x, "z": pb.z,
-						"since": c ? c.since : this.turn, "seen": this.turn,
+						"since": c ? c.since : this.bot.turn, "seen": this.bot.turn,
 						// A dead builder party proves the area lethal — no
 						// continuous-presence latch needed; the killers patrol and
 						// will be back (s47). Lives 3 min, extended per failure.
-						"proven": true, "until": this.turn + 900
+						"proven": true, "until": this.bot.turn + 900
 					};
 				}
 			}
@@ -154,15 +195,15 @@ BrennusBot.prototype.manageConstruction = function()
 		return true;
 	});
 
-	if (this.arbiter.held("construction"))
+	if (this.bot.arbiter.held("construction"))
 		return;
 
-	if (this.arbiter.held("banking"))
+	if (this.bot.arbiter.held("banking"))
 		return;
 
 	const houseType = gameState.applyCiv("structures/{civ}/house");
 	const fieldType = gameState.applyCiv("structures/{civ}/field");
-	const reserve = this.arbiter.reservedAll();
+	const reserve = this.bot.arbiter.reservedAll();
 
 	let queuedPop = 0;
 	for (const ent of gameState.getOwnStructures().values())
@@ -174,9 +215,9 @@ BrennusBot.prototype.manageConstruction = function()
 		gameState.getBuiltTemplate(f.templateName()).templateName() === houseType).length;
 	const houseCost = 75;
 	const tryHouse = () => {
-		if (this.tryConstruct(houseType, "house"))
-			this.arbiter.spend(resources, "construction", { "wood": houseCost }, "house");
-		else if (this.turn % 750 === 0)
+		if (this.bot.placementManager.tryConstruct(houseType, "house"))
+			this.bot.arbiter.spend(resources, "construction", { "wood": houseCost }, "house");
+		else if (this.bot.turn % 750 === 0)
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m house placement FAILED (margin=${margin})\n`);
 		return true;
 
@@ -192,9 +233,9 @@ BrennusBot.prototype.manageConstruction = function()
 			resources.canAfford({
 				"food": reserve.food || 0, "wood": (reserve.wood || 0) + 100,
 				"stone": reserve.stone || 0, "metal": reserve.metal || 0 }) &&
-			this.farmsteadStrategy.placeOpening(this, type))
+			this.farmsteadStrategy.placeOpening(this.bot, type))
 		{
-			this.arbiter.spend(resources, "construction", { "wood": 100 }, "farmstead");
+			this.bot.arbiter.spend(resources, "construction", { "wood": 100 }, "farmstead");
 			return;
 		}
 		const storeType = gameState.applyCiv("structures/{civ}/storehouse");
@@ -208,11 +249,11 @@ BrennusBot.prototype.manageConstruction = function()
 				"food": reserve.food || 0, "wood": (reserve.wood || 0) + 100,
 				"stone": reserve.stone || 0, "metal": reserve.metal || 0 }))
 		{
-			const pos = this.woodStrategy.placeOpening(this, storeType);
+			const pos = this.woodStrategy.placeOpening(this.bot, storeType);
 			if (pos)
 			{
 				this.bootstrapStoreTried = true;
-				this.arbiter.spend(resources, "construction", { "wood": 100 }, "storehouse");
+				this.bot.arbiter.spend(resources, "construction", { "wood": 100 }, "storehouse");
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m bootstrap storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)}\n`);
 				return;
 			}
@@ -230,9 +271,9 @@ BrennusBot.prototype.manageConstruction = function()
 				"food": reserve.food || 0, "wood": (cost.wood || 0) + (reserve.wood || 0),
 				"stone": (cost.stone || 0) + (reserve.stone || 0), "metal": (cost.metal || 0) + (reserve.metal || 0) }))
 			{
-				if (this.tryConstruct(trioType, "civic"))
+				if (this.bot.placementManager.tryConstruct(trioType, "civic"))
 				{
-					this.arbiter.spend(resources, "construction", cost, trioType.split("/").pop());
+					this.bot.arbiter.spend(resources, "construction", cost, trioType.split("/").pop());
 					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m building ${trioType.split("/").pop()}\n`);
 				}
 				return;
@@ -246,19 +287,19 @@ BrennusBot.prototype.manageConstruction = function()
 	// The defense accumulation hold (manageDefenseBuildings) pauses the
 	// house/field race while a muster building's 300 wood accumulates —
 	// dropsites and one-time civic buildings above keep firing.
-	if (this.arbiter.held("constructionDefense"))
+	if (this.bot.arbiter.held("constructionDefense"))
 		return;
 
 	// Field demand is computed fresh every block, BEFORE both house gates
 	// read it (until step C the early gate below read the previous block's
 	// declaration — an accident of statement order, not a policy).
 	let foodGatherers = 0;
-	for (const res of Object.values(this.economyManager.assignments))
+	for (const res of Object.values(this.bot.economyManager.assignments))
 		if (res === "food")
 			foodGatherers++;
-	const fieldCap = this.expansionOn() ? 60 : (gameState.currentPhase() === 1 ? 4 : 30);
+	const fieldCap = this.bot.expansionOn() ? 60 : (gameState.currentPhase() === 1 ? 4 : 30);
 	// Fields open at t=1:30 or when served fruit runs low: they must stand before the fruit runs out.
-	const desiredFields = this.economyManager.fruitStock < 4000 || gameState.getTimeElapsed() > 90000 ?
+	const desiredFields = this.bot.economyManager.fruitStock < 4000 || gameState.getTimeElapsed() > 90000 ?
 		Math.min(fieldCap, Math.max(2, Math.ceil(foodGatherers / 3) + 1)) : 0;
 	let fields = 0;
 	for (const ent of gameState.getOwnStructures().values())
@@ -268,15 +309,15 @@ BrennusBot.prototype.manageConstruction = function()
 		gameState.getBuiltTemplate(f.templateName()).templateName() === fieldType).length;
 
 	// Bootstrap only: the first 2 fields outrank the house stream while served fruit is nearly out.
-	this.arbiter.declare("field", (fields + fieldFoundations) < Math.min(2, desiredFields) &&
-		this.economyManager.fruitStock < 800 ? { "wood": 100 } : null);
+	this.bot.arbiter.declare("field", (fields + fieldFoundations) < Math.min(2, desiredFields) &&
+		this.bot.economyManager.fruitStock < 800 ? { "wood": 100 } : null);
 
-	if (margin < 2 && houseFoundations < this.maxHouseFoundations &&
+	if (margin < 2 && houseFoundations < this.bot.maxHouseFoundations &&
 		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
-		resources.wood >= houseCost + this.arbiter.declaredAmount("field", "wood"))
+		resources.wood >= houseCost + this.bot.arbiter.declaredAmount("field", "wood"))
 		return tryHouse();
 
-	this.arbiter.declare("techWood", null);
+	this.bot.arbiter.declare("techWood", null);
 	for (const tech of ["gather_farming_plows", "gather_farming_training",
 		"gather_farming_harvester", "gather_lumbering_ironaxes"])
 	{
@@ -285,11 +326,11 @@ BrennusBot.prototype.manageConstruction = function()
 			continue;
 		const techWood = gameState.getTemplate(tech).cost().wood || 0;
 		if (resources.wood < techWood + 100)
-			this.arbiter.declare("techWood", techWood ? { "wood": techWood } : null);
+			this.bot.arbiter.declare("techWood", techWood ? { "wood": techWood } : null);
 		break;
 	}
 
-	const cc = this.getCivicCentre();
+	const cc = this.bot.getCivicCentre();
 	if (!cc)
 		return;
 	const ccPos = cc.position();
@@ -311,33 +352,33 @@ BrennusBot.prototype.manageConstruction = function()
 				return [near, farm.position()];
 			})
 			.sort((a, b) => a[0] - b[0]);
-		const region = this.accessibility.getAccessValue(ccPos);
+		const region = this.bot.accessibility.getAccessValue(ccPos);
 		for (const farm of farms)
 		{
-			const spot = this.findBuildingPosition(fieldType, farm[1], 16, 36, true, region);
-			if (spot && this.placeOrder(fieldType, spot))
+			const spot = this.bot.placementManager.findBuildingPosition(fieldType, farm[1], 16, 36, true, region);
+			if (spot && this.bot.placementManager.placeOrder(fieldType, spot))
 				return;
 		}
-		this.tryConstruct(fieldType, "field");
+		this.bot.placementManager.tryConstruct(fieldType, "field");
 		return;
 	}
 
-	if (this.arbiter.declared("fert"))
+	if (this.bot.arbiter.declared("fert"))
 		return;
 
 	const sprintCap = gameState.getTimeElapsed() > 600000 &&
 		gameState.getPopulationLimit() < gameState.getPopulationMax();
-	if ((margin < this.houseMargin || sprintCap) && houseFoundations < this.maxHouseFoundations &&
-		!this.arbiter.declared("techWood") &&
+	if ((margin < this.bot.houseMargin || sprintCap) && houseFoundations < this.bot.maxHouseFoundations &&
+		!this.bot.arbiter.declared("techWood") &&
 		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
-		resources.wood >= (reserve.wood || 0) + this.nextTrioWood() + this.arbiter.declaredAmount("dropsite", "wood") + this.arbiter.declaredAmount("field", "wood") + houseCost)
+		resources.wood >= (reserve.wood || 0) + this.nextTrioWood() + this.bot.arbiter.declaredAmount("dropsite", "wood") + this.bot.arbiter.declaredAmount("field", "wood") + houseCost)
 		return tryHouse();
 };
 
-BrennusBot.prototype.hasStructureOrFoundation = function(type, foundations)
+ConstructionManager.prototype.hasStructureOrFoundation = function(type, foundations)
 {
-	return this.gameState.getOwnStructures().toEntityArray().some(ent => ent.templateName() === type) ||
-		foundations.some(f => this.gameState.getBuiltTemplate(f.templateName()).templateName() === type);
+	return this.bot.gameState.getOwnStructures().toEntityArray().some(ent => ent.templateName() === type) ||
+		foundations.some(f => this.bot.gameState.getBuiltTemplate(f.templateName()).templateName() === type);
 };
 
 // ------------------------------------------------- dropsite strategies
@@ -394,7 +435,7 @@ export const WoodStorehouseStrategy = {
 			if (tried.some(p => SquareDistance(p, cand[1]) < 30 * 30))
 				continue;
 			tried.push(cand[1]);
-			const pos = bot.tryConstruct(type, "dropsite", cand[1], true);
+			const pos = bot.placementManager.tryConstruct(type, "dropsite", cand[1], true);
 			if (pos)
 				return pos;
 			if (tried.length >= 5)
@@ -469,7 +510,7 @@ export const WoodStorehouseStrategy = {
 				bot.arbiter.declare("dropsite", { "wood": 100 });
 				const placed = bot.expansionOn() ?
 					bot.findExpansionWoodStorehouse(ctx.storeType, center) :
-					bot.tryConstruct(ctx.storeType, "dropsite", center, true);
+					bot.placementManager.tryConstruct(ctx.storeType, "dropsite", center, true);
 				if (placed)
 				{
 					bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/wood");
@@ -541,9 +582,9 @@ export const MineStorehouseStrategy = {
 						ctx.storePending(mid);
 					if (!planned && resources.wood >= ctx.woodFloor)
 					{
-						const spot = bot.findMinimaxSpot(ctx.storeType, [sPos, mPos],
+						const spot = bot.placementManager.findMinimaxSpot(ctx.storeType, [sPos, mPos],
 							bot.accessibility.getAccessValue(ctx.cc.position()));
-						if (spot && bot.placeOrder(ctx.storeType, spot))
+						if (spot && bot.placementManager.placeOrder(ctx.storeType, spot))
 						{
 							this.lastMineStoreTurn = bot.turn;
 							bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/mine-pair");
@@ -557,7 +598,7 @@ export const MineStorehouseStrategy = {
 				const planned = ctx.storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 45) ||
 					ctx.storePending(center);
 				const pos = resources.wood >= (far.length >= 2 ? 100 : ctx.woodFloor) && !planned &&
-					bot.tryConstruct(ctx.storeType, "dropsite", center);
+					bot.placementManager.tryConstruct(ctx.storeType, "dropsite", center);
 				if (pos)
 				{
 					this.lastMineStoreTurn = bot.turn;
@@ -596,8 +637,8 @@ export const MineStorehouseStrategy = {
 					ctx.storePending(best);
 				if (!planned)
 				{
-					const spot = bot.findMinimaxSpot(ctx.storeType, [best], region);
-					if (spot && bot.placeOrder(ctx.storeType, spot))
+					const spot = bot.placementManager.findMinimaxSpot(ctx.storeType, [best], region);
+					if (spot && bot.placementManager.placeOrder(ctx.storeType, spot))
 					{
 						this.lastMineStoreTurn = bot.turn;
 						bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/unserved-mine");
@@ -639,7 +680,7 @@ export const FarmsteadStrategy = {
 			if (tried.some(p => SquareDistance(p, cand[1]) < 30 * 30))
 				continue;
 			tried.push(cand[1]);
-			if (bot.tryConstruct(type, "dropsite", cand[1]))
+			if (bot.placementManager.tryConstruct(type, "dropsite", cand[1]))
 				return true;
 			if (tried.length >= 5)
 				break;
@@ -693,7 +734,7 @@ export const FarmsteadStrategy = {
 			const center = bot.economyManager.centroid(cluster);
 			const planned = farmFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 25);
 			const pos = !planned && resources.wood >= ctx.woodFloor &&
-				bot.tryConstruct(farmType, "dropsite", center);
+				bot.placementManager.tryConstruct(farmType, "dropsite", center);
 			if (pos)
 			{
 				bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "farmstead/fields");
@@ -728,7 +769,7 @@ export const FarmsteadStrategy = {
 			const center = bot.economyManager.centroid(cluster);
 			const planned = farmFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 25);
 			const pos = !planned && resources.wood >= ctx.woodFloor &&
-				bot.tryConstruct(farmType, "dropsite", center);
+				bot.placementManager.tryConstruct(farmType, "dropsite", center);
 			if (pos)
 			{
 				bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "farmstead/fruit");
@@ -763,7 +804,7 @@ export const FarmsteadStrategy = {
 			{
 				bot.arbiter.declare("dropsite", { "wood": 100 });
 				const planned = farmFoundations.some(p => Math.hypot(p[0] - best[0], p[1] - best[1]) < 25);
-				const pos = !planned && bot.tryConstruct(farmType, "dropsite", best);
+				const pos = !planned && bot.placementManager.tryConstruct(farmType, "dropsite", best);
 				if (pos)
 				{
 					bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "farmstead/next-fruit");
@@ -781,27 +822,27 @@ export const FarmsteadStrategy = {
  * the reserve-padded wood floor, existing storehouse coverage (home CC +
  * storehouses, foundations included) and the pending-build dedupe.
  */
-BrennusBot.prototype.buildDropsiteContext = function(foundations, reserve, resources)
+ConstructionManager.prototype.buildDropsiteContext = function(foundations, reserve, resources)
 {
-	const gameState = this.gameState;
-	const cc = this.getCivicCentre();
+	const gameState = this.bot.gameState;
+	const cc = this.bot.getCivicCentre();
 	if (!cc)
 		return null;
 	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
-	const woodSites = [{ "pos": cc.position(), "half": this.economyManager.obstructionHalfDiag(cc) }];
+	const woodSites = [{ "pos": cc.position(), "half": this.bot.economyManager.obstructionHalfDiag(cc) }];
 	const storeFoundations = [];
 	let storeCount = 0;
 	for (const f of foundations)
 		if (gameState.getBuiltTemplate(f.templateName()).templateName() === storeType && f.position())
 		{
-			woodSites.push({ "pos": f.position(), "half": this.economyManager.obstructionHalfDiag(f) });
+			woodSites.push({ "pos": f.position(), "half": this.bot.economyManager.obstructionHalfDiag(f) });
 			storeFoundations.push(f.position());
 			storeCount++;
 		}
 	for (const ent of gameState.getOwnStructures().values())
 		if (ent.templateName() === storeType && ent.position())
 		{
-			woodSites.push({ "pos": ent.position(), "half": this.economyManager.obstructionHalfDiag(ent) });
+			woodSites.push({ "pos": ent.position(), "half": this.bot.economyManager.obstructionHalfDiag(ent) });
 			storeCount++;
 		}
 	return {
@@ -819,15 +860,15 @@ BrennusBot.prototype.buildDropsiteContext = function(foundations, reserve, resou
 };
 
 /** One dropsite order per block: the strategies run in priority order (wood, mine, farmstead) and the first to place an order wins. */
-BrennusBot.prototype.manageDropSites = function(foundations, reserve)
+ConstructionManager.prototype.manageDropSites = function(foundations, reserve)
 {
-	const resources = this.arbiter.books("dropsites");
+	const resources = this.bot.arbiter.books("dropsites");
 	const ctx = this.buildDropsiteContext(foundations, reserve, resources);
 	if (!ctx)
 		return false;
-	this.arbiter.declare("dropsite", null);
+	this.bot.arbiter.declare("dropsite", null);
 	for (const strategy of this.dropsiteStrategies)
-		if (strategy.run(this, ctx))
+		if (strategy.run(this.bot, ctx))
 			return true;
 	return false;
 };

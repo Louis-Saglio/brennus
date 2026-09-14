@@ -147,7 +147,7 @@ BrennusBot.prototype.expansionSpotOK = function(spot, halfW, halfD)
 	const pass = this.gameState.getPassabilityMap();
 	const mask = this.gameState.getPassabilityClassMask("building-land");
 	const terr = this.territoryMap;
-	const angle = this.getPlacementAngle();
+	const angle = this.placementManager.getPlacementAngle();
 	const cosa = Math.cos(angle), sina = Math.sin(angle);
 	const ex = halfW + 0.75, ez = halfD + 0.75;
 	const pc = pass.cellSize, tc = terr.cellSize;
@@ -187,7 +187,7 @@ BrennusBot.prototype.expansionSpotNear = function(anchor, halfW, halfD, ccSpots)
 		{
 			const ang = a * 2 * Math.PI / 24;
 			const spot = [anchor[0] + r * Math.cos(ang), anchor[1] + r * Math.sin(ang)];
-			if (this.failedSpots.some(f => Math.abs(f[0] - spot[0]) < 6 && Math.abs(f[1] - spot[1]) < 6))
+			if (this.placementManager.failedSpots.some(f => Math.abs(f[0] - spot[0]) < 6 && Math.abs(f[1] - spot[1]) < 6))
 				continue;
 			if (ccSpots.some(c => SquareDistance(c, spot) < 200 * 200))
 				continue;
@@ -372,8 +372,8 @@ BrennusBot.prototype.checkReliefExpansion = function()
 		return;
 	const gameState = this.gameState;
 	const stuck = (templateType, latch) =>
-		this.placeFailSince[templateType] !== undefined &&
-		this.turn - this.placeFailSince[templateType] >= latch;
+		this.placementManager.placeFailSince[templateType] !== undefined &&
+		this.turn - this.placementManager.placeFailSince[templateType] >= latch;
 	for (const [building, latch] of [["market", 750], ["arsenal", 1200]])
 	{
 		const type = gameState.applyCiv(`structures/{civ}/${building}`);
@@ -388,14 +388,14 @@ BrennusBot.prototype.checkReliefExpansion = function()
 			}
 		if (!owned)
 		{
-			this.reliefFire(`no room: first ${building} placement failing ${((this.turn - this.placeFailSince[type]) / 300).toFixed(1)}m`);
+			this.reliefFire(`no room: first ${building} placement failing ${((this.turn - this.placementManager.placeFailSince[type]) / 300).toFixed(1)}m`);
 			return;
 		}
 	}
 	const houseType = gameState.applyCiv("structures/{civ}/house");
 	if (stuck(houseType, 750))
 	{
-		this.reliefFire(`no room: houses unplaceable at the pop cap for ${((this.turn - this.placeFailSince[houseType]) / 300).toFixed(1)}m`);
+		this.reliefFire(`no room: houses unplaceable at the pop cap for ${((this.turn - this.placementManager.placeFailSince[houseType]) / 300).toFixed(1)}m`);
 		return;
 	}
 	if (this.turn - (this.reliefResourceCheck || 0) < 150)
@@ -420,11 +420,11 @@ BrennusBot.prototype.checkReliefExpansion = function()
 	let wood = 0;
 	for (const s of gameState.getResourceSupplies("wood").values())
 		if (s.position() && s.resourceSupplyAmount() &&
-			this.economyManager.edgeDistToSites(s.position(), sites) <= this.woodStrategy.gateRadius)
+			this.economyManager.edgeDistToSites(s.position(), sites) <= this.constructionManager.woodStrategy.gateRadius)
 			wood += s.resourceSupplyAmount();
 	if (wood > (this.reliefServedPeak.wood || 0))
 		this.reliefServedPeak.wood = wood;
-	if (wood < this.woodStrategy.minWoodMass && this.reliefServedPeak.wood >= this.woodStrategy.minWoodMass)
+	if (wood < this.constructionManager.woodStrategy.minWoodMass && this.reliefServedPeak.wood >= this.constructionManager.woodStrategy.minWoodMass)
 		this.reliefFire(`wood near dropsites exhausted (${wood} of peak ${this.reliefServedPeak.wood} left)`);
 };
 
@@ -521,7 +521,7 @@ BrennusBot.prototype.manageExpansion = function()
 
 		}
 		else if (!this.buildupManager.willToFightPending(gameState) &&
-			!this.pendingBuilds.some(pb => pb.template === wonderType) &&
+			!this.constructionManager.pendingBuilds.some(pb => pb.template === wonderType) &&
 			!this.arbiter.held("construction"))
 		{
 			const res = this.arbiter.books("expansion");
@@ -529,7 +529,7 @@ BrennusBot.prototype.manageExpansion = function()
 			if (res.canAfford({ "wood": 1100, "stone": 1550, "metal": 1100 }))
 			{
 				const spot = this.findWonderSpot(wonderType);
-				if (spot && this.placeOrder(wonderType, spot))
+				if (spot && this.placementManager.placeOrder(wonderType, spot))
 				{
 					this.arbiter.spend(res, "expansion", { "wood": 1000, "stone": 1500, "metal": 1000 }, "wonder");
 					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wonder order at ${spot[0].toFixed(0)},${spot[1].toFixed(0)}\n`);
@@ -554,7 +554,7 @@ BrennusBot.prototype.manageExpansion = function()
 		if (marketSpots.length >= 1 + this.expMarkets)
 
 			plan.marketsPlaced = this.expMarkets;
-		else if (!this.pendingBuilds.some(pb => pb.template === marketType &&
+		else if (!this.constructionManager.pendingBuilds.some(pb => pb.template === marketType &&
 				SquareDistance([pb.x, pb.z], base) > 150 * 150) &&
 			!this.arbiter.held("construction"))
 		{
@@ -570,8 +570,8 @@ BrennusBot.prototype.manageExpansion = function()
 					.slice(0, this.expMarkets);
 				for (const anchor of anchors)
 				{
-					const pos = this.findBuildingPosition(marketType, anchor.position(), 20, 80, true, this.expansionRegion);
-					if (pos && this.placeOrder(marketType, pos))
+					const pos = this.placementManager.findBuildingPosition(marketType, anchor.position(), 20, 80, true, this.expansionRegion);
+					if (pos && this.placementManager.placeOrder(marketType, pos))
 					{
 						this.arbiter.spend(res, "expansion", { "wood": 300 }, "market");
 						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m market at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for the trade routes\n`);
@@ -598,7 +598,7 @@ BrennusBot.prototype.manageExpansion = function()
 		for (const f of gameState.getOwnFoundations().values())
 			if (f.position() && gameState.getBuiltTemplate(f.templateName()).hasClass("CivCentre"))
 				ccFoundationPos.push(f.position());
-		const ccPending = this.pendingBuilds.filter(pb => pb.template === ccType);
+		const ccPending = this.constructionManager.pendingBuilds.filter(pb => pb.template === ccType);
 		const ccSpots = ownCCPos.concat(ccFoundationPos);
 		for (const ent of gameState.getStructures().values())
 			if (ent.hasClass("CivCentre") && ent.position())
@@ -641,7 +641,7 @@ BrennusBot.prototype.manageExpansion = function()
 				continue;
 			}
 
-			if (this.failedSpots.some(f => Math.abs(f[0] - spot[0]) < 6 && Math.abs(f[1] - spot[1]) < 6))
+			if (this.placementManager.failedSpots.some(f => Math.abs(f[0] - spot[0]) < 6 && Math.abs(f[1] - spot[1]) < 6))
 			{
 				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC spot ${spot[0].toFixed(0)},${spot[1].toFixed(0)} failed, skipping\n`);
 				plan.next++;
@@ -753,7 +753,7 @@ BrennusBot.prototype.manageExpansion = function()
 			const stoneReserve = this.buildupManager.wonderHoldActive(gameState) ? 1550 : 0;
 			if (!res.canAfford({ "wood": 400, "stone": 400 + stoneReserve, "metal": 300 + (stoneReserve ? 1100 : 0) }))
 				return;
-			if (!this.placeOrder(ccType, spot))
+			if (!this.placementManager.placeOrder(ccType, spot))
 				return;
 			// A lone builder dies or gets sheltered en route: send a party of 6.
 			const party = gameState.getOwnUnits()
@@ -761,7 +761,7 @@ BrennusBot.prototype.manageExpansion = function()
 					!this.armyManager.army[ent.id()] && ent.id() !== this.economyManager.herderId)
 				.filterNearest(spot, 6).toEntityArray();
 			for (const ent of party)
-				ent.construct(ccType, spot[0], spot[1], this.getPlacementAngle(), undefined);
+				ent.construct(ccType, spot[0], spot[1], this.placementManager.getPlacementAngle(), undefined);
 			this.arbiter.spend(res, "expansion", { "wood": 300, "stone": 300, "metal": 250 }, "CC");
 			slots--;
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m CC order at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} (${plan.next + 1}/${plan.spots.length}, slot ${ccConcurrency - slots}/${ccConcurrency})\n`);

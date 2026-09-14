@@ -59,13 +59,13 @@ BuildupManager.prototype.manageDefenseBuildings = function()
 			if (gameState.getBuiltTemplate(f.templateName()).templateName() === type)
 				have++;
 		haveByType[type] = have;
-		if (have < want && !this.bot.pendingBuilds.some(pb => pb.template === type))
+		if (have < want && !this.bot.constructionManager.pendingBuilds.some(pb => pb.template === type))
 			missingAny = true;
 	}
 	this.bot.arbiter.declare("defenseGap", missingAny);
 	for (const [type, want, cost] of wants)
 	{
-		if (haveByType[type] >= want || this.bot.pendingBuilds.some(pb => pb.template === type))
+		if (haveByType[type] >= want || this.bot.constructionManager.pendingBuilds.some(pb => pb.template === type))
 			continue;
 		const books = this.bot.arbiter.books("defenseBuildings");
 		if (books.wood < (boom ? 350 : 300))
@@ -98,7 +98,7 @@ BuildupManager.prototype.manageDefenseBuildings = function()
 		// buildings behind it.
 		if (!books.canAfford({ "wood": cost.wood || 0, "stone": cost.stone || 0, "food": 0, "metal": 0 }))
 			continue;
-		if (this.bot.tryConstruct(type, "military"))
+		if (this.bot.placementManager.tryConstruct(type, "military"))
 		{
 			this.bot.arbiter.spend(books, "defenseBuildings", { "wood": cost.wood || 0, "stone": cost.stone || 0 }, type.split("/").pop());
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m defense building ${type.split("/").pop()}\n`);
@@ -146,7 +146,7 @@ BuildupManager.prototype.placeTower = function(center, want)
 	for (const f of gameState.getOwnFoundations().values())
 		if (f.position() && gameState.getBuiltTemplate(f.templateName()).templateName() === towerType)
 			towers.push(f.position());
-	for (const pb of this.bot.pendingBuilds)
+	for (const pb of this.bot.constructionManager.pendingBuilds)
 		if (pb.template === towerType)
 			towers.push([pb.x, pb.z]);
 	let near = 0;
@@ -161,9 +161,9 @@ BuildupManager.prototype.placeTower = function(center, want)
 	if (res.wood < 100 || res.stone < 100)
 		return false;
 	const clearOfTowers = (x, z) => !towers.some(p => SquareDistance(p, [x, z]) < 65 * 65);
-	const spot = this.bot.findBuildingPosition(towerType, center, 12, 80, true,
+	const spot = this.bot.placementManager.findBuildingPosition(towerType, center, 12, 80, true,
 		this.bot.accessibility.getAccessValue(center), clearOfTowers);
-	if (!spot || !this.bot.placeOrder(towerType, spot))
+	if (!spot || !this.bot.placementManager.placeOrder(towerType, spot))
 		return false;
 	this.bot.arbiter.spend(res, "towers", { "wood": 100, "stone": 100 }, "tower");
 	print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m tower at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} for CC ${center[0].toFixed(0)},${center[1].toFixed(0)}\n`);
