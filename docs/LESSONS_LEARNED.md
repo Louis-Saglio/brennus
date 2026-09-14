@@ -1210,3 +1210,18 @@ unchanged.
 - Verified: monolith vs split, seeds 101/202/303 standard matches —
   byte-identical end-game stats.json and identical turn counts, 0 JS
   errors. Determinism survives a pure code-motion split.
+
+## 2026-09-14 (manager refactor: receiver-context repaint bug)
+
+- When converting prototype modules (`this` = the bot) to manager classes
+  (`this` = the manager, `this.bot` = the bot), a mechanical repaint must
+  track THREE receiver contexts: converted files (`this.bot.X` for bot
+  members), un-converted prototype files (`this.XManager.Y` — NOT
+  `this.bot.XManager.Y`, and strategy closures taking `bot` as a parameter
+  need `bot.XManager.Y`, not `bot.Y`). Two verification runs died on this:
+  `this.bot is undefined` (prototype file repainted as if converted) and
+  `bot.nearEnemy is not a function` (strategy-closure param missed).
+- The reliable sweep after any repaint: `grep -oh 'bot\.[A-Za-z_]*' *.js |
+  sort -u` and check every token against the moved-member list — catches
+  every receiver alias at once; then the reverse: bare `this.*` in
+  converted files must all be manager-owned.

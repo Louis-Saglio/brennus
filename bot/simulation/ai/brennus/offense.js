@@ -51,7 +51,7 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 		return false;
 
 	const ramEnts = [];
-	for (const id in this.bot.rams)
+	for (const id in this.bot.armyManager.rams)
 	{
 		const ent = gameState.getEntityById(+id);
 		if (ent?.position())
@@ -87,7 +87,7 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 		{
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m razed enemy CC at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)}\n`);
 			this.target = undefined;
-			this.bot.armyCmdTurn = 0;	// rally home next block
+			this.bot.defenseManager.armyCmdTurn = 0;	// rally home next block
 			for (const ent of armyEnts)
 				ent.setStance("defensive");
 			sendRamsHome();
@@ -105,7 +105,7 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 			// home and back each time and the second CC never even got attacked.
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid aborted at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)} (rams=${ramEnts.length}, age=${((this.bot.turn - (this.target.turn || 0)) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
 			this.target = undefined;
-			this.bot.armyCmdTurn = 0;
+			this.bot.defenseManager.armyCmdTurn = 0;
 			for (const ent of armyEnts)
 				ent.setStance("defensive");
 			sendRamsHome();
@@ -115,7 +115,7 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 	}
 	if (!this.target)
 	{
-		if (this.bot.armyCount() < 75)
+		if (this.bot.armyManager.armyCount() < 75)
 			return false;
 		// No rams, no raze: basic infantry cannot burn a garrisoned CC before
 		// reinforcements arrive — agg6 s2 raided with 0 rams at 20-21m and
@@ -156,20 +156,20 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 		for (const ent of armyEnts)
 			ent.setStance("aggressive");
 	}
-	if (this.bot.armyCount() < 50)
+	if (this.bot.armyManager.armyCount() < 50)
 	{
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid spent, regrouping (army=${armyEnts.length})\n`);
 		this.target = undefined;
-		this.bot.armyCmdTurn = 0;
+		this.bot.defenseManager.armyCmdTurn = 0;
 		for (const ent of armyEnts)
 			ent.setStance("defensive");
 		sendRamsHome();
 		sendHealersHome();
 		return false;
 	}
-	if (this.bot.turn < this.bot.armyCmdTurn)
+	if (this.bot.turn < this.bot.defenseManager.armyCmdTurn)
 		return true;
-	this.bot.armyCmdTurn = this.bot.turn + 10;
+	this.bot.defenseManager.armyCmdTurn = this.bot.turn + 10;
 	// Contest: enemy units within 100 m of the target. While any stand there,
 	// soldiers clear them instead of grinding the structure — raids that
 	// ignore defenders melt under their fire (replay review s50/51/52). Rams
@@ -211,7 +211,7 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 			// infantry. Nearest-foe remains the fallback.
 			if (ent.hasClass("Cavalry"))
 			{
-				const cavTarget = this.bot.pickCavalryTarget(foes, ent.position());
+				const cavTarget = this.bot.armyManager.pickCavalryTarget(foes, ent.position());
 				if (cavTarget)
 				{
 					ent.attack(cavTarget.id(), false);
@@ -414,7 +414,7 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 		return false;
 
 	const ramEnts = [];
-	for (const id in this.bot.rams)
+	for (const id in this.bot.armyManager.rams)
 	{
 		const ent = gameState.getEntityById(+id);
 		if (ent?.position())
@@ -422,7 +422,7 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 	}
 	const standDown = () => {
 		this.purgeTarget = undefined;
-		this.bot.armyCmdTurn = 0;	// rally home next block
+		this.bot.defenseManager.armyCmdTurn = 0;	// rally home next block
 		for (const ent of armyEnts)
 			ent.setStance("defensive");
 		for (const ram of ramEnts)
@@ -442,7 +442,7 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 			standDown();
 			return false;
 		}
-		if (this.bot.armyCount() < 40 || this.bot.turn - this.purgeTarget.turn > 900 ||
+		if (this.bot.armyManager.armyCount() < 40 || this.bot.turn - this.purgeTarget.turn > 900 ||
 			(target.hasClass("Fortress") && ramEnts.length < 1))
 		{
 			// Purge targets sit near home by construction, so 3 min (not the
@@ -456,7 +456,7 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 	}
 	if (!this.purgeTarget)
 	{
-		if (this.bot.armyCount() < 60)
+		if (this.bot.armyManager.armyCount() < 60)
 			return false;
 		// Their main force loitering near home pins the army: the camp sortie
 		// and the rally own it then, not a march to the border.
@@ -510,7 +510,7 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 				bestDef = defenders;
 			}
 		}
-		if (!best || this.bot.armyCount() < bestDef * 1.5)
+		if (!best || this.bot.armyManager.armyCount() < bestDef * 1.5)
 			return false;
 		const bp = best.position();
 		this.purgeTarget = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.bot.turn, "name": best.templateName() };
@@ -518,9 +518,9 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 		for (const ent of armyEnts)
 			ent.setStance("aggressive");
 	}
-	if (this.bot.turn < this.bot.armyCmdTurn)
+	if (this.bot.turn < this.bot.defenseManager.armyCmdTurn)
 		return true;
-	this.bot.armyCmdTurn = this.bot.turn + 10;
+	this.bot.defenseManager.armyCmdTurn = this.bot.turn + 10;
 	// Same contest rule as the raid: while enemy units stand within 100 m of
 	// the target, soldiers clear them instead of grinding the structure —
 	// 1.5x superiority was measured at launch, reinforcements are the
@@ -604,7 +604,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 		return false;
 
 	const ramEnts = [];
-	for (const id in this.bot.rams)
+	for (const id in this.bot.armyManager.rams)
 	{
 		const ent = gameState.getEntityById(+id);
 		if (ent?.position())
@@ -612,7 +612,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 	}
 	const standDown = () => {
 		this.clearOp = undefined;
-		this.bot.armyCmdTurn = 0;	// rally home next block
+		this.bot.defenseManager.armyCmdTurn = 0;	// rally home next block
 		for (const ent of armyEnts)
 			ent.setStance("defensive");
 		for (const ram of ramEnts)
@@ -625,7 +625,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 	{
 		const op = this.clearOp;
 		// Cached enemy positions: same veto predicate as the expansion scan.
-		const cleared = !this.bot.nearEnemy([op.x, op.z], 100, 60);
+		const cleared = !this.bot.armyManager.nearEnemy([op.x, op.z], 100, 60);
 		const bubbleDown = () => {
 			// One op sanitizes the whole bubble: drop every contested entry
 			// within 100 m so the re-order to a neighbor spot is not blocked
@@ -702,16 +702,16 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 				return false;
 			}
 		}
-		if (this.bot.armyCount() < 40 || this.bot.turn - op.turn > 900 || !this.bot.expContested[op.key])
+		if (this.bot.armyManager.armyCount() < 40 || this.bot.turn - op.turn > 900 || !this.bot.expContested[op.key])
 		{
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m clearing aborted at ${op.x.toFixed(0)},${op.z.toFixed(0)} (age=${((this.bot.turn - op.turn) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
 			this.clearCool[op.key] = this.bot.turn;
 			standDown();
 			return false;
 		}
-		if (this.bot.turn < this.bot.armyCmdTurn)
+		if (this.bot.turn < this.bot.defenseManager.armyCmdTurn)
 			return true;
-		this.bot.armyCmdTurn = this.bot.turn + 10;
+		this.bot.defenseManager.armyCmdTurn = this.bot.turn + 10;
 		// Same contest rule as the raid and the purge: soldiers clear enemy
 		// units standing within 100 m of the spot first; structures are
 		// attacked (capture allowed) only once the field is theirs.
@@ -779,7 +779,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 		return true;
 	}
 
-	if (this.bot.armyCount() < 60)
+	if (this.bot.armyManager.armyCount() < 60)
 		return false;
 	// Clearing exists to unblock CC orders; with the expansion stages off
 	// there is nothing to unblock. (No plan-completeness gate: an exhausted
@@ -808,7 +808,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 		if (this.clearCool[key] && this.bot.turn - this.clearCool[key] < 1800)
 			continue;	// 6 min: an area that resisted one op stays dangerous
 		let def = 0;
-		for (const p of this.bot.enemyMobilesPos || [])
+		for (const p of this.bot.armyManager.enemyMobilesPos || [])
 			if (SquareDistance(p, [c.x, c.z]) < 100 * 100)
 				def++;
 		let fortress = false, structs = 0;
@@ -841,7 +841,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 			bestProven = c.proven;
 		}
 	}
-	if (!best || campN >= 15 || this.bot.armyCount() < bestDef * 1.5)
+	if (!best || campN >= 15 || this.bot.armyManager.armyCount() < bestDef * 1.5)
 	{
 		// Blocked-launch forensics, throttled: which gate keeps a contested
 		// spot from getting its clearing op (camp pins, no superiority,
@@ -850,7 +850,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 		if (entries && this.bot.turn - (this.clearBlockedLog || -300) >= 300)
 		{
 			this.clearBlockedLog = this.bot.turn;
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m clearing blocked (entries=${entries} eligible=${eligible} bestDef=${best === undefined ? "-" : bestDef} army=${this.bot.armyCount()} camp=${campN})\n`);
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m clearing blocked (entries=${entries} eligible=${eligible} bestDef=${best === undefined ? "-" : bestDef} army=${this.bot.armyManager.armyCount()} camp=${campN})\n`);
 		}
 		return false;
 	}

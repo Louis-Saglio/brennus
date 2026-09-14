@@ -8,16 +8,15 @@
 
 import { BaseAI } from "simulation/ai/common-api/baseAI.js";
 import { ResourceArbiter } from "simulation/ai/brennus/arbiter.js";
+import { ArmyManager } from "simulation/ai/brennus/army.js";
+import { BuildupManager } from "simulation/ai/brennus/buildup.js";
+import { DefenseManager } from "simulation/ai/brennus/defense.js";
 import { OffenseManager } from "simulation/ai/brennus/offense.js";
 import { FarmsteadStrategy, MineStorehouseStrategy, WoodStorehouseStrategy } from "simulation/ai/brennus/construction.js";
-import "simulation/ai/brennus/army.js";
 import "simulation/ai/brennus/boom.js";
-import "simulation/ai/brennus/buildup.js";
 import "simulation/ai/brennus/config.js";
-import "simulation/ai/brennus/defense.js";
 import "simulation/ai/brennus/economy.js";
 import "simulation/ai/brennus/expansion.js";
-import "simulation/ai/brennus/offense.js";
 import "simulation/ai/brennus/placement.js";
 import "simulation/ai/brennus/status.js";
 
@@ -107,23 +106,11 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.offenseManager = new OffenseManager(this);
 	this.offenseManager.deserialize(this.savedState?.offense);
 
-	// Defense: standing army roster (entityID -> 1), command throttle, shelter memory.
-	this.army = this.savedState?.army || {};
-	this.rams = this.savedState?.rams || {};
-	this.healers = this.savedState?.healers || {};
-	this.demobilized = this.savedState?.demobilized || {};
-	this.armyCmdTurn = 0;
-	this.shelterDanger = {};
-	this.lastSeriousTurn = 0;
-	this.swatting = false;
-	this.spearNext = true;
-
-	// Proportional recall (ids recalled to a home threat, live only while the
-	// threat does) and border foundation denial state — transient like the
-	// offense manager's raid/purge targets.
-	this.recalled = {};
-	this.deny = undefined;
-	this.denyTried = {};
+	// Army rosters and enemy intel, home-defense dispatch, war production.
+	this.armyManager = new ArmyManager(this);
+	this.armyManager.deserialize(this.savedState?.armyManager);
+	this.defenseManager = new DefenseManager(this);
+	this.buildupManager = new BuildupManager(this);
 
 	// Dropsite placement strategies, in priority order (wood, mine, farmstead)
 	// — the first strategy to fire places the block's one dropsite order.
@@ -144,7 +131,7 @@ BrennusBot.prototype.OnUpdate = function()
 
 	if (this.turn % 5 === 0)
 	{
-		this.updateEnemyPositions();
+		this.armyManager.updateEnemyPositions();
 
 		// Failed build spots expire after 1500 turns (5 min) — storehouses after
 		// 300: their failures are mostly silent engine rejections from the
@@ -214,10 +201,8 @@ BrennusBot.prototype.Serialize = function()
 		"reliefServedPeak": this.reliefServedPeak,
 		"expContested": this.expContested,
 		"offense": this.offenseManager.serialize(),
-		"army": this.army,
+		"army": this.armyManager.serialize(),
 		"arbiter": this.arbiter.serialize(),
-		"rams": this.rams,
-		"healers": this.healers
 	};
 };
 

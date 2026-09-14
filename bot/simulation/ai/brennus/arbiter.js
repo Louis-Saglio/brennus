@@ -181,18 +181,18 @@ ResourceArbiter.prototype.declaredAmount = function(name, resource)
  * first — and the army stayed at 4 while Petra's 90-unit wave arrived).
  */
 ResourceArbiter.prototype.spenders = [
-	["defense", "manageDefense"],
-	["phaseUp", "managePhaseUp"],
-	["research", "manageResearch"],
-	["workers", "trainWorkers"],
-	["construction", "manageConstruction"],
-	["barter", "manageBarter"],
-	["expansion", "manageExpansion"],
-	["trade", "manageTrade"]
+	["defense", bot => bot.defenseManager.manageDefense()],
+	["phaseUp", bot => bot.managePhaseUp()],
+	["research", bot => bot.manageResearch()],
+	["workers", bot => bot.trainWorkers()],
+	["construction", bot => bot.manageConstruction()],
+	["barter", bot => bot.manageBarter()],
+	["expansion", bot => bot.manageExpansion()],
+	["trade", bot => bot.manageTrade()]
 ];
 
 ResourceArbiter.prototype.runSpenders = function()
 {
 	for (const [stage, fn] of this.spenders)
-		this.bot[fn]();
+		fn(this.bot);
 };

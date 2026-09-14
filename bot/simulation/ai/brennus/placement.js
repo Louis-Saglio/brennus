@@ -27,7 +27,7 @@ BrennusBot.prototype.findMinimaxSpot = function(templateType, points, region)
 			const z = cz + r * Math.sin(ang);
 			if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
 				continue;
-			if (this.nearEnemy([x, z], 100, 60))
+			if (this.armyManager.nearEnemy([x, z], 100, 60))
 				continue;
 			if (this.accessibility.getAccessValue([x, z]) !== region)
 				continue;
@@ -147,8 +147,8 @@ BrennusBot.prototype.expansionCivicCentres = function()
 BrennusBot.prototype.placeOrder = function(templateType, pos, rush)
 {
 	const builder = this.gameState.getOwnUnits().filter(ent =>
-		(!this.army || !this.army[ent.id()]) && (!this.rams || !this.rams[ent.id()]) &&
-		(!this.healers || !this.healers[ent.id()])).filterNearest(pos, 1).toEntityArray()[0];
+		(!this.armyManager.army || !this.armyManager.army[ent.id()]) && (!this.armyManager.rams || !this.armyManager.rams[ent.id()]) &&
+		(!this.armyManager.healers || !this.armyManager.healers[ent.id()])).filterNearest(pos, 1).toEntityArray()[0];
 	if (!builder)
 		return false;
 	builder.construct(templateType, pos[0], pos[1], this.getPlacementAngle(), undefined);
@@ -232,7 +232,7 @@ BrennusBot.prototype.findGridSpot = function(templateType, plots, region)
 	{
 		if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
 			continue;
-		if (this.nearEnemy([x, z], 100, 60))
+		if (this.armyManager.nearEnemy([x, z], 100, 60))
 			continue;
 		if (this.accessibility.getAccessValue([x, z]) !== region)
 			continue;
@@ -263,7 +263,7 @@ BrennusBot.prototype.findBuildingPosition = function(templateType, center, minRa
 			const z = center[1] + r * Math.sin(ang);
 			if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
 				continue;
-			if (this.nearEnemy([x, z], 100, 60))
+			if (this.armyManager.nearEnemy([x, z], 100, 60))
 				continue;
 			if (region !== undefined && this.accessibility.getAccessValue([x, z]) !== region)
 				continue;

@@ -67,7 +67,7 @@ BrennusBot.prototype.manageConstruction = function()
 		const builders = gameState.getOwnUnits()
 			.filter(ent => ent.isGatherer() && ent.isBuilder() && ent.position() &&
 				!(ent.id() === this.herderId && !this.herdingDone) &&
-				!this.army[ent.id()] &&
+				!this.armyManager.army[ent.id()] &&
 				!taken.has(ent.id()) &&
 				(!rush || this.assignments[ent.id()] === "wood"))
 			.filterNearest(fpos, needed);
@@ -118,7 +118,7 @@ BrennusBot.prototype.manageConstruction = function()
 			// the area contested so the clearing op sanitizes it before the
 			// plan sends the next party.
 			if (pb.template.indexOf("civil_centre") !== -1 &&
-				this.nearEnemy([pb.x, pb.z], 120, 120))
+				this.armyManager.nearEnemy([pb.x, pb.z], 120, 120))
 			{
 				// Don't re-prove an area whose op just gave up: the army
 				// held it and no CC followed — the killers are not the
@@ -378,7 +378,7 @@ export const WoodStorehouseStrategy = {
 		const region = bot.accessibility.getAccessValue(cc.position());
 		const trees = gameState.getResourceSupplies("wood").toEntityArray()
 			.filter(s => s.position() && s.resourceSupplyAmount() > 30 &&
-				!bot.nearEnemy(s.position(), 100, 60) &&
+				!bot.armyManager.nearEnemy(s.position(), 100, 60) &&
 				bot.accessibility.getAccessValue(s.position()) === region);
 		const scored = trees.filter(t => bot.inOwnTerritory(t.position()[0], t.position()[1]))
 			.map(t => {
@@ -577,7 +577,7 @@ export const MineStorehouseStrategy = {
 				for (const s of gameState.getResourceSupplies(res).values())
 				{
 					const pos = s.position();
-					if (!pos || s.resourceSupplyAmount() <= bestAmt || bot.nearEnemy(pos, 100, 60))
+					if (!pos || s.resourceSupplyAmount() <= bestAmt || bot.armyManager.nearEnemy(pos, 100, 60))
 						continue;
 					if (bot.accessibility.getAccessValue(pos) !== region ||
 						!bot.inOwnTerritory(pos[0], pos[1]))
@@ -623,7 +623,7 @@ export const FarmsteadStrategy = {
 		const region = bot.accessibility.getAccessValue(cc.position());
 		const fruits = gameState.getResourceSupplies("food").toEntityArray()
 			.filter(s => s.resourceSupplyType()?.specific === "fruit" && s.position() &&
-				s.resourceSupplyAmount() > 30 && !bot.nearEnemy(s.position(), 100, 60) &&
+				s.resourceSupplyAmount() > 30 && !bot.armyManager.nearEnemy(s.position(), 100, 60) &&
 				bot.inOwnTerritory(s.position()[0], s.position()[1]) &&
 				bot.accessibility.getAccessValue(s.position()) === region);
 		const scored = fruits.map(f => {
@@ -742,7 +742,7 @@ export const FarmsteadStrategy = {
 			const region = bot.accessibility.getAccessValue(cc.position());
 			const fruits = gameState.getResourceSupplies("food").toEntityArray()
 				.filter(s => s.resourceSupplyType()?.specific === "fruit" && s.position() &&
-					s.resourceSupplyAmount() > 30 && !bot.nearEnemy(s.position(), 100, 60) &&
+					s.resourceSupplyAmount() > 30 && !bot.armyManager.nearEnemy(s.position(), 100, 60) &&
 					bot.inOwnTerritory(s.position()[0], s.position()[1]) &&
 					bot.accessibility.getAccessValue(s.position()) === region &&
 					!foodSites.some(site => SquareDistance(s.position(), site.pos) < 45 * 45));
@@ -893,7 +893,7 @@ BrennusBot.prototype.manageBarter = function()
 			// any other food deal.
 			if (this.turn % 15 === 0 && res.food >= 4000)
 			{
-				const willPending = this.willToFightPending(gameState);
+				const willPending = this.buildupManager.willToFightPending(gameState);
 				let wonderPending = !willPending && !(this.expPlan?.wonderDone);
 				if (wonderPending && res.metal >= 2200 && res.stone >= 1800)
 					wonderPending = false;

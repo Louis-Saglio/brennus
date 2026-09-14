@@ -33,14 +33,14 @@ BrennusBot.prototype.logStatus = function()
 	const res = this.arbiter.mirror();
 
 	let gar = 0;
-	for (const id in this.army)
+	for (const id in this.armyManager.army)
 	{
 		const e = gameState.getEntityById(+id);
 		if (e && !e.position())
 			gar++;
 	}
 	let demob = 0;
-	for (const id in this.demobilized)
+	for (const id in this.armyManager.demobilized)
 		demob++;
 
 	const rate = cls => {
@@ -67,8 +67,8 @@ BrennusBot.prototype.logStatus = function()
 		`dist wood=${dropsiteDist.wood}m grain=${dropsiteDist.grain}m fruit=${dropsiteDist.fruit}m ` +
 		`founds=${gameState.getOwnFoundations().toEntityArray().length} failedSpots=${(this.failedSpots || []).length} ` +
 		`fruitStock=${Math.round(this.fruitStock)} ` +
-		`enemyArmy=${this.enemyArmy || 0} siege=${this.enemySiege || 0} enemyNear=${(this.enemyNearestHome || 0).toFixed(0)}m ` +
-		`army=${this.armyCount ? this.armyCount() : 0} gar=${gar} demob=${demob} ` +
+		`enemyArmy=${this.armyManager.enemyArmy || 0} siege=${this.armyManager.enemySiege || 0} enemyNear=${(this.armyManager.enemyNearestHome || 0).toFixed(0)}m ` +
+		`army=${this.armyManager.armyCount ? this.armyManager.armyCount() : 0} gar=${gar} demob=${demob} ` +
 		`terr=${terr ? terr.pct + "%(" + terr.own + "/" + terr.total + ")" : "-"} ` +
 		`stock ${Math.floor(res.food)}/${Math.floor(res.wood)}/${Math.floor(res.stone)}/${Math.floor(res.metal)}\n`);
 
@@ -257,7 +257,7 @@ BrennusBot.prototype.findWonderSpot = function(wonderType)
 				const z = anchor[0][1] + r * Math.sin(ang);
 				if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
 					continue;
-				if (this.nearEnemy([x, z], 100, 60))
+				if (this.armyManager.nearEnemy([x, z], 100, 60))
 					continue;
 				if (!this.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
 					continue;

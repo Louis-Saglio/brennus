@@ -1,13 +1,27 @@
-import { BrennusBot } from "simulation/ai/brennus/brennus.js";
 import { SquareDistance } from "simulation/ai/brennus/helpers.js";
 
-/** Military buildings: 3 barracks + 5 home towers from the town phase on (the early-muster package — 5 towers because a garrisoned stone tower is 9 arrows, and the wave arrives before the war stage does); after the boom the full set — 4 barracks, temples, forge, arsenal + 4 towers per expansion CC. Stone is plentiful on mainland; towers are our cheapest defense. */
-BrennusBot.prototype.manageDefenseBuildings = function()
+export function BuildupManager(bot)
 {
-	if (!this.defenseOn() || this.arbiter.held("construction"))
+	this.bot = bot;
+	// One-time latches and mix counters for army production.
+	this.surgeLogged = false;
+	this.arsenalBuilt = false;
+	this.champTick = undefined;
+	this.slingerTick = undefined;
+	this.nextDismissTurn = undefined;
+	// Wonder funding window start (set the first time the hold engages).
+	this.wonderHoldSince = undefined;
+	// Barracks alternation: spearmen, then javelineers.
+	this.spearNext = true;
+}
+
+/** Military buildings: 3 barracks + 5 home towers from the town phase on (the early-muster package — 5 towers because a garrisoned stone tower is 9 arrows, and the wave arrives before the war stage does); after the boom the full set — 4 barracks, temples, forge, arsenal + 4 towers per expansion CC. Stone is plentiful on mainland; towers are our cheapest defense. */
+BuildupManager.prototype.manageDefenseBuildings = function()
+{
+	if (!this.bot.defenseOn() || this.bot.arbiter.held("construction"))
 		return;
-	const gameState = this.gameState;
-	const boom = this.warOn();
+	const gameState = this.bot.gameState;
+	const boom = this.bot.warOn();
 	const wants = [
 		[gameState.applyCiv("structures/{civ}/barracks"), boom ? 4 : 3, { "wood": 300 }],
 		// Arsenal before temples post-city: the raid gate is rams, and agg6
@@ -45,15 +59,15 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 			if (gameState.getBuiltTemplate(f.templateName()).templateName() === type)
 				have++;
 		haveByType[type] = have;
-		if (have < want && !this.pendingBuilds.some(pb => pb.template === type))
+		if (have < want && !this.bot.pendingBuilds.some(pb => pb.template === type))
 			missingAny = true;
 	}
-	this.arbiter.declare("defenseGap", missingAny);
+	this.bot.arbiter.declare("defenseGap", missingAny);
 	for (const [type, want, cost] of wants)
 	{
-		if (haveByType[type] >= want || this.pendingBuilds.some(pb => pb.template === type))
+		if (haveByType[type] >= want || this.bot.pendingBuilds.some(pb => pb.template === type))
 			continue;
-		const books = this.arbiter.books("defenseBuildings");
+		const books = this.bot.arbiter.books("defenseBuildings");
 		if (books.wood < (boom ? 350 : 300))
 		{
 			// Pre-boom the boom spends wood below the floor every block, so a
@@ -73,8 +87,8 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 					for (const item of ent.trainingQueue() || [])
 						if (item.unitTemplate)
 							queuedPop += item.count;
-				if (gameState.getPopulationLimit() - gameState.getPopulation() - queuedPop > this.defenseHoldMinPopMargin)
-					this.arbiter.hold("constructionDefense");
+				if (gameState.getPopulationLimit() - gameState.getPopulation() - queuedPop > this.bot.defenseHoldMinPopMargin)
+					this.bot.arbiter.hold("constructionDefense");
 			}
 			return;
 		}
@@ -84,11 +98,11 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 		// buildings behind it.
 		if (!books.canAfford({ "wood": cost.wood || 0, "stone": cost.stone || 0, "food": 0, "metal": 0 }))
 			continue;
-		if (this.tryConstruct(type, "military"))
+		if (this.bot.tryConstruct(type, "military"))
 		{
-			this.arbiter.spend(books, "defenseBuildings", { "wood": cost.wood || 0, "stone": cost.stone || 0 }, type.split("/").pop());
+			this.bot.arbiter.spend(books, "defenseBuildings", { "wood": cost.wood || 0, "stone": cost.stone || 0 }, type.split("/").pop());
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m defense building ${type.split("/").pop()}\n`);
-			this.arbiter.hold("construction");
+			this.bot.arbiter.hold("construction");
 			return;
 		}
 		// Placement failed (crowded rings): skip to the next want rather than
@@ -99,7 +113,7 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 	// garrisoned arrow platforms when the big wave lands), 4 per expansion
 	// CC once the army can reach them.
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
-	const home = this.getCivicCentre();
+	const home = this.bot.getCivicCentre();
 	if (!home)
 		return;
 	for (const cc of gameState.getOwnStructures().values())
@@ -108,7 +122,7 @@ BrennusBot.prototype.manageDefenseBuildings = function()
 			cc.foundationProgress() !== undefined)
 			continue;
 		const isHome = cc.id() === home.id();
-		if (!isHome && (this.armyCount() < 30 || !this.warOn()))
+		if (!isHome && (this.bot.armyManager.armyCount() < 30 || !this.bot.warOn()))
 			continue;	// no point fortifying a frontier the army cannot reach yet
 		if (this.placeTower(cc.position(), isHome ? 5 : 4))
 			return;
@@ -121,9 +135,9 @@ BrennusBot.prototype.manageDefenseBuildings = function()
  * (BuildRestrictions) — the generic placer ignores that, so the candidate
  * filter enforces 65 m against built, foundation and pending towers.
  */
-BrennusBot.prototype.placeTower = function(center, want)
+BuildupManager.prototype.placeTower = function(center, want)
 {
-	const gameState = this.gameState;
+	const gameState = this.bot.gameState;
 	const towerType = gameState.applyCiv("structures/{civ}/defense_tower");
 	const towers = [];
 	for (const ent of gameState.getOwnStructures().values())
@@ -132,7 +146,7 @@ BrennusBot.prototype.placeTower = function(center, want)
 	for (const f of gameState.getOwnFoundations().values())
 		if (f.position() && gameState.getBuiltTemplate(f.templateName()).templateName() === towerType)
 			towers.push(f.position());
-	for (const pb of this.pendingBuilds)
+	for (const pb of this.bot.pendingBuilds)
 		if (pb.template === towerType)
 			towers.push([pb.x, pb.z]);
 	let near = 0;
@@ -141,17 +155,17 @@ BrennusBot.prototype.placeTower = function(center, want)
 			near++;
 	if (near >= want)
 		return false;
-	const res = this.arbiter.books("towers");
+	const res = this.bot.arbiter.books("towers");
 	// Cost-level floors: a tower costs 100/100, and the wave does not wait
 	// for 300/300 to accumulate (s57 stood up zero towers all game).
 	if (res.wood < 100 || res.stone < 100)
 		return false;
 	const clearOfTowers = (x, z) => !towers.some(p => SquareDistance(p, [x, z]) < 65 * 65);
-	const spot = this.findBuildingPosition(towerType, center, 12, 80, true,
-		this.accessibility.getAccessValue(center), clearOfTowers);
-	if (!spot || !this.placeOrder(towerType, spot))
+	const spot = this.bot.findBuildingPosition(towerType, center, 12, 80, true,
+		this.bot.accessibility.getAccessValue(center), clearOfTowers);
+	if (!spot || !this.bot.placeOrder(towerType, spot))
 		return false;
-	this.arbiter.spend(res, "towers", { "wood": 100, "stone": 100 }, "tower");
+	this.bot.arbiter.spend(res, "towers", { "wood": 100, "stone": 100 }, "tower");
 	print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m tower at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} for CC ${center[0].toFixed(0)},${center[1].toFixed(0)}\n`);
 	return true;
 };
@@ -162,7 +176,7 @@ BrennusBot.prototype.placeTower = function(center, want)
  * barracks production techs, the tower line and the druid line. Costs are
  * list prices; gaul's team bonus makes the forge ones 15% cheaper, so the
  * gates stay conservative. */
-BrennusBot.prototype.militaryTechs = [
+BuildupManager.prototype.militaryTechs = [
 	["soldier_attack_melee_01", { "food": 200, "metal": 100 }],
 	["soldier_attack_ranged_01", { "wood": 200, "metal": 100 }],
 	["soldier_resistance_hack_01", { "food": 200, "metal": 100 }],
@@ -194,12 +208,12 @@ BrennusBot.prototype.militaryTechs = [
 	["cost_healer", { "food": 250, "stone": 100 }]
 ];
 
-BrennusBot.prototype.manageMilitaryTechs = function()
+BuildupManager.prototype.manageMilitaryTechs = function()
 {
-	if (!this.warOn() || this.arbiter.held("construction"))
+	if (!this.bot.warOn() || this.bot.arbiter.held("construction"))
 		return;
-	const gameState = this.gameState;
-	const res = this.arbiter.books("milTechs");
+	const gameState = this.bot.gameState;
+	const res = this.bot.arbiter.books("milTechs");
 	// The forge line outranks the war machine's big one-time spends and is
 	// exempt from their metal hold; the techs listed behind Will to Fight
 	// must leave 1700 metal standing while Will or the wonder is unfunded —
@@ -219,13 +233,13 @@ BrennusBot.prototype.manageMilitaryTechs = function()
 		// Will to Fight must not freeze every cheaper tech behind it.
 		if (!facility || !gameState.canResearch(tech))
 			continue;
-		if (!res.canAfford(cost) || res.metal < (cost.metal || 0) + this.arbiterParams.warChest.techMetal +
+		if (!res.canAfford(cost) || res.metal < (cost.metal || 0) + this.bot.arbiterParams.warChest.techMetal +
 				(tech.startsWith("soldier_") ? 0 : metalHold))
 			continue;
 		facility.research(tech);
-		this.arbiter.spend(res, "milTechs", cost, tech);
+		this.bot.arbiter.spend(res, "milTechs", cost, tech);
 		print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${tech}\n`);
-		this.arbiter.hold("construction");
+		this.bot.arbiter.hold("construction");
 		return;
 	}
 };
@@ -235,7 +249,7 @@ BrennusBot.prototype.manageMilitaryTechs = function()
  * — without the fortress the tech is unreachable, and the wonder must not
  * queue behind it forever.
  */
-BrennusBot.prototype.willToFightPending = function(gameState)
+BuildupManager.prototype.willToFightPending = function(gameState)
 {
 	if (gameState.isResearched("attack_soldiers_will") || gameState.isResearching("attack_soldiers_will"))
 		return false;
@@ -251,12 +265,12 @@ BrennusBot.prototype.willToFightPending = function(gameState)
  * champion stream and the expansion CC stream (5 min was not enough in
  * s213 — ram churn ate the bought metal faster than it landed).
  */
-BrennusBot.prototype.wonderHoldActive = function(gameState)
+BuildupManager.prototype.wonderHoldActive = function(gameState)
 {
-	if (!this.expansionOn() || this.expPlan?.wonderDone || this.willToFightPending(gameState))
+	if (!this.bot.expansionOn() || this.bot.expPlan?.wonderDone || this.willToFightPending(gameState))
 		return false;
-	this.wonderHoldSince = this.wonderHoldSince || this.turn;
-	return this.turn - this.wonderHoldSince < 4500;
+	this.wonderHoldSince = this.wonderHoldSince || this.bot.turn;
+	return this.bot.turn - this.wonderHoldSince < 4500;
 };
 
 /**
@@ -266,7 +280,7 @@ BrennusBot.prototype.wonderHoldActive = function(gameState)
  * untouched — 1500 for Will to Fight plus the techMetal pad, 1100+ for the
  * wonder.
  */
-BrennusBot.prototype.warMachineMetalHold = function(gameState)
+BuildupManager.prototype.warMachineMetalHold = function(gameState)
 {
 	if (this.wonderHoldActive(gameState))
 		return 1700;
@@ -275,19 +289,19 @@ BrennusBot.prototype.warMachineMetalHold = function(gameState)
 	return 0;
 };
 
-BrennusBot.prototype.heroChain = [
+BuildupManager.prototype.heroChain = [
 	"units/{civ}/hero_vercingetorix",
 	"units/{civ}/hero_viridomarus",
 	"units/{civ}/hero_brennus"
 ];
 
 /** Army production: barracks spearmen/javelineers (alternating, slingers every third batch pre-war) from the town phase on, temple fanatics after the boom; dismiss women for pop room only once the boom is done. */
-BrennusBot.prototype.manageDefenseTraining = function()
+BuildupManager.prototype.manageDefenseTraining = function()
 {
-	if (!this.defenseOn())
+	if (!this.bot.defenseOn())
 		return;
-	const gameState = this.gameState;
-	const res = this.arbiter.books("defenseTraining");
+	const gameState = this.bot.gameState;
+	const res = this.bot.arbiter.books("defenseTraining");
 	const barracksType = gameState.applyCiv("structures/{civ}/barracks");
 	const templeType = gameState.applyCiv("structures/{civ}/temple");
 	const stableType = gameState.applyCiv("structures/{civ}/stable");
@@ -324,19 +338,19 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	// a full army AND the boom). Mustering back to 60 after a 100+ wave
 	// re-fields half a wave every time (loss review: s55 met 120 with 60;
 	// s70/s81 sat at army~20 for 15 min after the first wave).
-	const baseTarget = this.warOn() ? this.arbiterParams.popPartition.armyTarget : this.arbiterParams.foodSplit.musterTarget;
-	const surging = !this.warOn() && (this.enemyArmy || 0) > baseTarget;
-	const target = surging ? Math.min(this.enemyArmy, this.arbiterParams.surge.cap) : baseTarget;
+	const baseTarget = this.bot.warOn() ? this.bot.arbiterParams.popPartition.armyTarget : this.bot.arbiterParams.foodSplit.musterTarget;
+	const surging = !this.bot.warOn() && (this.bot.armyManager.enemyArmy || 0) > baseTarget;
+	const target = surging ? Math.min(this.bot.armyManager.enemyArmy, this.bot.arbiterParams.surge.cap) : baseTarget;
 	if (surging && !this.surgeLogged)
 	{
 		this.surgeLogged = true;
-		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m retraining surge on: muster toward ${target} (enemy army=${this.enemyArmy})\n`);
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m retraining surge on: muster toward ${target} (enemy army=${this.bot.armyManager.enemyArmy})\n`);
 	}
-	const missing = target - this.armyCount() - queued;
+	const missing = target - this.bot.armyManager.armyCount() - queued;
 	// While the early muster is still drawing, the women stream leaves
 	// musterShare × the estimated food flow unspent (trainWorkers). Declared
 	// — and cleared — every block, so the claim dies with the early window.
-	this.arbiter.declare("musterActive", !this.warOn() && missing > 0 ? true : null);
+	this.bot.arbiter.declare("musterActive", !this.bot.warOn() && missing > 0 ? true : null);
 	// Siege plan, first-class: rams are the kill clock — basic infantry cannot
 	// raze a garrisoned CC before Petra reinforces. While a ram is
 	// missing, one ram's cost is reserved from the later pipeline stages and
@@ -357,25 +371,25 @@ BrennusBot.prototype.manageDefenseTraining = function()
 		if ((ent.trainingQueue()?.length || 0) <= 1)
 			arsenals.push(ent);
 	}
-	for (const id in this.rams)
+	for (const id in this.bot.armyManager.rams)
 		rams++;
-	const ramPending = this.armyCount() >= 40 && rams < this.arbiterParams.popPartition.rams && arsenals.length;
+	const ramPending = this.bot.armyManager.armyCount() >= 40 && rams < this.bot.arbiterParams.popPartition.rams && arsenals.length;
 	if (ramPending)
-		this.arbiter.reserve("siege", { "wood": 300, "metal": 150 });
+		this.bot.arbiter.reserve("siege", { "wood": 300, "metal": 150 });
 	if (ramPending &&
-		res.wood >= this.arbiterParams.warChest.ramWood && res.metal >= this.arbiterParams.warChest.ramMetal)
+		res.wood >= this.bot.arbiterParams.warChest.ramWood && res.metal >= this.bot.arbiterParams.warChest.ramMetal)
 		for (const arsenal of arsenals)
 		{
-			if (rams >= this.arbiterParams.popPartition.rams || res.wood < this.arbiterParams.warChest.ramWood || res.metal < this.arbiterParams.warChest.ramMetal)
+			if (rams >= this.bot.arbiterParams.popPartition.rams || res.wood < this.bot.arbiterParams.warChest.ramWood || res.metal < this.bot.arbiterParams.warChest.ramMetal)
 				break;
 			arsenal.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/siege_ram"), 1, {});
-			this.arbiter.spend(res, "defenseTraining", { "wood": 300, "metal": 150 }, "ram");
+			this.bot.arbiter.spend(res, "defenseTraining", { "wood": 300, "metal": 150 }, "ram");
 			rams++;
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/${this.arbiterParams.popPartition.rams})\n`);
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a ram (${rams}/${this.bot.arbiterParams.popPartition.rams})\n`);
 		}
 	// Healers first: 10 of them halve the effective churn of the standing army.
 	let healerCount = 0;
-	for (const id in this.healers)
+	for (const id in this.bot.armyManager.healers)
 		healerCount++;
 	// No stockpile floors before the war stage: the boom spends the flow to
 	// near zero every block, so any floor above cost level can never fire
@@ -385,11 +399,11 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	// per-block cadence). After city, batches of 5 with a wood reserve while
 	// temples/forge/arsenal are outstanding (def11-13: starving the
 	// construction budget froze the muster).
-	const boom = this.warOn();
-	const milBatch = boom ? this.arbiterParams.warChest.musterBatch :
-		surging ? this.arbiterParams.surge.batch : this.arbiterParams.foodSplit.musterBatch;
-	const floorF = boom ? this.arbiterParams.warChest.musterFood : this.arbiterParams.foodSplit.musterFloor.food;
-	const floorW = boom ? (this.arbiter.declared("defenseGap") ? this.arbiterParams.warChest.musterWoodGap : this.arbiterParams.warChest.musterWood) : this.arbiterParams.foodSplit.musterFloor.wood;
+	const boom = this.bot.warOn();
+	const milBatch = boom ? this.bot.arbiterParams.warChest.musterBatch :
+		surging ? this.bot.arbiterParams.surge.batch : this.bot.arbiterParams.foodSplit.musterBatch;
+	const floorF = boom ? this.bot.arbiterParams.warChest.musterFood : this.bot.arbiterParams.foodSplit.musterFloor.food;
+	const floorW = boom ? (this.bot.arbiter.declared("defenseGap") ? this.bot.arbiterParams.warChest.musterWoodGap : this.bot.arbiterParams.warChest.musterWood) : this.bot.arbiterParams.foodSplit.musterFloor.wood;
 	// Sword cavalry, first-class like the rams: the contingent trains BEFORE
 	// the infantry loop and holds its own reserve — smoke s42 showed the
 	// alternative: gated behind the infantry floors and the Will-to-Fight
@@ -400,9 +414,9 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	// Will to Fight; holding 1700 for it would re-create the s42 stall.
 	if (boom && stables.length)
 	{
-		const cavCap = this.arbiterParams.popPartition.cavalry;
+		const cavCap = this.bot.arbiterParams.popPartition.cavalry;
 		let cavCount = cavQueued;
-		for (const id in this.army)
+		for (const id in this.bot.armyManager.army)
 		{
 			const ent = gameState.getEntityById(+id);
 			if (ent?.hasClass("Cavalry"))
@@ -410,15 +424,15 @@ BrennusBot.prototype.manageDefenseTraining = function()
 		}
 		if (cavCount < cavCap)
 		{
-			this.arbiter.reserve("cavalry", { "food": 100 * milBatch, "wood": 40 * milBatch, "metal": 10 * milBatch });
+			this.bot.arbiter.reserve("cavalry", { "food": 100 * milBatch, "wood": 40 * milBatch, "metal": 10 * milBatch });
 			for (const stable of stables)
 			{
 				if (cavCount >= cavCap ||
 					res.food < 100 * milBatch || res.wood < 40 * milBatch ||
-					res.metal < 10 * milBatch + this.arbiterParams.warChest.techMetal)
+					res.metal < 10 * milBatch + this.bot.arbiterParams.warChest.techMetal)
 					break;
 				stable.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/cavalry_swordsman_b"), milBatch, {});
-				this.arbiter.spend(res, "defenseTraining", { "food": 100 * milBatch, "wood": 40 * milBatch, "metal": 10 * milBatch }, `cavalry x${milBatch}`);
+				this.bot.arbiter.spend(res, "defenseTraining", { "food": 100 * milBatch, "wood": 40 * milBatch, "metal": 10 * milBatch }, `cavalry x${milBatch}`);
 				cavCount += milBatch;
 				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training cavalry x${milBatch} (${cavCount}/${cavCap})\n`);
 			}
@@ -448,7 +462,7 @@ BrennusBot.prototype.manageDefenseTraining = function()
 					res.metal >= 80 * milBatch + 50 + this.warMachineMetalHold(gameState))
 				{
 					ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_infantry_swordsman"), milBatch, {});
-					this.arbiter.spend(res, "defenseTraining", { "food": 80 * milBatch, "wood": 60 * milBatch, "metal": 80 * milBatch }, `champions x${milBatch}`);
+					this.bot.arbiter.spend(res, "defenseTraining", { "food": 80 * milBatch, "wood": 60 * milBatch, "metal": 80 * milBatch }, `champions x${milBatch}`);
 					print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training champions x${milBatch}\n`);
 					continue;
 				}
@@ -460,11 +474,11 @@ BrennusBot.prototype.manageDefenseTraining = function()
 				// target's revolving fund refills what the stream spends.
 				if (!boom)
 				{
-					this.slingerTick = ((this.slingerTick || 0) + 1) % this.arbiterParams.slingers.every;
+					this.slingerTick = ((this.slingerTick || 0) + 1) % this.bot.arbiterParams.slingers.every;
 					if (this.slingerTick === 0 && res.stone >= 850 + 30 * milBatch)
 					{
 						ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/infantry_slinger_b"), milBatch, {});
-						this.arbiter.spend(res, "defenseTraining", { "food": 50 * milBatch, "wood": 20 * milBatch, "stone": 30 * milBatch }, `slingers x${milBatch}`);
+						this.bot.arbiter.spend(res, "defenseTraining", { "food": 50 * milBatch, "wood": 20 * milBatch, "stone": 30 * milBatch }, `slingers x${milBatch}`);
 						print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training slingers x${milBatch}\n`);
 						continue;
 					}
@@ -473,18 +487,18 @@ BrennusBot.prototype.manageDefenseTraining = function()
 					"units/{civ}/infantry_spearman_b" : "units/{civ}/infantry_javelineer_b");
 				this.spearNext = !this.spearNext;
 				ent.train(gameState.getPlayerCiv(), type, milBatch, {});
-				this.arbiter.spend(res, "defenseTraining", { "food": 50 * milBatch, "wood": 50 * milBatch }, `infantry x${milBatch}`);
+				this.bot.arbiter.spend(res, "defenseTraining", { "food": 50 * milBatch, "wood": 50 * milBatch }, `infantry x${milBatch}`);
 				continue;
 			}
-			if (healerCount < (boom ? this.arbiterParams.popPartition.healersWar : this.arbiterParams.popPartition.healersEarly))
+			if (healerCount < (boom ? this.bot.arbiterParams.popPartition.healersWar : this.bot.arbiterParams.popPartition.healersEarly))
 			{
 				ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/support_healer_b"), boom ? 2 : 1, {});
-				this.arbiter.spend(res, "defenseTraining", boom ? { "food": 200, "metal": 60 } : { "food": 100, "metal": 30 }, `healer x${boom ? 2 : 1}`);
+				this.bot.arbiter.spend(res, "defenseTraining", boom ? { "food": 200, "metal": 60 } : { "food": 100, "metal": 30 }, `healer x${boom ? 2 : 1}`);
 				healerCount += boom ? 2 : 1;
 				continue;
 			}
 			ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_fanatic"), 5, {});
-			this.arbiter.spend(res, "defenseTraining", { "food": 600, "wood": 500 }, "fanatics x5");
+			this.bot.arbiter.spend(res, "defenseTraining", { "food": 600, "wood": 500 }, "fanatics x5");
 		}
 	// The Assembly of Princes: Vercingetorix rides with the raid — his aura is
 	// +20% damage and +1 capture for soldiers AND siege, i.e. a straight kill
@@ -534,13 +548,13 @@ BrennusBot.prototype.manageDefenseTraining = function()
 			res.food >= 350 && res.wood >= 250 && res.metal >= 300)
 		{
 			assembly.train(gameState.getPlayerCiv(), heroType, 1, {});
-			this.arbiter.spend(res, "defenseTraining", { "food": 300, "wood": 200, "metal": 250 }, `hero ${heroType.split("/").pop()}`);
+			this.bot.arbiter.spend(res, "defenseTraining", { "food": 300, "wood": 200, "metal": 250 }, `hero ${heroType.split("/").pop()}`);
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training hero ${heroType.split("/").pop()}\n`);
 		}
 		else if (assembly && heroUp && carnyx < 2 && res.food >= 400 && res.metal >= 400)
 		{
 			assembly.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_infantry_trumpeter"), 1, {});
-			this.arbiter.spend(res, "defenseTraining", { "food": 180, "metal": 120 }, "carnyx");
+			this.bot.arbiter.spend(res, "defenseTraining", { "food": 180, "metal": 120 }, "carnyx");
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m training a carnyx\n`);
 		}
 	}
@@ -550,13 +564,13 @@ BrennusBot.prototype.manageDefenseTraining = function()
 	// dismissing them would deadlock the boom (army pop counts toward 300).
 	if (boom && missing > 0 &&
 		gameState.getPopulation() > gameState.getPopulationLimit() - 6 &&
-		this.turn >= (this.nextDismissTurn || 0))
+		this.bot.turn >= (this.nextDismissTurn || 0))
 	{
 		let victim, fallback, workers = 0;
 		for (const ent of gameState.getOwnUnits().values())
 		{
-			if (!ent.position() || !ent.isGatherer() || this.army[ent.id()] ||
-				ent.id() === this.herderId || ent.hasClass("Soldier") || ent.hasClass("Trader"))
+			if (!ent.position() || !ent.isGatherer() || this.bot.armyManager.army[ent.id()] ||
+				ent.id() === this.bot.herderId || ent.hasClass("Soldier") || ent.hasClass("Trader"))
 				continue;
 			workers++;
 			if (ent.isIdle())
@@ -567,11 +581,11 @@ BrennusBot.prototype.manageDefenseTraining = function()
 			fallback = fallback || ent;
 		}
 		victim = victim || fallback;
-		if (victim && workers > this.arbiterParams.popPartition.dismissFloor)
+		if (victim && workers > this.bot.arbiterParams.popPartition.dismissFloor)
 		{
-			this.nextDismissTurn = this.turn + 3;
+			this.nextDismissTurn = this.bot.turn + 3;
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m dismissing a civilian for army pop room (workers=${workers})\n`);
-			delete this.assignments[victim.id()];
+			delete this.bot.assignments[victim.id()];
 			victim.destroy();
 		}
 	}

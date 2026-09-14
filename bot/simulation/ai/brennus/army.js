@@ -1,15 +1,94 @@
-import { BrennusBot } from "simulation/ai/brennus/brennus.js";
 import { SquareDistance } from "simulation/ai/brennus/helpers.js";
+
+export function ArmyManager(bot)
+{
+	this.bot = bot;
+	// Unit rosters (entityID -> 1): standing army, siege, healers, and the
+	// demobilized subset currently gathering (transient, reset on load).
+	this.army = {};
+	this.rams = {};
+	this.healers = {};
+	this.demobilized = {};
+	// Enemy intel caches, refreshed each block by updateEnemyPositions.
+	this.enemyStructuresPos = [];
+	this.enemyMobilesPos = [];
+	this.enemyArmy = undefined;
+	this.enemySiege = undefined;
+	this.enemyNearestHome = undefined;
+	// First-contact telemetry threshold already logged.
+	this.threatLogged = undefined;
+	// Last block with an incoming threat (demobilization hysteresis).
+	this.lastIncomingTurn = undefined;
+}
+
+ArmyManager.prototype.serialize = function()
+{
+	return {
+		"army": this.army,
+		"rams": this.rams,
+		"healers": this.healers
+	};
+};
+
+ArmyManager.prototype.deserialize = function(data)
+{
+	this.army = data?.army || {};
+	this.rams = data?.rams || {};
+	this.healers = data?.healers || {};
+};
+
+/**
+ * Roster: drop the dead; once the defense stage is on, every Soldier joins
+ * the army. Runs at the top of the defense dispatch.
+ */
+ArmyManager.prototype.maintainRoster = function(gameState)
+{
+	for (const id in this.army)
+		if (!gameState.getEntityById(+id))
+			delete this.army[id];
+	for (const id in this.rams)
+		if (!gameState.getEntityById(+id))
+			delete this.rams[id];
+	for (const id in this.healers)
+		if (!gameState.getEntityById(+id))
+			delete this.healers[id];
+	const recalled = this.bot.defenseManager.recalled;
+	for (const id in recalled)
+		if (!this.army[id])
+			delete recalled[id];
+	if (this.bot.defenseOn())
+		for (const ent of gameState.getOwnUnits().values())
+		{
+			const id = ent.id();
+			if (ent.hasClass("Siege") && !this.rams[id])
+			{
+				this.rams[id] = 1;
+				continue;
+			}
+			if (ent.hasClass("Healer"))
+			{
+				this.healers[id] = 1;
+				delete this.bot.assignments[id];
+				continue;
+			}
+			if (this.army[id] || !ent.hasClass("Soldier") || id === this.bot.herderId)
+				continue;
+			this.army[id] = 1;
+			delete this.bot.assignments[id];
+			if (ent.position())
+				ent.setStance("defensive");
+		}
+};
 
 // ---------------------------------------------------------------- threats
 /** Threat lists refreshed each block; owner 0 is gaia — only animals with Attack count (every tree is "enemy"). */
-BrennusBot.prototype.updateEnemyPositions = function()
+ArmyManager.prototype.updateEnemyPositions = function()
 {
 	this.enemyStructuresPos = [];
 	this.enemyMobilesPos = [];
 	let army = 0, siege = 0, nearest = Infinity;
-	const ccPos = this.getCivicCentre()?.position();
-	for (const ent of this.gameState.getEnemyEntities().values())
+	const ccPos = this.bot.getCivicCentre()?.position();
+	for (const ent of this.bot.gameState.getEnemyEntities().values())
 	{
 		if (ent.owner() === 0 && !(ent.hasClass("Animal") && ent.get("Attack")))
 			continue;
@@ -40,11 +119,11 @@ BrennusBot.prototype.updateEnemyPositions = function()
 		if (this.enemyNearestHome < th && (this.threatLogged === undefined || this.threatLogged > th))
 		{
 			this.threatLogged = th;
-			print(`[THREAT] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m enemy army=${army} siege=${siege} nearest=${Math.sqrt(nearest).toFixed(0)}m from home CC\n`);
+			print(`[THREAT] t=${(this.bot.gameState.getTimeElapsed() / 60000).toFixed(1)}m enemy army=${army} siege=${siege} nearest=${Math.sqrt(nearest).toFixed(0)}m from home CC\n`);
 		}
 };
 
-BrennusBot.prototype.nearEnemy = function(pos, structureDist, mobileDist)
+ArmyManager.prototype.nearEnemy = function(pos, structureDist, mobileDist)
 {
 	const sd2 = structureDist * structureDist;
 	for (const epos of this.enemyStructuresPos || [])
@@ -61,7 +140,7 @@ BrennusBot.prototype.nearEnemy = function(pos, structureDist, mobileDist)
 // War-stage standing army size: popPartition.armyTarget in arbiterParams
 // (the pop math lives with the parameter).
 
-BrennusBot.prototype.armyCount = function()
+ArmyManager.prototype.armyCount = function()
 {
 	let n = 0;
 	for (const id in this.army)
@@ -79,7 +158,7 @@ BrennusBot.prototype.armyCount = function()
  * to the shared order (attackMove / nearest foe) so cavalry still fights
  * as a normal soldier.
  */
-BrennusBot.prototype.pickCavalryTarget = function(foes, pos)
+ArmyManager.prototype.pickCavalryTarget = function(foes, pos)
 {
 	let siege, siegeDist, ranged, rangedDist;
 	for (const foe of foes)
@@ -109,7 +188,7 @@ BrennusBot.prototype.pickCavalryTarget = function(foes, pos)
  * strength until they are unloaded. Only roster ids are unloaded — workers
  * belong to the shelter logic with its own enemy-proximity timer.
  */
-BrennusBot.prototype.ejectArmyGarrisons = function(gameState)
+ArmyManager.prototype.ejectArmyGarrisons = function(gameState)
 {
 	let hiding = false;
 	for (const id in this.army)
@@ -171,18 +250,18 @@ BrennusBot.prototype.ejectArmyGarrisons = function(gameState)
  * workers by assignGatherers and the shelter logic. War stage never
  * demobilizes: the army has real jobs there (raid/purge/deny/sortie/rally).
  */
-BrennusBot.prototype.manageDemobilization = function(gameState, incoming)
+ArmyManager.prototype.manageDemobilization = function(gameState, incoming)
 {
 	for (const id in this.demobilized)
 		if (!this.army[id] || !gameState.getEntityById(+id))
 			delete this.demobilized[id];
 
 	if (incoming)
-		this.lastIncomingTurn = this.turn;
+		this.lastIncomingTurn = this.bot.turn;
 
-	if (incoming || this.warOn() || !this.defenseOn())
+	if (incoming || this.bot.warOn() || !this.bot.defenseOn())
 	{
-		const home = this.getCivicCentre()?.position();
+		const home = this.bot.getCivicCentre()?.position();
 		let n = 0;
 		for (const id in this.demobilized)
 		{
@@ -199,7 +278,7 @@ BrennusBot.prototype.manageDemobilization = function(gameState, incoming)
 				else
 					ent.stopMoving();
 			}
-			delete this.assignments[id];
+			delete this.bot.assignments[id];
 			delete this.demobilized[id];
 			n++;
 		}
@@ -207,7 +286,7 @@ BrennusBot.prototype.manageDemobilization = function(gameState, incoming)
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m remobilizing ${n} soldiers\n`);
 		return;
 	}
-	if (this.turn - (this.lastIncomingTurn ?? -10000) < 40)
+	if (this.bot.turn - (this.lastIncomingTurn ?? -10000) < 40)
 		return;
 	let added = 0;
 	for (const id in this.army)
@@ -220,7 +299,7 @@ BrennusBot.prototype.manageDemobilization = function(gameState, incoming)
 		if (!ent?.position() || !ent.isGatherer() || ent.hasClass("Cavalry"))
 			continue;
 		this.demobilized[id] = 1;
-		delete this.assignments[id];
+		delete this.bot.assignments[id];
 		ent.stopMoving();
 		added++;
 	}

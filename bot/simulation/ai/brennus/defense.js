@@ -1,49 +1,34 @@
-import { BrennusBot } from "simulation/ai/brennus/brennus.js";
 import { SquareDistance } from "simulation/ai/brennus/helpers.js";
 
-BrennusBot.prototype.manageDefense = function()
+export function DefenseManager(bot)
 {
-	const gameState = this.gameState;
+	this.bot = bot;
+	// Ids recalled to a home threat; live only while the threat does.
+	this.recalled = {};
+	// Active foundation denial ({id, x, z, needed, defenders, template, turn})
+	// and per-foundation retry cooldown.
+	this.deny = undefined;
+	this.denyTried = {};
+	// Army command-block throttle, shared with the offense ops (they reset it
+	// to force a rally on the next block).
+	this.armyCmdTurn = 0;
+	// Worker shelter memory (holder id -> last danger turn).
+	this.shelterDanger = {};
+	// Last turn with a serious threat; garrisons eject 30 turns after it clears.
+	this.lastSeriousTurn = 0;
+	this.hadThreat = false;
+	this.swatting = false;
+}
 
-	// Roster: drop the dead; once the defense stage is on, every Soldier joins the army.
-	for (const id in this.army)
-		if (!gameState.getEntityById(+id))
-			delete this.army[id];
-	for (const id in this.rams)
-		if (!gameState.getEntityById(+id))
-			delete this.rams[id];
-	for (const id in this.healers)
-		if (!gameState.getEntityById(+id))
-			delete this.healers[id];
-	for (const id in this.recalled)
-		if (!this.army[id])
-			delete this.recalled[id];
-	if (this.defenseOn())
-		for (const ent of gameState.getOwnUnits().values())
-		{
-			const id = ent.id();
-			if (ent.hasClass("Siege") && !this.rams[id])
-			{
-				this.rams[id] = 1;
-				continue;
-			}
-			if (ent.hasClass("Healer"))
-			{
-				this.healers[id] = 1;
-				delete this.assignments[id];
-				continue;
-			}
-			if (this.army[id] || !ent.hasClass("Soldier") || id === this.herderId)
-				continue;
-			this.army[id] = 1;
-			delete this.assignments[id];
-			if (ent.position())
-				ent.setStance("defensive");
-		}
+DefenseManager.prototype.manageDefense = function()
+{
+	const gameState = this.bot.gameState;
 
-	this.manageDefenseBuildings();
-	this.manageDefenseTraining();
-	this.manageMilitaryTechs();
+	this.bot.armyManager.maintainRoster(gameState);
+
+	this.bot.buildupManager.manageDefenseBuildings();
+	this.bot.buildupManager.manageDefenseTraining();
+	this.bot.buildupManager.manageMilitaryTechs();
 
 	// Enemy soldiers/siege in the world, once for the threat scan and the shelter.
 	const mil = [];
@@ -65,7 +50,7 @@ BrennusBot.prototype.manageDefense = function()
 	// serious threat cancels or blocks a raid; small probing parties are the
 	// standing army's everyday job and must not pin it at home forever.
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
-	const homePos = this.getCivicCentre()?.position();
+	const homePos = this.bot.getCivicCentre()?.position();
 	let threat;
 	for (const ent of gameState.getOwnStructures().values())
 	{
@@ -106,14 +91,14 @@ BrennusBot.prototype.manageDefense = function()
 	// to armyEnts forever while sub-8 leftovers burn the outer economy in
 	// reach of the minor-probe swat that never gets its soldiers back.
 	if (serious)
-		this.lastSeriousTurn = this.turn;
+		this.lastSeriousTurn = this.bot.turn;
 	else
 	{
 		// A proportional recall lives only while its threat does.
 		this.recalled = {};
-		if (this.turn - this.lastSeriousTurn > 30)
+		if (this.bot.turn - this.lastSeriousTurn > 30)
 		{
-			const ejected = this.ejectArmyGarrisons(gameState);
+			const ejected = this.bot.armyManager.ejectArmyGarrisons(gameState);
 			if (ejected)
 				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m ejecting ${ejected} garrisoned soldiers (threat over)\n`);
 		}
@@ -129,12 +114,12 @@ BrennusBot.prototype.manageDefense = function()
 	// A border foundation going up is a threat too: keep the army mobilized
 	// for the denial (Petra founds border fortresses during our boom).
 	const denyTarget = this.findDenyTarget(mil, homePos);
-	this.manageDemobilization(gameState, serious || !!threat || nearHome >= 5 || !!denyTarget || !!this.deny);
+	this.bot.armyManager.manageDemobilization(gameState, serious || !!threat || nearHome >= 5 || !!denyTarget || !!this.deny);
 
 	const armyEnts = [];
-	for (const id in this.army)
+	for (const id in this.bot.armyManager.army)
 	{
-		if (this.demobilized[id])
+		if (this.bot.armyManager.demobilized[id])
 			continue;
 		const ent = gameState.getEntityById(+id);
 		if (ent?.position())
@@ -142,7 +127,7 @@ BrennusBot.prototype.manageDefense = function()
 	}
 	// Healers trail the army everywhere it is sent; they heal passively.
 	const healerEnts = [];
-	for (const id in this.healers)
+	for (const id in this.bot.armyManager.healers)
 	{
 		const ent = gameState.getEntityById(+id);
 		if (ent?.position())
@@ -173,7 +158,7 @@ BrennusBot.prototype.manageDefense = function()
 		// still escalates.
 		if (this.deny)
 			this.deny = undefined;
-		if (this.offenseManager.target || this.offenseManager.purgeTarget)
+		if (this.bot.offenseManager.target || this.bot.offenseManager.purgeTarget)
 		{
 			const needed = Math.ceil(nearThreat * 1.5) + threat.siegeN * 4;
 			let responding = 0;
@@ -212,13 +197,13 @@ BrennusBot.prototype.manageDefense = function()
 			else if (shortfall > 0)
 			{
 				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m recalling the whole army for the home threat, away mission canceled (army=${armyEnts.length}, threat=${nearThreat})\n`);
-				this.offenseManager.target = undefined;
-				this.offenseManager.purgeTarget = undefined;
+				this.bot.offenseManager.target = undefined;
+				this.bot.offenseManager.purgeTarget = undefined;
 				this.recalled = {};
 				for (const ent of armyEnts)
 					ent.setStance("defensive");
 				if (homePos)
-					for (const id in this.rams)
+					for (const id in this.bot.armyManager.rams)
 					{
 						const ram = gameState.getEntityById(+id);
 						if (ram?.position())
@@ -236,13 +221,13 @@ BrennusBot.prototype.manageDefense = function()
 					cavN++;
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m engaging ${threat.n} enemies (siege=${threat.siegeN}) near CC ${threat.x.toFixed(0)},${threat.z.toFixed(0)} (army=${armyEnts.length}${cavN ? `, cav=${cavN}` : ""})\n`);
 		}
-		if (this.turn >= this.armyCmdTurn)
+		if (this.bot.turn >= this.armyCmdTurn)
 		{
-			this.armyCmdTurn = this.turn + 10;
+			this.armyCmdTurn = this.bot.turn + 10;
 			// Responders: everyone when the army fights at home; under a split
 			// recall only the recalled and whoever is already near the threat —
 			// the rest of the army keeps its away-mission orders.
-			const split = !!(this.offenseManager.target || this.offenseManager.purgeTarget);
+			const split = !!(this.bot.offenseManager.target || this.bot.offenseManager.purgeTarget);
 			const responders = [];
 			for (const ent of armyEnts)
 				if (!split || this.recalled[ent.id()] ||
@@ -269,12 +254,12 @@ BrennusBot.prototype.manageDefense = function()
 						SquareDistance(ent.position(), [threat.ccx, threat.ccz]) < 120 * 120)
 						shelters.push(ent);
 			}
-			if ((split ? responders.length : this.armyCount()) >= nearThreat)
+			if ((split ? responders.length : this.bot.armyManager.armyCount()) >= nearThreat)
 			{
 				// Local superiority: eject the garrisons (wherever they are —
 				// the fight may have moved CCs since they hid) and take the
 				// fight to them.
-				this.ejectArmyGarrisons(gameState);
+				this.bot.armyManager.ejectArmyGarrisons(gameState);
 				// Cavalry hunts its preferred targets directly (siege first,
 				// then the ranged back line) instead of blobbing in with the
 				// attackMove — an attackMove would drop it onto the enemy's
@@ -298,7 +283,7 @@ BrennusBot.prototype.manageDefense = function()
 									cavFoes.push(foe);
 							}
 						}
-						const target = this.pickCavalryTarget(cavFoes, ent.position());
+						const target = this.bot.armyManager.pickCavalryTarget(cavFoes, ent.position());
 						if (target)
 						{
 							ent.attack(target.id(), false);
@@ -349,27 +334,27 @@ BrennusBot.prototype.manageDefense = function()
 	{
 		// foundation denial in progress, commands issued there
 	}
-	else if (this.offenseManager.raid(gameState, armyEnts, healerEnts, mil, homePos))
+	else if (this.bot.offenseManager.raid(gameState, armyEnts, healerEnts, mil, homePos))
 	{
 		// raid in progress, commands issued there
 	}
 	else if (threat)
 	{
 		// Minor probes while no raid is on: swat them.
-		if (this.turn >= this.armyCmdTurn)
+		if (this.bot.turn >= this.armyCmdTurn)
 		{
-			this.armyCmdTurn = this.turn + 10;
+			this.armyCmdTurn = this.bot.turn + 10;
 			for (const ent of armyEnts)
 				ent.attackMove(threat.x, threat.z, "Unit", false);
 			for (const ent of healerEnts)
 				ent.move(threat.x, threat.z);
 		}
 	}
-	else if (this.offenseManager.purge(gameState, armyEnts, healerEnts, mil, homePos))
+	else if (this.bot.offenseManager.purge(gameState, armyEnts, healerEnts, mil, homePos))
 	{
 		// purge in progress, commands issued there
 	}
-	else if (this.offenseManager.clearance(gameState, armyEnts, healerEnts, mil, homePos))
+	else if (this.bot.offenseManager.clearance(gameState, armyEnts, healerEnts, mil, homePos))
 	{
 		// clearing a contested expansion spot, commands issued there
 	}
@@ -383,7 +368,7 @@ BrennusBot.prototype.manageDefense = function()
 		// the whole 60-strong muster into Petra's 75-106 blob at 16m and the
 		// base fell 9 minutes later.
 		let sortie = false;
-		if (this.warOn())
+		if (this.bot.warOn())
 		{
 			let campN = 0, cx = 0, cz = 0;
 			for (const p of mil)
@@ -397,10 +382,10 @@ BrennusBot.prototype.manageDefense = function()
 			// marches (Petra converges), and agg8 s2's 20.7m sortie at 60-vs-32
 			// turned into 60-vs-83 mid-field and donated ~30 soldiers. 1.5x or
 			// stay home and let the towers and CC arrows bleed the camp instead.
-			if (campN >= 15 && this.armyCount() >= 100 && this.armyCount() >= campN * 1.5 && this.turn >= this.armyCmdTurn)
+			if (campN >= 15 && this.bot.armyManager.armyCount() >= 100 && this.bot.armyManager.armyCount() >= campN * 1.5 && this.bot.turn >= this.armyCmdTurn)
 			{
 				sortie = true;
-				this.armyCmdTurn = this.turn + 10;
+				this.armyCmdTurn = this.bot.turn + 10;
 				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m sortie against siege camp ${(cx / campN).toFixed(0)},${(cz / campN).toFixed(0)} (camp=${campN}, army=${armyEnts.length})\n`);
 				for (const ent of armyEnts)
 					ent.attackMove(cx / campN, cz / campN, "Unit", false);
@@ -408,7 +393,7 @@ BrennusBot.prototype.manageDefense = function()
 					ent.move(cx / campN, cz / campN);
 			}
 		}
-		if (!sortie && this.turn >= this.armyCmdTurn)
+		if (!sortie && this.bot.turn >= this.armyCmdTurn)
 		{
 			// Dispersed leftovers: raiders beyond every CC's 120 m threat ring
 			// but still inside the economy's reach burn outer buildings while
@@ -472,7 +457,7 @@ BrennusBot.prototype.manageDefense = function()
 			}
 			if (swat)
 			{
-				this.armyCmdTurn = this.turn + 10;
+				this.armyCmdTurn = this.bot.turn + 10;
 				if (!this.swatting)
 					print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m swatting ${swat.n} leftover raiders at ${swat.x.toFixed(0)},${swat.z.toFixed(0)} (army=${armyEnts.length})\n`);
 				this.swatting = true;
@@ -483,11 +468,11 @@ BrennusBot.prototype.manageDefense = function()
 			else
 			{
 				this.swatting = false;
-				if (this.warOn())
+				if (this.bot.warOn())
 				{
 				// Rally: at a pending expansion CC (escort the builders) else home.
 				let rally = homePos;
-				for (const pb of this.pendingBuilds)
+				for (const pb of this.bot.pendingBuilds)
 					if (pb.template === ccType)
 					{
 						rally = [pb.x, pb.z];
@@ -511,7 +496,7 @@ BrennusBot.prototype.manageDefense = function()
 						}
 					if (far)
 					{
-						this.armyCmdTurn = this.turn + 25;
+						this.armyCmdTurn = this.bot.turn + 25;
 						for (const ent of armyEnts)
 							if (SquareDistance(ent.position(), rally) > 60 * 60)
 								ent.move(rally[0], rally[1]);
@@ -541,18 +526,18 @@ BrennusBot.prototype.manageDefense = function()
 		for (const p of mil)
 			if (SquareDistance(p, h.pos) < 100 * 100)
 			{
-				this.shelterDanger[h.ent.id()] = this.turn;
+				this.shelterDanger[h.ent.id()] = this.bot.turn;
 				break;
 			}
 	for (const h of holders)
 		if (h.ent.garrisonedSlots() > 0 &&
-			this.turn - (this.shelterDanger[h.ent.id()] ?? -1000) > 20)
+			this.bot.turn - (this.shelterDanger[h.ent.id()] ?? -1000) > 20)
 			h.ent.unloadAll();
 	if (!mil.length)
 		return;
 	for (const ent of gameState.getOwnUnits().values())
 	{
-		if (!ent.isGatherer() || !ent.position() || (this.army[ent.id()] && !this.demobilized[ent.id()]) || ent.id() === this.herderId)
+		if (!ent.isGatherer() || !ent.position() || (this.bot.armyManager.army[ent.id()] && !this.bot.armyManager.demobilized[ent.id()]) || ent.id() === this.bot.herderId)
 			continue;
 		const state = ent.unitAIState() || "";
 		if (state.indexOf("GARRISON") !== -1 || state.indexOf("REPAIR") !== -1)
@@ -600,14 +585,14 @@ BrennusBot.prototype.manageDefense = function()
  * preempts starting a raid or purge but never interrupts an active raid.
  * Returns true while a denial is commanded.
  */
-BrennusBot.prototype.manageDeny = function(gameState, armyEnts, mil, homePos, denyTarget)
+DefenseManager.prototype.manageDeny = function(gameState, armyEnts, mil, homePos, denyTarget)
 {
 	if (this.deny)
 	{
 		const target = gameState.getEntityById(this.deny.id);
 		// owner() === us: a captured structure flips mid-denial — that is a
 		// win, not a reason to keep attacking it.
-		if (!target || !target.position() || target.owner() === this.player)
+		if (!target || !target.position() || target.owner() === this.bot.player)
 		{
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m denied enemy foundation at ${this.deny.x.toFixed(0)},${this.deny.z.toFixed(0)}\n`);
 			this.deny = undefined;
@@ -618,15 +603,15 @@ BrennusBot.prototype.manageDeny = function(gameState, armyEnts, mil, homePos, de
 		for (const p of mil)
 			if (SquareDistance(p, [this.deny.x, this.deny.z]) < 100 * 100)
 				defenders++;
-		if (target.foundationProgress() === undefined || this.turn - this.deny.turn > 600 ||
-			this.armyCount() < this.deny.needed || defenders * 2 > this.armyCount())
+		if (target.foundationProgress() === undefined || this.bot.turn - this.deny.turn > 600 ||
+			this.bot.armyManager.armyCount() < this.deny.needed || defenders * 2 > this.bot.armyManager.armyCount())
 		{
 			// Too late (it completed), stalled, the army melted, or Petra
 			// reinforced the foundation beyond what the roster can beat — a
 			// built structure from here on follows the purge rules, and the
 			// donation rule forbids feeding the detachment into a lost fight.
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m foundation denial abandoned at ${this.deny.x.toFixed(0)},${this.deny.z.toFixed(0)} (built=${target.foundationProgress() === undefined}, defenders=${defenders}, army=${this.armyCount()})\n`);
-			this.denyTried[this.deny.id] = this.turn;
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m foundation denial abandoned at ${this.deny.x.toFixed(0)},${this.deny.z.toFixed(0)} (built=${target.foundationProgress() === undefined}, defenders=${defenders}, army=${this.bot.armyManager.armyCount()})\n`);
+			this.denyTried[this.deny.id] = this.bot.turn;
 			this.deny = undefined;
 			this.armyCmdTurn = 0;
 			return false;
@@ -635,16 +620,16 @@ BrennusBot.prototype.manageDeny = function(gameState, armyEnts, mil, homePos, de
 	else if (denyTarget)
 	{
 		this.deny = denyTarget;
-		this.deny.turn = this.turn;
+		this.deny.turn = this.bot.turn;
 		// The purge re-targets once the denial is over.
-		this.offenseManager.purgeTarget = undefined;
+		this.bot.offenseManager.purgeTarget = undefined;
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m denying enemy foundation ${denyTarget.template} at ${denyTarget.x.toFixed(0)},${denyTarget.z.toFixed(0)} (defenders=${denyTarget.defenders}, detachment=${denyTarget.needed}, army=${armyEnts.length})\n`);
 	}
 	else
 		return false;
-	if (this.turn < this.armyCmdTurn)
+	if (this.bot.turn < this.armyCmdTurn)
 		return true;
-	this.armyCmdTurn = this.turn + 10;
+	this.armyCmdTurn = this.bot.turn + 10;
 	const byDist = armyEnts.slice().sort((a, b) =>
 		SquareDistance(a.position(), [this.deny.x, this.deny.z]) - SquareDistance(b.position(), [this.deny.x, this.deny.z]));
 	const det = byDist.slice(0, this.deny.needed);
@@ -667,12 +652,12 @@ BrennusBot.prototype.manageDeny = function(gameState, armyEnts, mil, homePos, de
  * demobilization logic sees the denial as incoming and keeps the working
  * army mobilized for it.
  */
-BrennusBot.prototype.findDenyTarget = function(mil, homePos)
+DefenseManager.prototype.findDenyTarget = function(mil, homePos)
 {
-	if (!this.defenseOn() || !homePos || this.offenseManager.target || this.deny)
+	if (!this.bot.defenseOn() || !homePos || this.bot.offenseManager.target || this.deny)
 		return undefined;
-	const gameState = this.gameState;
-	const spots = this.expPlan?.spots || [];
+	const gameState = this.bot.gameState;
+	const spots = this.bot.expPlan?.spots || [];
 	let best, bestScore, bestDef = 0;
 	for (const ent of gameState.getEnemyStructures().values())
 	{
@@ -682,7 +667,7 @@ BrennusBot.prototype.findDenyTarget = function(mil, homePos)
 		if (!ent.hasClass("Tower") && !ent.hasClass("Fortress") &&
 			!ent.hasClass("ArmyCamp") && !ent.hasClass("CivCentre"))
 			continue;
-		if (this.denyTried[ent.id()] && this.turn - this.denyTried[ent.id()] < 600)
+		if (this.denyTried[ent.id()] && this.bot.turn - this.denyTried[ent.id()] < 600)
 			continue;
 		let near = false;
 		for (const own of gameState.getOwnStructures().values())
@@ -719,7 +704,7 @@ BrennusBot.prototype.findDenyTarget = function(mil, homePos)
 	if (!best)
 		return undefined;
 	const needed = Math.max(8, bestDef * 2);
-	if (this.armyCount() < needed)
+	if (this.bot.armyManager.armyCount() < needed)
 		return undefined;
 	const bp = best.position();
 	return { "id": best.id(), "x": bp[0], "z": bp[1], "needed": needed, "defenders": bestDef, "template": best.templateName() };

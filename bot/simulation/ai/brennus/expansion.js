@@ -85,7 +85,7 @@ BrennusBot.prototype.expansionShares = function(total)
 		for (const s of gameState.getResourceSupplies(res).values())
 		{
 			const pos = s.position();
-			if (!pos || !s.resourceSupplyAmount() || this.nearEnemy(pos, 100, 60))
+			if (!pos || !s.resourceSupplyAmount() || this.armyManager.nearEnemy(pos, 100, 60))
 				continue;
 			if (region !== undefined && this.accessibility.getAccessValue(pos) !== region)
 				continue;
@@ -191,7 +191,7 @@ BrennusBot.prototype.expansionSpotNear = function(anchor, halfW, halfD, ccSpots)
 				continue;
 			if (ccSpots.some(c => SquareDistance(c, spot) < 200 * 200))
 				continue;
-			if (this.nearEnemy(spot, 100, 60))
+			if (this.armyManager.nearEnemy(spot, 100, 60))
 				continue;
 			if (this.expansionRegion !== undefined &&
 				this.accessibility.getAccessValue(spot) !== this.expansionRegion)
@@ -473,7 +473,7 @@ BrennusBot.prototype.manageStorehouseCleanup = function()
 			continue;
 		if (workers.some(p => SquareDistance(p, pos) < 45 * 45))
 			continue;
-		if (this.nearEnemy(pos, 80, 60))
+		if (this.armyManager.nearEnemy(pos, 80, 60))
 			continue;
 		print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m razing dead storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} (no supply within 55m, no workers within 45m)\n`);
 		ent.destroy();
@@ -520,7 +520,7 @@ BrennusBot.prototype.manageExpansion = function()
 		{
 
 		}
-		else if (!this.willToFightPending(gameState) &&
+		else if (!this.buildupManager.willToFightPending(gameState) &&
 			!this.pendingBuilds.some(pb => pb.template === wonderType) &&
 			!this.arbiter.held("construction"))
 		{
@@ -589,7 +589,7 @@ BrennusBot.prototype.manageExpansion = function()
 		// (def9: 2 orders in 30 min). All entity collections are scanned once
 		// per call, not per spot. Relief expansion runs one project at a time:
 		// it fires mid-boom, when the economy cannot feed concurrent CCs yet.
-		const ccConcurrency = full ? ((this.enemyArmy || 0) < 60 ? 3 : 2) : 1;
+		const ccConcurrency = full ? ((this.armyManager.enemyArmy || 0) < 60 ? 3 : 2) : 1;
 		const ownCCPos = [];
 		for (const ent of gameState.getOwnStructures().values())
 			if (ent.templateName() === ccType && ent.position())
@@ -615,7 +615,7 @@ BrennusBot.prototype.manageExpansion = function()
 			if (this.offenseManager.clearOp && key === this.offenseManager.clearOp.key)
 				continue;
 			const c = this.expContested[key];
-			if (this.nearEnemy([c.x, c.z], 100, 60))
+			if (this.armyManager.nearEnemy([c.x, c.z], 100, 60))
 				c.seen = this.turn;
 			else if (this.turn - c.seen > 150 && (!c.proven || this.turn > c.until))
 				delete this.expContested[key];
@@ -682,7 +682,7 @@ BrennusBot.prototype.manageExpansion = function()
 				const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
 				const nearCC = ccSpots.some(c => SquareDistance(c, spot) < 200 * 200);
 				// Once their army is broken, lone stragglers must not stale a spot.
-				const enemyNear = this.nearEnemy(spot, 100, this.enemyArmy > 40 ? 60 : 0);
+				const enemyNear = this.armyManager.nearEnemy(spot, 100, this.armyManager.enemyArmy > 40 ? 60 : 0);
 				const stale = nearCC || enemyNear ||
 					(this.expansionRegion !== undefined &&
 						this.accessibility.getAccessValue(spot) !== this.expansionRegion) ||
@@ -739,7 +739,7 @@ BrennusBot.prototype.manageExpansion = function()
 			const covered = this.offenseManager.clearOp &&
 				Math.abs(this.offenseManager.clearOp.x - spot[0]) < 100 && Math.abs(this.offenseManager.clearOp.z - spot[1]) < 100;
 			if (!covered && !ownCCPos.some(c => SquareDistance(c, spot) < 260 * 260) &&
-				((this.enemyArmy || 0) > 100 || this.armyCount() < 50))
+				((this.armyManager.enemyArmy || 0) > 100 || this.armyManager.armyCount() < 50))
 			{
 				plan.spots.splice(plan.next, 1);
 				plan.spots.push(spot);
@@ -750,7 +750,7 @@ BrennusBot.prototype.manageExpansion = function()
 			// that is what lets 1550 stone and 1100 metal ever coexist in the
 			// bank (val s1: three expansion CCs ate 1200 stone while the
 			// wonder waited from t=35.6 to the end of the game).
-			const stoneReserve = this.wonderHoldActive(gameState) ? 1550 : 0;
+			const stoneReserve = this.buildupManager.wonderHoldActive(gameState) ? 1550 : 0;
 			if (!res.canAfford({ "wood": 400, "stone": 400 + stoneReserve, "metal": 300 + (stoneReserve ? 1100 : 0) }))
 				return;
 			if (!this.placeOrder(ccType, spot))
@@ -758,7 +758,7 @@ BrennusBot.prototype.manageExpansion = function()
 			// A lone builder dies or gets sheltered en route: send a party of 6.
 			const party = gameState.getOwnUnits()
 				.filter(ent => ent.isGatherer() && ent.position() &&
-					!this.army[ent.id()] && ent.id() !== this.herderId)
+					!this.armyManager.army[ent.id()] && ent.id() !== this.herderId)
 				.filterNearest(spot, 6).toEntityArray();
 			for (const ent of party)
 				ent.construct(ccType, spot[0], spot[1], this.getPlacementAngle(), undefined);
@@ -797,7 +797,7 @@ BrennusBot.prototype.manageTrade = function()
 			// (def15 s3: 51 pointless dismissals).
 			if (gameState.getPopulation() >= gameState.getPopulationLimit())
 				for (const ent of gameState.getOwnUnits().values())
-					if (ent.isGatherer() && !ent.hasClass("Cavalry") && ent.isIdle() && !this.army[ent.id()] &&
+					if (ent.isGatherer() && !ent.hasClass("Cavalry") && ent.isIdle() && !this.armyManager.army[ent.id()] &&
 						!(ent.id() === this.herderId && !this.herdingDone))
 					{
 						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m dismissing idle civilian for a trader\n`);

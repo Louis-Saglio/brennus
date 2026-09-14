@@ -201,7 +201,7 @@ BrennusBot.prototype.assignGatherers = function()
 						stuckWhy[res].region++;
 						continue;
 					}
-					if (this.nearEnemy(s.position(), 100, 60))
+					if (this.armyManager.nearEnemy(s.position(), 100, 60))
 					{
 						stuckWhy[res].enemy++;
 						continue;
@@ -228,7 +228,7 @@ BrennusBot.prototype.assignGatherers = function()
 				{
 					if (this.accessibility.getAccessValue(m.s.position()) !== region)
 						continue;
-					if (this.nearEnemy(m.s.position(), 100, 60))
+					if (this.armyManager.nearEnemy(m.s.position(), 100, 60))
 						continue;
 					if (!this.canGatherSupply(ent, m.s))
 						continue;
@@ -275,7 +275,7 @@ BrennusBot.prototype.assignGatherers = function()
 
 	for (const ent of this.gameState.getOwnUnits().values())
 	{
-		if (!ent.isGatherer() || !ent.position() || (this.army[ent.id()] && !this.demobilized[ent.id()]))
+		if (!ent.isGatherer() || !ent.position() || (this.armyManager.army[ent.id()] && !this.armyManager.demobilized[ent.id()]))
 			continue;
 
 		if (ent.id() === this.herderId && !this.herdingDone)
@@ -386,7 +386,7 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 				const supplyPos = supply.position();
 				if (!supplyPos || this.accessibility.getAccessValue(supplyPos) !== region)
 					continue;
-				if (this.nearEnemy(supplyPos, 100, 60))
+				if (this.armyManager.nearEnemy(supplyPos, 100, 60))
 					continue;
 				if (!supply.resourceSupplyAmount() || supply.isFull())
 					continue;
@@ -429,7 +429,7 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 					this.inOwnTerritory(supplyPos[0], supplyPos[1]) &&
 					!(s.id() === this.herdTarget && !this.herdingDone)))
 				continue;
-			if (this.nearEnemy(supplyPos, 100, 60))
+			if (this.armyManager.nearEnemy(supplyPos, 100, 60))
 				continue;
 			if (!s.resourceSupplyAmount() || s.isFull())
 				continue;
@@ -455,7 +455,7 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 		if (minePos && mine.resourceSupplyAmount() && !mine.isFull() &&
 			this.accessibility.getAccessValue(minePos) === region &&
 			this.edgeDistToSites(minePos, this.dropsiteEdgeList()) <= this.mineGatherServeDist &&
-			!this.nearEnemy(minePos, 100, 60) &&
+			!this.armyManager.nearEnemy(minePos, 100, 60) &&
 			this.canGatherSupply(unit, mine))
 			return mine;
 	}
@@ -481,7 +481,7 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 		const supplyPos = supply.position();
 		if (!supplyPos || this.accessibility.getAccessValue(supplyPos) !== region)
 			continue;
-		if (this.nearEnemy(supplyPos, 100, 60))
+		if (this.armyManager.nearEnemy(supplyPos, 100, 60))
 			continue;
 		if (!supply.resourceSupplyAmount() || supply.isFull())
 			continue;
@@ -731,7 +731,7 @@ BrennusBot.prototype.manageHerding = function()
 				const pos = s.position();
 				if (!pos || !s.get("Health") || !s.isHuntable())
 					continue;
-				if (this.accessibility.getAccessValue(pos) !== region || this.nearEnemy(pos, 100, 60))
+				if (this.accessibility.getAccessValue(pos) !== region || this.armyManager.nearEnemy(pos, 100, 60))
 					continue;
 				const d = SquareDistance(pos, ccPos);
 				if (d < 35 * 35 || (inBand && d > this.herdMax * this.herdMax) || d >= bestD)
@@ -897,7 +897,7 @@ BrennusBot.prototype.updateResourceScan = function()
 				const pos = s.position();
 				if (pos && s.resourceSupplyAmount() > 30 &&
 					this.accessibility.getAccessValue(pos) === region &&
-					!this.nearEnemy(pos, 100, 60) &&
+					!this.armyManager.nearEnemy(pos, 100, 60) &&
 					sites.some(d => SquareDistance(pos, d) < 45 * 45))
 					stock += s.resourceSupplyAmount();
 			}
@@ -916,13 +916,13 @@ BrennusBot.prototype.updateResourceScan = function()
 					this.gameState.getEntityById(this.mineId[resource]) : undefined;
 				const pinnedPos = pinned?.position();
 				if (pinnedPos && pinned.resourceSupplyAmount() > 0 &&
-					!this.nearEnemy(pinnedPos, 100, 60))
+					!this.armyManager.nearEnemy(pinnedPos, 100, 60))
 					continue;
 				let best, bestD = Infinity;
 				for (const s of this.gameState.getResourceSupplies(resource).values())
 				{
 					const pos = s.position();
-					if (!pos || !s.resourceSupplyAmount() || this.nearEnemy(pos, 100, 60))
+					if (!pos || !s.resourceSupplyAmount() || this.armyManager.nearEnemy(pos, 100, 60))
 						continue;
 					const d = SquareDistance(pos, ccPos);
 					if (d < bestD)
