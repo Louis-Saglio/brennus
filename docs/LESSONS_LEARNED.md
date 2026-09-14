@@ -1225,3 +1225,21 @@ unchanged.
   sort -u` and check every token against the moved-member list — catches
   every receiver alias at once; then the reverse: bare `this.*` in
   converted files must all be manager-owned.
+
+## 2026-09-14 (manager refactor complete: verified bit-identical per cluster)
+
+- All bot domain code now lives in nine manager classes (offense, army,
+  defense, buildup, economy, boom, construction, placement, expansion),
+  constructed in the entry's CustomInit; config.js (constants) and
+  status.js (diagnostics) stay prototype modules. Each cluster was
+  verified on kiln: seeds 101/202/303, byte-identical stats.json + turn
+  counts, 0 JS errors.
+- A count-asserted transform script per cluster (tmp/make_*managers*.py)
+  plus the receiver sweeps in the entry above caught every stale
+  reference before kiln did, except the two documented failures.
+- Pre-existing save/load quirks found and preserved verbatim (fixing any
+  of them is a behavior change, not code motion): herdStartTurn/
+  herdStartDist/herdBestDist serialized but never restored; rushBuilds
+  never serialized (dead read on load); expansionRegion never
+  serialized. One real bug was fixed instead: the army roster serialize
+  key mismatch ("army" written, "armyManager" read).
