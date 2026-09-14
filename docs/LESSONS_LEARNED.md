@@ -3,6 +3,37 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-14 (dropsite placement: per-resource swappable strategies)
+
+- `manageDropSites` is now a thin orchestrator over three strategy objects
+  (`WoodStorehouseStrategy`, `MineStorehouseStrategy`, `FarmsteadStrategy` —
+  plain object literals, bot code above the orchestrator), selected in
+  `CustomInit` as `this.dropsiteStrategies` in priority order. Contract:
+  `run(bot, ctx) -> bool` (placed the block's one order); wood/farmstead
+  also expose `placeOpening(bot, type)` for the bootstrap. Gates live on
+  the strategy (`minTreeWood`/`minWoodMass`/`gateRadius`, `pairDist`);
+  serve/warn distances stay on the bot — pull-back, warnings and expansion
+  shares all read them as one vocabulary. Strategy state (`gatedWoodSpots`,
+  `lastMineStoreTurn`) is instance-transient, matching the pre-refactor
+  bot fields (never serialized).
+- Verified fact (pinned 0.28.0 source): neither the AI realm nor the
+  trigger realm exposes the map name or biome string —
+  `JSInterface_Simulation.cpp` has no GetMapSettings/GetInitAttributes and
+  `ICmpAIInterface` no map-name function; the shared state carries only
+  `mapSize`/`circularMap`/`victoryConditions`. Biome is inferable from the
+  `gaia/tree/*` template names present (temperate/winter/autumn,
+  tropic_rainforest, acacia, palms, pines), and the wood distribution
+  itself is measurable at init via `getResourceSupplies("wood")` —
+  deterministic (supplies are fixed at map load) and the better selection
+  key anyway. Per-tree wood is 200 on all checked templates; biomes differ
+  in density/clump geometry, not per-tree amount.
+- Refactor verified behavior-preserving on kiln seed 1 (standard settings)
+  against the 04baf5e sweep baseline: identical turn_count (12644) and a
+  bit-identical 475-line [HARNESS]/[DEFENSE]/[WARNING] decision log,
+  0 JS errors, genuine win at 42.1m. Full decision-log diff against the
+  matching-commit sweep run is the strongest cheap preservation check —
+  one seed suffices when it is bit-identical; any drift would show.
+
 ## 2026-09-13 (cavalry: stable + sword-cav contingent + ram/ranged targeting)
 
 - New military production lines must be FIRST-CLASS like the rams: a new

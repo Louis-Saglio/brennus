@@ -180,20 +180,8 @@ BrennusBot.prototype.treeMaxGatherers = 4;
 /** Free slots on served trees below which the woodline counts as saturating: the next storehouse is ordered at the drift frontier before choppers actually strand — stranding-first ordering starves the wood flow for the whole build time (loss review: second storehouses landed at 5:18-9:18). */
 BrennusBot.prototype.woodSlotMargin = 4;
 
-/** A far tree must still hold this much wood to trigger a storehouse: a straggler finishing a nearly-dead tree must not spend 100 wood on a building that outlives its forest. */
-BrennusBot.prototype.storehouseMinTreeWood = 100;
-
-/** Total wood within storehouseGateRadius of a storehouse spot below which the building cannot pay its 100 wood back: lone stragglers and pairs top out at 400 (200/tree on temperate), the home groves that must stay covered start at ~700 — 500 sits between the two measured clusters (s21/s70/s81 bled their economy on straggler storehouses; gating at 1000 delayed the home grove on s2/s45 and cost both games). */
-BrennusBot.prototype.storehouseMinWoodMass = 500;
-
-/** Radius (m) around a storehouse-demand clump whose wood mass counts toward the gate — wider than woodServeDist because a storehouse planted between sparse patches serves all of them: s53 gated five 133-203-mass clumps sitting within 45 m of each other (925 combined) while their choppers walked 230-285 m each way. Pairs 45 m apart still gate out (400 < 500); three trees spanning the radius pass (600), and 600 wood served pays the 100 wood back. */
-BrennusBot.prototype.storehouseGateRadius = 45;
-
 /** Free pop slots (limit − population − queued) below which a house outranks a missing muster building: the defense accumulation hold releases so the pop race is never choked (s90 sat at 40/40 for 5 min under an ungated hold). */
 BrennusBot.prototype.defenseHoldMinPopMargin = 8;
-
-/** Pinned stone and metal mines closer than this (m) share ONE storehouse. */
-BrennusBot.prototype.minePairDist = 55;
 
 /**
  * The bot's resource equilibria, surfaced as named arbiter parameters
@@ -575,6 +563,16 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.recalled = {};
 	this.deny = undefined;
 	this.denyTried = {};
+
+	// Dropsite placement strategies, in priority order (wood, mine, farmstead)
+	// — the first strategy to fire places the block's one dropsite order.
+	// Self-contained per-resource policies with their own gates: swap one here
+	// to change placement for a map/biome. Instances are recreated fresh on
+	// deserialization, like the other transient dropsite state they hold.
+	this.woodStrategy = Object.create(WoodStorehouseStrategy);
+	this.mineStrategy = Object.create(MineStorehouseStrategy);
+	this.farmsteadStrategy = Object.create(FarmsteadStrategy);
+	this.dropsiteStrategies = [this.woodStrategy, this.mineStrategy, this.farmsteadStrategy];
 
 };
 
@@ -1171,23 +1169,35 @@ BrennusBot.prototype.woodDropsitePositions = function()
 	return sites;
 };
 
+BrennusBot.prototype.obstructionHalfDiag = function(ent)
+{
+	const o = ent.get("Obstruction/Static");
+	return o ? Math.hypot(+o["@width"], +o["@depth"]) / 2 : 8;
+};
+
+BrennusBot.prototype.centroid = function(points)
+{
+	let sx = 0, sz = 0;
+	for (const p of points)
+	{
+		sx += p[0];
+		sz += p[1];
+	}
+	return [sx / points.length, sz / points.length];
+};
+
 /** Storehouse/CC positions with obstruction half-diagonals (storehouse foundations included): edge distance to this list is the serve metric every mine-coverage consumer shares (pull-back, storehouse demand, warning). */
 BrennusBot.prototype.dropsiteEdgeList = function()
 {
 	const gameState = this.gameState;
-	const halfDiag = ent =>
-	{
-		const o = ent.get("Obstruction/Static");
-		return o ? Math.hypot(+o["@width"], +o["@depth"]) / 2 : 8;
-	};
 	const sites = [];
 	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
 	for (const ent of gameState.getOwnStructures().values())
 		if (ent.position() && (ent.templateName() === storeType || ent.hasClass("CivCentre")))
-			sites.push({ "pos": ent.position(), "half": halfDiag(ent) });
+			sites.push({ "pos": ent.position(), "half": this.obstructionHalfDiag(ent) });
 	for (const f of gameState.getOwnFoundations().values())
 		if (f.position() && gameState.getBuiltTemplate(f.templateName()).templateName() === storeType)
-			sites.push({ "pos": f.position(), "half": halfDiag(f) });
+			sites.push({ "pos": f.position(), "half": this.obstructionHalfDiag(f) });
 	return sites;
 };
 
@@ -2074,7 +2084,7 @@ BrennusBot.prototype.manageConstruction = function()
 			resources.canAfford({
 				"food": reserve.food || 0, "wood": (reserve.wood || 0) + 100,
 				"stone": reserve.stone || 0, "metal": reserve.metal || 0 }) &&
-			this.placeFirstFarmstead(type))
+			this.farmsteadStrategy.placeOpening(this, type))
 		{
 			this.arbiter.spend(resources, "construction", { "wood": 100 }, "farmstead");
 			return;
@@ -2090,7 +2100,7 @@ BrennusBot.prototype.manageConstruction = function()
 				"food": reserve.food || 0, "wood": (reserve.wood || 0) + 100,
 				"stone": reserve.stone || 0, "metal": reserve.metal || 0 }))
 		{
-			const pos = this.placeFirstStorehouse(storeType);
+			const pos = this.woodStrategy.placeOpening(this, storeType);
 			if (pos)
 			{
 				this.bootstrapStoreTried = true;
@@ -2222,426 +2232,495 @@ BrennusBot.prototype.hasStructureOrFoundation = function(type, foundations)
 		foundations.some(f => this.gameState.getBuiltTemplate(f.templateName()).templateName() === type);
 };
 
-BrennusBot.prototype.placeFirstFarmstead = function(type)
-{
-	const gameState = this.gameState;
-	const cc = this.getCivicCentre();
-	if (!cc)
-		return false;
-	const region = this.accessibility.getAccessValue(cc.position());
-	const fruits = gameState.getResourceSupplies("food").toEntityArray()
-		.filter(s => s.resourceSupplyType()?.specific === "fruit" && s.position() &&
-			s.resourceSupplyAmount() > 30 && !this.nearEnemy(s.position(), 100, 60) &&
-			this.inOwnTerritory(s.position()[0], s.position()[1]) &&
-			this.accessibility.getAccessValue(s.position()) === region);
-	const scored = fruits.map(f => {
-		let score = 0;
-		for (const g of fruits)
-			if (SquareDistance(f.position(), g.position()) < 30 * 30)
-				score += g.resourceSupplyAmount();
-		return [score, f.position()];
-	}).sort((a, b) => b[0] - a[0]);
-	const tried = [];
-	for (const cand of scored)
+// ------------------------------------------------- dropsite strategies
+/**
+ * Dropsite placement is split per resource into swappable strategy objects.
+ * Resource spread — and thereby where a dropsite pays its 100 wood back —
+ * varies with the map and biome, so each policy (demand reading, gating,
+ * center selection, opening placement) is self-contained and replaceable in
+ * CustomInit without touching the rest. The bot keeps the shared machinery:
+ * the per-block context (buildDropsiteContext), the placement scans
+ * (tryConstruct, findExpansionWoodStorehouse, findMinimaxSpot, placeOrder)
+ * and the serve-distance metrics.
+ *
+ * Contract: run(bot, ctx) places at most one build order and returns true,
+ * or returns false to let the next strategy try — manageDropSites runs them
+ * in priority order (wood, mine, farmstead), one dropsite order per block.
+ * Strategy state (gated spots, cooldowns) lives on the strategy instance and
+ * is transient, like the bot fields it replaces.
+ */
+const WoodStorehouseStrategy = {
+
+	/** A far tree must still hold this much wood to trigger a storehouse: a straggler finishing a nearly-dead tree must not spend 100 wood on a building that outlives its forest. */
+	"minTreeWood": 100,
+
+	/** Total wood within gateRadius of a storehouse spot below which the building cannot pay its 100 wood back: lone stragglers and pairs top out at 400 (200/tree on temperate), the home groves that must stay covered start at ~700 — 500 sits between the two measured clusters (s21/s70/s81 bled their economy on straggler storehouses; gating at 1000 delayed the home grove on s2/s45 and cost both games). */
+	"minWoodMass": 500,
+
+	/** Radius (m) around a storehouse-demand clump whose wood mass counts toward the gate — wider than woodServeDist because a storehouse planted between sparse patches serves all of them: s53 gated five 133-203-mass clumps sitting within 45 m of each other (925 combined) while their choppers walked 230-285 m each way. Pairs 45 m apart still gate out (400 < 500); three trees spanning the radius pass (600), and 600 wood served pays the 100 wood back. */
+	"gateRadius": 45,
+
+	/** The opening storehouse goes where it pays its 100 wood back fastest: centered on the in-territory tree with the most wood within 30m, rush-built by the choppers like a demand storehouse. */
+	"placeOpening": function(bot, type)
 	{
-		if (tried.some(p => SquareDistance(p, cand[1]) < 30 * 30))
-			continue;
-		tried.push(cand[1]);
-		if (this.tryConstruct(type, "dropsite", cand[1]))
-			return true;
-		if (tried.length >= 5)
-			break;
-	}
-	return false;
-};
-
-/** The opening storehouse goes where it pays its 100 wood back fastest: centered on the in-territory tree with the most wood within 30m, rush-built by the choppers like a demand storehouse. */
-BrennusBot.prototype.placeFirstStorehouse = function(type)
-{
-	const gameState = this.gameState;
-	const cc = this.getCivicCentre();
-	if (!cc)
-		return false;
-	const region = this.accessibility.getAccessValue(cc.position());
-	const trees = gameState.getResourceSupplies("wood").toEntityArray()
-		.filter(s => s.position() && s.resourceSupplyAmount() > 30 &&
-			!this.nearEnemy(s.position(), 100, 60) &&
-			this.accessibility.getAccessValue(s.position()) === region);
-	const scored = trees.filter(t => this.inOwnTerritory(t.position()[0], t.position()[1]))
-		.map(t => {
-			let mass = 0;
-			for (const o of trees)
-				if (SquareDistance(t.position(), o.position()) < 30 * 30)
-					mass += o.resourceSupplyAmount();
-			return [mass, t.position()];
-		}).sort((a, b) => b[0] - a[0]);
-	const tried = [];
-	for (const cand of scored)
-	{
-		if (tried.some(p => SquareDistance(p, cand[1]) < 30 * 30))
-			continue;
-		tried.push(cand[1]);
-		const pos = this.tryConstruct(type, "dropsite", cand[1], true);
-		if (pos)
-			return pos;
-		if (tried.length >= 5)
-			break;
-	}
-	return false;
-};
-
-/** Wood storehouse for underserved choppers (their pull-back failed), then mine and farmstead coverage. One order per block. */
-BrennusBot.prototype.manageDropSites = function(foundations, reserve)
-{
-	const gameState = this.gameState;
-	const resources = this.arbiter.books("dropsites");
-	const cc = this.getCivicCentre();
-	if (!cc)
-		return false;
-
-	const woodFloor = 100 + (reserve.wood || 0);
-
-	this.arbiter.declare("dropsite", null);
-
-	const halfDiag = ent => {
-		const o = ent.get("Obstruction/Static");
-		return o ? Math.hypot(+o["@width"], +o["@depth"]) / 2 : 8;
-	};
-	const centroid = points => {
-		let sx = 0, sz = 0;
-		for (const p of points)
+		const gameState = bot.gameState;
+		const cc = bot.getCivicCentre();
+		if (!cc)
+			return false;
+		const region = bot.accessibility.getAccessValue(cc.position());
+		const trees = gameState.getResourceSupplies("wood").toEntityArray()
+			.filter(s => s.position() && s.resourceSupplyAmount() > 30 &&
+				!bot.nearEnemy(s.position(), 100, 60) &&
+				bot.accessibility.getAccessValue(s.position()) === region);
+		const scored = trees.filter(t => bot.inOwnTerritory(t.position()[0], t.position()[1]))
+			.map(t => {
+				let mass = 0;
+				for (const o of trees)
+					if (SquareDistance(t.position(), o.position()) < 30 * 30)
+						mass += o.resourceSupplyAmount();
+				return [mass, t.position()];
+			}).sort((a, b) => b[0] - a[0]);
+		const tried = [];
+		for (const cand of scored)
 		{
-			sx += p[0];
-			sz += p[1];
+			if (tried.some(p => SquareDistance(p, cand[1]) < 30 * 30))
+				continue;
+			tried.push(cand[1]);
+			const pos = bot.tryConstruct(type, "dropsite", cand[1], true);
+			if (pos)
+				return pos;
+			if (tried.length >= 5)
+				break;
 		}
-		return [sx / points.length, sz / points.length];
-	};
-	const minEdgeDist = (pos, sites) =>
-		Math.min(...sites.map(s => Math.hypot(pos[0] - s.pos[0], pos[1] - s.pos[1]) - s.half));
+		return false;
+	},
 
+	/**
+	 * Wood storehouse demand has two signals. Stranded choppers (the pull-back
+	 * in assignGatherers found no served tree with a free slot) need coverage
+	 * where they work. And before anyone strands: when free slots on served
+	 * trees run below woodSlotMargin, the unserved trees choppers drifted onto
+	 * this block mark the frontier to cover. Two gates keep a bad spend out:
+	 * a nearly-dead tree never justifies a 100-wood building (per-tree wood),
+	 * and a clump whose whole neighborhood is stragglers cannot pay the
+	 * building back either (mass gate in the placement loop below).
+	 * No reserve is held against a wood storehouse: it is the investment that
+	 * produces wood — reserving wood against it deadlocks the economy once
+	 * income has collapsed (s90 never passed the 250-wood effective floor).
+	 */
+	"run": function(bot, ctx)
+	{
+		const gameState = bot.gameState;
+		const resources = ctx.resources;
+
+		const underserved = (bot.woodUnderserved || []).filter(u => u.wood >= this.minTreeWood);
+		const frontier = (bot.woodFrontier || []).filter(u => u.wood >= this.minTreeWood);
+		let demand = underserved;
+		if (!demand.length && (bot.woodFreeSlots ?? Infinity) < bot.woodSlotMargin)
+			demand = frontier;
+		if (demand.length && ctx.storeCount < (bot.expansionOn() ? 40 : 18) &&
+			resources.wood >= 100)
+		{
+			// The richest-looking clump is not always worth serving: gate each
+			// candidate on the wood mass within serve reach of its center and walk
+			// down the distance ranking until one pays for itself.
+			const massNear = center => {
+				let mass = 0;
+				const r2 = this.gateRadius * this.gateRadius;
+				for (const s of gameState.getResourceSupplies("wood").values())
+				{
+					const sp = s.position();
+					if (sp && s.resourceSupplyAmount() && SquareDistance(sp, center) < r2)
+						mass += s.resourceSupplyAmount();
+				}
+				return mass;
+			};
+			const ranked = demand.map(u => [bot.edgeDistToSites(u.pos, ctx.woodSites), u.pos])
+				.sort((a, b) => b[0] - a[0]);
+			const tried = [];
+			for (const [, pos] of ranked)
+			{
+				if (tried.some(p => SquareDistance(p, pos) < 25 * 25))
+					continue;
+				const center = bot.centroid(demand.filter(u => Math.hypot(u.pos[0] - pos[0], u.pos[1] - pos[1]) < 25)
+					.map(u => u.pos));
+				tried.push(center);
+				const mass = massNear(center);
+				if (mass < this.minWoodMass)
+				{
+					if (!(this.gatedWoodSpots || []).some(p => SquareDistance(p, center) < 30 * 30))
+					{
+						(this.gatedWoodSpots = this.gatedWoodSpots || []).push(center);
+						const ccp = ctx.cc.position();
+						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wood storehouse gated at ${center[0].toFixed(0)},${center[1].toFixed(0)} (mass ${mass}, ccDist ${Math.hypot(center[0] - ccp[0], center[1] - ccp[1]).toFixed(0)}m)\n`);
+					}
+					continue;
+				}
+				if (ctx.storePending(center))
+					continue;
+				bot.arbiter.declare("dropsite", { "wood": 100 });
+				const placed = bot.expansionOn() ?
+					bot.findExpansionWoodStorehouse(ctx.storeType, center) :
+					bot.tryConstruct(ctx.storeType, "dropsite", center, true);
+				if (placed)
+				{
+					bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/wood");
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${placed[0].toFixed(0)},${placed[1].toFixed(0)} for wood ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved + ${frontier.length} frontier, mass ${mass})\n`);
+					return true;
+				}
+				break;
+			}
+		}
+		return false;
+	}
+};
+
+const MineStorehouseStrategy = {
+
+	/** Pinned stone and metal mines closer than this (m) share ONE storehouse. */
+	"pairDist": 55,
+
+	/** Mine coverage: reactive (miner drift past the serve distance) first, then — expansion stage only — proactively opening the richest in-territory mine past the alarm distance. */
+	"run": function(bot, ctx)
+	{
+		const gameState = bot.gameState;
+		const resources = ctx.resources;
+
+		if (ctx.storeCount < (bot.expansionOn() ? 40 : 18))
+		{
+			let worst, worstDist = bot.mineGatherServeDist;
+			const underserved = [];
+			for (const ent of gameState.getOwnUnits().values())
+			{
+				if (!ent.isGatherer() || ent.isIdle() || !ent.position())
+					continue;
+				const tgt = bot.gatherTarget[ent.id()];
+				if (tgt?.generic !== "stone" && tgt?.generic !== "metal")
+					continue;
+				const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
+				const d = bot.edgeDistToSites(anchor, ctx.woodSites);
+				if (d > bot.mineGatherServeDist)
+					underserved.push(anchor);
+				if (d > worstDist)
+				{
+					worstDist = d;
+					worst = anchor;
+				}
+			}
+			// A drift cluster past the warning distance cannot wait for the
+			// expansion headcount: two miners at 40+ m is already coverage demand.
+			// It also skips the mine-storehouse cooldown and the reserve-padded
+			// wood floor — every turn at 40+ m costs more than the 100 wood.
+			const far = underserved.filter(p => bot.edgeDistToSites(p, ctx.woodSites) > bot.mineDistWarn);
+			if ((underserved.length >= (bot.expansionOn() ? 5 : 2) || far.length >= 2) &&
+				!(bot.expansionOn() && far.length < 2 && bot.turn - (this.lastMineStoreTurn || -1000) < 40))
+			{
+				bot.arbiter.declare("dropsite", { "wood": 100 });
+				const sMine = bot.mineId.stone !== undefined ?
+					gameState.getEntityById(bot.mineId.stone) : undefined;
+				const mMine = bot.mineId.metal !== undefined ?
+					gameState.getEntityById(bot.mineId.metal) : undefined;
+				const sPos = sMine?.position(), mPos = mMine?.position();
+				// Pinned stone and metal mines close together share ONE storehouse between them.
+				// Not when the trigger is a far drift cluster: the demand sits at
+				// worst, wherever the pinned mines are is irrelevant to it.
+				const pairNear = sPos && mPos &&
+					Math.hypot(sPos[0] - mPos[0], sPos[1] - mPos[1]) < this.pairDist;
+				if (pairNear && far.length < 2)
+				{
+					const mid = [(sPos[0] + mPos[0]) / 2, (sPos[1] + mPos[1]) / 2];
+					const planned = ctx.storeFoundations.some(p => Math.hypot(p[0] - mid[0], p[1] - mid[1]) < 30) ||
+						ctx.storePending(mid);
+					if (!planned && resources.wood >= ctx.woodFloor)
+					{
+						const spot = bot.findMinimaxSpot(ctx.storeType, [sPos, mPos],
+							bot.accessibility.getAccessValue(ctx.cc.position()));
+						if (spot && bot.placeOrder(ctx.storeType, spot))
+						{
+							this.lastMineStoreTurn = bot.turn;
+							bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/mine-pair");
+							print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} between stone ${sPos[0].toFixed(0)},${sPos[1].toFixed(0)} and metal ${mPos[0].toFixed(0)},${mPos[1].toFixed(0)} (${underserved.length} underserved)\n`);
+							return true;
+						}
+					}
+				}
+				const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
+				const center = bot.centroid(clump);
+				const planned = ctx.storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 45) ||
+					ctx.storePending(center);
+				const pos = resources.wood >= (far.length >= 2 ? 100 : ctx.woodFloor) && !planned &&
+					bot.tryConstruct(ctx.storeType, "dropsite", center);
+				if (pos)
+				{
+					this.lastMineStoreTurn = bot.turn;
+					bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/mine");
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for mine ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved)\n`);
+					return true;
+				}
+			}
+		}
+
+		if (bot.expansionOn() && resources.wood >= ctx.woodFloor &&
+			ctx.storeCount < 40 && bot.turn - (this.lastMineStoreTurn || -1000) > 40)
+		{
+			const region = bot.accessibility.getAccessValue(ctx.cc.position());
+			let best, bestAmt = 1500;
+			for (const res of ["stone", "metal"])
+				for (const s of gameState.getResourceSupplies(res).values())
+				{
+					const pos = s.position();
+					if (!pos || s.resourceSupplyAmount() <= bestAmt || bot.nearEnemy(pos, 100, 60))
+						continue;
+					if (bot.accessibility.getAccessValue(pos) !== region ||
+						!bot.inOwnTerritory(pos[0], pos[1]))
+						continue;
+					// Coverage-first: open the richest in-territory mine past the
+					// alarm distance before mining shares ever reach it.
+					if (bot.edgeDistToSites(pos, ctx.woodSites) <= bot.mineDistWarn)
+						continue;
+					bestAmt = s.resourceSupplyAmount();
+					best = pos;
+				}
+			if (best)
+			{
+				bot.arbiter.declare("dropsite", { "wood": 100 });
+				const planned = ctx.storeFoundations.some(p => Math.hypot(p[0] - best[0], p[1] - best[1]) < 45) ||
+					ctx.storePending(best);
+				if (!planned)
+				{
+					const spot = bot.findMinimaxSpot(ctx.storeType, [best], region);
+					if (spot && bot.placeOrder(ctx.storeType, spot))
+					{
+						this.lastMineStoreTurn = bot.turn;
+						bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/unserved-mine");
+						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} for mine ${best[0].toFixed(0)},${best[1].toFixed(0)} (${bestAmt} left)\n`);
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+};
+
+const FarmsteadStrategy = {
+
+	/** The opening farmstead goes at the richest in-territory fruit cluster. */
+	"placeOpening": function(bot, type)
+	{
+		const gameState = bot.gameState;
+		const cc = bot.getCivicCentre();
+		if (!cc)
+			return false;
+		const region = bot.accessibility.getAccessValue(cc.position());
+		const fruits = gameState.getResourceSupplies("food").toEntityArray()
+			.filter(s => s.resourceSupplyType()?.specific === "fruit" && s.position() &&
+				s.resourceSupplyAmount() > 30 && !bot.nearEnemy(s.position(), 100, 60) &&
+				bot.inOwnTerritory(s.position()[0], s.position()[1]) &&
+				bot.accessibility.getAccessValue(s.position()) === region);
+		const scored = fruits.map(f => {
+			let score = 0;
+			for (const g of fruits)
+				if (SquareDistance(f.position(), g.position()) < 30 * 30)
+					score += g.resourceSupplyAmount();
+			return [score, f.position()];
+		}).sort((a, b) => b[0] - a[0]);
+		const tried = [];
+		for (const cand of scored)
+		{
+			if (tried.some(p => SquareDistance(p, cand[1]) < 30 * 30))
+				continue;
+			tried.push(cand[1]);
+			if (bot.tryConstruct(type, "dropsite", cand[1]))
+				return true;
+			if (tried.length >= 5)
+				break;
+		}
+		return false;
+	},
+
+	/** Farmstead coverage: unserved fields first, then fruit-gatherer drift, then — while fruit stocks run low — the next fruit patch proactively. */
+	"run": function(bot, ctx)
+	{
+		const gameState = bot.gameState;
+		const resources = ctx.resources;
+		const cc = ctx.cc;
+
+		const farmType = gameState.applyCiv("structures/{civ}/farmstead");
+		const fieldType = gameState.applyCiv("structures/{civ}/field");
+		const foodSites = [{ "pos": cc.position(), "half": bot.obstructionHalfDiag(cc) }];
+		const farmFoundations = [];
+		let farmCount = 0;
+		for (const f of ctx.foundations)
+			if (gameState.getBuiltTemplate(f.templateName()).templateName() === farmType && f.position())
+			{
+				foodSites.push({ "pos": f.position(), "half": bot.obstructionHalfDiag(f) });
+				farmFoundations.push(f.position());
+				farmCount++;
+			}
+		for (const ent of gameState.getOwnStructures().values())
+			if (ent.templateName() === farmType && ent.position())
+			{
+				foodSites.push({ "pos": ent.position(), "half": bot.obstructionHalfDiag(ent) });
+				farmCount++;
+			}
+		let worstField, worstFieldDist = 15;
+		const unservedFields = [];
+		for (const ent of gameState.getOwnStructures().values())
+		{
+			if (ent.templateName() !== fieldType || ent.foundationProgress() !== undefined || !ent.position())
+				continue;
+			const d = bot.edgeDistToSites(ent.position(), foodSites) - 15.5;
+			if (d > 15)
+				unservedFields.push(ent.position());
+			if (d > worstFieldDist)
+			{
+				worstFieldDist = d;
+				worstField = ent.position();
+			}
+		}
+		if (unservedFields.length >= 2 && farmCount < 12)
+		{
+			const cluster = unservedFields.filter(p => Math.hypot(p[0] - worstField[0], p[1] - worstField[1]) < 30);
+			const center = bot.centroid(cluster);
+			const planned = farmFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 25);
+			const pos = !planned && resources.wood >= ctx.woodFloor &&
+				bot.tryConstruct(farmType, "dropsite", center);
+			if (pos)
+			{
+				bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "farmstead/fields");
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for fields ${center[0].toFixed(0)},${center[1].toFixed(0)} (${unservedFields.length} underserved)\n`);
+				return true;
+			}
+		}
+
+		let worstFruit, worstFruitDist = 18;
+		const unservedFruit = [];
+		for (const ent of gameState.getOwnUnits().values())
+		{
+			if (!ent.isGatherer() || ent.isIdle() || !ent.position())
+				continue;
+			const tgt = bot.gatherTarget[ent.id()];
+			if (tgt?.generic !== "food" || tgt?.specific !== "fruit")
+				continue;
+			const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
+			const d = bot.edgeDistToSites(anchor, foodSites);
+			if (d > 18)
+				unservedFruit.push(anchor);
+			if (d > worstFruitDist)
+			{
+				worstFruitDist = d;
+				worstFruit = anchor;
+			}
+		}
+		if (unservedFruit.length >= 3 && farmCount < 12)
+		{
+			bot.arbiter.declare("dropsite", { "wood": 100 });
+			const cluster = unservedFruit.filter(p => Math.hypot(p[0] - worstFruit[0], p[1] - worstFruit[1]) < 25);
+			const center = bot.centroid(cluster);
+			const planned = farmFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 25);
+			const pos = !planned && resources.wood >= ctx.woodFloor &&
+				bot.tryConstruct(farmType, "dropsite", center);
+			if (pos)
+			{
+				bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "farmstead/fruit");
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for fruit ${center[0].toFixed(0)},${center[1].toFixed(0)} (${unservedFruit.length} underserved)\n`);
+				return true;
+			}
+		}
+
+		if (bot.fruitStock < 600 && farmCount < 12 && resources.wood >= ctx.woodFloor)
+		{
+			const region = bot.accessibility.getAccessValue(cc.position());
+			const fruits = gameState.getResourceSupplies("food").toEntityArray()
+				.filter(s => s.resourceSupplyType()?.specific === "fruit" && s.position() &&
+					s.resourceSupplyAmount() > 30 && !bot.nearEnemy(s.position(), 100, 60) &&
+					bot.inOwnTerritory(s.position()[0], s.position()[1]) &&
+					bot.accessibility.getAccessValue(s.position()) === region &&
+					!foodSites.some(site => SquareDistance(s.position(), site.pos) < 45 * 45));
+			let best, bestScore = 250;
+			for (const f of fruits)
+			{
+				let score = 0;
+				for (const g of fruits)
+					if (SquareDistance(f.position(), g.position()) < 30 * 30)
+						score += g.resourceSupplyAmount();
+				if (score > bestScore)
+				{
+					bestScore = score;
+					best = f.position();
+				}
+			}
+			if (best)
+			{
+				bot.arbiter.declare("dropsite", { "wood": 100 });
+				const planned = farmFoundations.some(p => Math.hypot(p[0] - best[0], p[1] - best[1]) < 25);
+				const pos = !planned && bot.tryConstruct(farmType, "dropsite", best);
+				if (pos)
+				{
+					bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "farmstead/next-fruit");
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for next fruit patch ${best[0].toFixed(0)},${best[1].toFixed(0)} (stock ${Math.round(bot.fruitStock)})\n`);
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+};
+
+/**
+ * The per-block state every dropsite strategy reads: the frozen budget book,
+ * the reserve-padded wood floor, existing storehouse coverage (home CC +
+ * storehouses, foundations included) and the pending-build dedupe.
+ */
+BrennusBot.prototype.buildDropsiteContext = function(foundations, reserve, resources)
+{
+	const gameState = this.gameState;
+	const cc = this.getCivicCentre();
+	if (!cc)
+		return null;
 	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
-	const woodSites = [{ "pos": cc.position(), "half": halfDiag(cc) }];
+	const woodSites = [{ "pos": cc.position(), "half": this.obstructionHalfDiag(cc) }];
 	const storeFoundations = [];
 	let storeCount = 0;
 	for (const f of foundations)
 		if (gameState.getBuiltTemplate(f.templateName()).templateName() === storeType && f.position())
 		{
-			woodSites.push({ "pos": f.position(), "half": halfDiag(f) });
+			woodSites.push({ "pos": f.position(), "half": this.obstructionHalfDiag(f) });
 			storeFoundations.push(f.position());
 			storeCount++;
 		}
 	for (const ent of gameState.getOwnStructures().values())
 		if (ent.templateName() === storeType && ent.position())
 		{
-			woodSites.push({ "pos": ent.position(), "half": halfDiag(ent) });
+			woodSites.push({ "pos": ent.position(), "half": this.obstructionHalfDiag(ent) });
 			storeCount++;
 		}
+	return {
+		"resources": resources,
+		"woodFloor": 100 + (reserve.wood || 0),
+		"cc": cc,
+		"foundations": foundations,
+		"storeType": storeType,
+		"woodSites": woodSites,
+		"storeFoundations": storeFoundations,
+		"storeCount": storeCount,
+		"storePending": center => this.pendingBuilds.some(pb =>
+			pb.template === storeType && Math.hypot(pb.x - center[0], pb.z - center[1]) < 30)
+	};
+};
 
-	const storePending = center => this.pendingBuilds.some(pb =>
-		pb.template === storeType && Math.hypot(pb.x - center[0], pb.z - center[1]) < 30);
-
-	// Wood storehouse demand has two signals. Stranded choppers (the pull-back
-	// in assignGatherers found no served tree with a free slot) need coverage
-	// where they work. And before anyone strands: when free slots on served
-	// trees run below woodSlotMargin, the unserved trees choppers drifted onto
-	// this block mark the frontier to cover. Two gates keep a bad spend out:
-	// a nearly-dead tree never justifies a 100-wood building (per-tree wood),
-	// and a clump whose whole neighborhood is stragglers cannot pay the
-	// building back either (mass gate in the placement loop below).
-	// No reserve is held against a wood storehouse: it is the investment that
-	// produces wood — reserving wood against it deadlocks the economy once
-	// income has collapsed (s90 never passed the 250-wood effective floor).
-	const underserved = (this.woodUnderserved || []).filter(u => u.wood >= this.storehouseMinTreeWood);
-	const frontier = (this.woodFrontier || []).filter(u => u.wood >= this.storehouseMinTreeWood);
-	let demand = underserved;
-	if (!demand.length && (this.woodFreeSlots ?? Infinity) < this.woodSlotMargin)
-		demand = frontier;
-	if (demand.length && storeCount < (this.expansionOn() ? 40 : 18) &&
-		resources.wood >= 100)
-	{
-		// The richest-looking clump is not always worth serving: gate each
-		// candidate on the wood mass within serve reach of its center and walk
-		// down the distance ranking until one pays for itself.
-		const massNear = center => {
-			let mass = 0;
-			const r2 = this.storehouseGateRadius * this.storehouseGateRadius;
-			for (const s of gameState.getResourceSupplies("wood").values())
-			{
-				const sp = s.position();
-				if (sp && s.resourceSupplyAmount() && SquareDistance(sp, center) < r2)
-					mass += s.resourceSupplyAmount();
-			}
-			return mass;
-		};
-		const ranked = demand.map(u => [minEdgeDist(u.pos, woodSites), u.pos])
-			.sort((a, b) => b[0] - a[0]);
-		const tried = [];
-		for (const [, pos] of ranked)
-		{
-			if (tried.some(p => SquareDistance(p, pos) < 25 * 25))
-				continue;
-			const center = centroid(demand.filter(u => Math.hypot(u.pos[0] - pos[0], u.pos[1] - pos[1]) < 25)
-				.map(u => u.pos));
-			tried.push(center);
-			const mass = massNear(center);
-			if (mass < this.storehouseMinWoodMass)
-			{
-				if (!(this.gatedWoodSpots || []).some(p => SquareDistance(p, center) < 30 * 30))
-				{
-					(this.gatedWoodSpots = this.gatedWoodSpots || []).push(center);
-					const ccp = cc.position();
-					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wood storehouse gated at ${center[0].toFixed(0)},${center[1].toFixed(0)} (mass ${mass}, ccDist ${Math.hypot(center[0] - ccp[0], center[1] - ccp[1]).toFixed(0)}m)\n`);
-				}
-				continue;
-			}
-			if (storePending(center))
-				continue;
-			this.arbiter.declare("dropsite", { "wood": 100 });
-			const placed = this.expansionOn() ?
-				this.findExpansionWoodStorehouse(storeType, center) :
-				this.tryConstruct(storeType, "dropsite", center, true);
-			if (placed)
-			{
-				this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/wood");
-				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${placed[0].toFixed(0)},${placed[1].toFixed(0)} for wood ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved + ${frontier.length} frontier, mass ${mass})\n`);
-				return true;
-			}
-			break;
-		}
-	}
-
-	if (storeCount < (this.expansionOn() ? 40 : 18))
-	{
-		let worst, worstDist = this.mineGatherServeDist;
-		const underserved = [];
-		for (const ent of gameState.getOwnUnits().values())
-		{
-			if (!ent.isGatherer() || ent.isIdle() || !ent.position())
-				continue;
-			const tgt = this.gatherTarget[ent.id()];
-			if (tgt?.generic !== "stone" && tgt?.generic !== "metal")
-				continue;
-			const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
-			const d = minEdgeDist(anchor, woodSites);
-			if (d > this.mineGatherServeDist)
-				underserved.push(anchor);
-			if (d > worstDist)
-			{
-				worstDist = d;
-				worst = anchor;
-			}
-		}
-		// A drift cluster past the warning distance cannot wait for the
-		// expansion headcount: two miners at 40+ m is already coverage demand.
-		// It also skips the mine-storehouse cooldown and the reserve-padded
-		// wood floor — every turn at 40+ m costs more than the 100 wood.
-		const far = underserved.filter(p => minEdgeDist(p, woodSites) > this.mineDistWarn);
-		if ((underserved.length >= (this.expansionOn() ? 5 : 2) || far.length >= 2) &&
-			!(this.expansionOn() && far.length < 2 && this.turn - (this.lastMineStoreTurn || -1000) < 40))
-		{
-			this.arbiter.declare("dropsite", { "wood": 100 });
-			const sMine = this.mineId.stone !== undefined ?
-				gameState.getEntityById(this.mineId.stone) : undefined;
-			const mMine = this.mineId.metal !== undefined ?
-				gameState.getEntityById(this.mineId.metal) : undefined;
-			const sPos = sMine?.position(), mPos = mMine?.position();
-			// Pinned stone and metal mines close together share ONE storehouse between them.
-			// Not when the trigger is a far drift cluster: the demand sits at
-			// worst, wherever the pinned mines are is irrelevant to it.
-			const pairNear = sPos && mPos &&
-				Math.hypot(sPos[0] - mPos[0], sPos[1] - mPos[1]) < this.minePairDist;
-			if (pairNear && far.length < 2)
-			{
-				const mid = [(sPos[0] + mPos[0]) / 2, (sPos[1] + mPos[1]) / 2];
-				const planned = storeFoundations.some(p => Math.hypot(p[0] - mid[0], p[1] - mid[1]) < 30) ||
-					storePending(mid);
-				if (!planned && resources.wood >= woodFloor)
-				{
-					const spot = this.findMinimaxSpot(storeType, [sPos, mPos],
-						this.accessibility.getAccessValue(cc.position()));
-					if (spot && this.placeOrder(storeType, spot))
-					{
-						this.lastMineStoreTurn = this.turn;
-						this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/mine-pair");
-						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} between stone ${sPos[0].toFixed(0)},${sPos[1].toFixed(0)} and metal ${mPos[0].toFixed(0)},${mPos[1].toFixed(0)} (${underserved.length} underserved)\n`);
-						return true;
-					}
-				}
-			}
-			const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
-			const center = centroid(clump);
-			const planned = storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 45) ||
-				storePending(center);
-			const pos = resources.wood >= (far.length >= 2 ? 100 : woodFloor) && !planned &&
-				this.tryConstruct(storeType, "dropsite", center);
-			if (pos)
-			{
-				this.lastMineStoreTurn = this.turn;
-				this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/mine");
-				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for mine ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved)\n`);
-				return true;
-			}
-		}
-	}
-
-	if (this.expansionOn() && resources.wood >= woodFloor &&
-		storeCount < 40 && this.turn - (this.lastMineStoreTurn || -1000) > 40)
-	{
-		const region = this.accessibility.getAccessValue(cc.position());
-		let best, bestAmt = 1500;
-		for (const res of ["stone", "metal"])
-			for (const s of gameState.getResourceSupplies(res).values())
-			{
-				const pos = s.position();
-				if (!pos || s.resourceSupplyAmount() <= bestAmt || this.nearEnemy(pos, 100, 60))
-					continue;
-				if (this.accessibility.getAccessValue(pos) !== region ||
-					!this.inOwnTerritory(pos[0], pos[1]))
-					continue;
-				// Coverage-first: open the richest in-territory mine past the
-				// alarm distance before mining shares ever reach it.
-				if (minEdgeDist(pos, woodSites) <= this.mineDistWarn)
-					continue;
-				bestAmt = s.resourceSupplyAmount();
-				best = pos;
-			}
-		if (best)
-		{
-			this.arbiter.declare("dropsite", { "wood": 100 });
-			const planned = storeFoundations.some(p => Math.hypot(p[0] - best[0], p[1] - best[1]) < 45) ||
-				storePending(best);
-			if (!planned)
-			{
-				const spot = this.findMinimaxSpot(storeType, [best], region);
-				if (spot && this.placeOrder(storeType, spot))
-				{
-					this.lastMineStoreTurn = this.turn;
-					this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/unserved-mine");
-					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${spot[0].toFixed(0)},${spot[1].toFixed(0)} for mine ${best[0].toFixed(0)},${best[1].toFixed(0)} (${bestAmt} left)\n`);
-					return true;
-				}
-			}
-		}
-	}
-
-	const farmType = gameState.applyCiv("structures/{civ}/farmstead");
-	const fieldType = gameState.applyCiv("structures/{civ}/field");
-	const foodSites = [{ "pos": cc.position(), "half": halfDiag(cc) }];
-	const farmFoundations = [];
-	let farmCount = 0;
-	for (const f of foundations)
-		if (gameState.getBuiltTemplate(f.templateName()).templateName() === farmType && f.position())
-		{
-			foodSites.push({ "pos": f.position(), "half": halfDiag(f) });
-			farmFoundations.push(f.position());
-			farmCount++;
-		}
-	for (const ent of gameState.getOwnStructures().values())
-		if (ent.templateName() === farmType && ent.position())
-		{
-			foodSites.push({ "pos": ent.position(), "half": halfDiag(ent) });
-			farmCount++;
-		}
-	let worstField, worstFieldDist = 15;
-	const unservedFields = [];
-	for (const ent of gameState.getOwnStructures().values())
-	{
-		if (ent.templateName() !== fieldType || ent.foundationProgress() !== undefined || !ent.position())
-			continue;
-		const d = minEdgeDist(ent.position(), foodSites) - 15.5;
-		if (d > 15)
-			unservedFields.push(ent.position());
-		if (d > worstFieldDist)
-		{
-			worstFieldDist = d;
-			worstField = ent.position();
-		}
-	}
-	if (unservedFields.length >= 2 && farmCount < 12)
-	{
-		const cluster = unservedFields.filter(p => Math.hypot(p[0] - worstField[0], p[1] - worstField[1]) < 30);
-		const center = centroid(cluster);
-		const planned = farmFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 25);
-		const pos = !planned && resources.wood >= woodFloor &&
-			this.tryConstruct(farmType, "dropsite", center);
-		if (pos)
-		{
-			this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "farmstead/fields");
-			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for fields ${center[0].toFixed(0)},${center[1].toFixed(0)} (${unservedFields.length} underserved)\n`);
+/** One dropsite order per block: the strategies run in priority order (wood, mine, farmstead) and the first to place an order wins. */
+BrennusBot.prototype.manageDropSites = function(foundations, reserve)
+{
+	const resources = this.arbiter.books("dropsites");
+	const ctx = this.buildDropsiteContext(foundations, reserve, resources);
+	if (!ctx)
+		return false;
+	this.arbiter.declare("dropsite", null);
+	for (const strategy of this.dropsiteStrategies)
+		if (strategy.run(this, ctx))
 			return true;
-		}
-	}
-
-	let worstFruit, worstFruitDist = 18;
-	const unservedFruit = [];
-	for (const ent of gameState.getOwnUnits().values())
-	{
-		if (!ent.isGatherer() || ent.isIdle() || !ent.position())
-			continue;
-		const tgt = this.gatherTarget[ent.id()];
-		if (tgt?.generic !== "food" || tgt?.specific !== "fruit")
-			continue;
-		const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
-		const d = minEdgeDist(anchor, foodSites);
-		if (d > 18)
-			unservedFruit.push(anchor);
-		if (d > worstFruitDist)
-		{
-			worstFruitDist = d;
-			worstFruit = anchor;
-		}
-	}
-	if (unservedFruit.length >= 3 && farmCount < 12)
-	{
-		this.arbiter.declare("dropsite", { "wood": 100 });
-		const cluster = unservedFruit.filter(p => Math.hypot(p[0] - worstFruit[0], p[1] - worstFruit[1]) < 25);
-		const center = centroid(cluster);
-		const planned = farmFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 25);
-		const pos = !planned && resources.wood >= woodFloor &&
-			this.tryConstruct(farmType, "dropsite", center);
-		if (pos)
-		{
-			this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "farmstead/fruit");
-			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for fruit ${center[0].toFixed(0)},${center[1].toFixed(0)} (${unservedFruit.length} underserved)\n`);
-			return true;
-		}
-	}
-
-	if (this.fruitStock < 600 && farmCount < 12 && resources.wood >= woodFloor)
-	{
-		const region = this.accessibility.getAccessValue(cc.position());
-		const fruits = gameState.getResourceSupplies("food").toEntityArray()
-			.filter(s => s.resourceSupplyType()?.specific === "fruit" && s.position() &&
-				s.resourceSupplyAmount() > 30 && !this.nearEnemy(s.position(), 100, 60) &&
-				this.inOwnTerritory(s.position()[0], s.position()[1]) &&
-				this.accessibility.getAccessValue(s.position()) === region &&
-				!foodSites.some(site => SquareDistance(s.position(), site.pos) < 45 * 45));
-		let best, bestScore = 250;
-		for (const f of fruits)
-		{
-			let score = 0;
-			for (const g of fruits)
-				if (SquareDistance(f.position(), g.position()) < 30 * 30)
-					score += g.resourceSupplyAmount();
-			if (score > bestScore)
-			{
-				bestScore = score;
-				best = f.position();
-			}
-		}
-		if (best)
-		{
-			this.arbiter.declare("dropsite", { "wood": 100 });
-			const planned = farmFoundations.some(p => Math.hypot(p[0] - best[0], p[1] - best[1]) < 25);
-			const pos = !planned && this.tryConstruct(farmType, "dropsite", best);
-			if (pos)
-			{
-				this.arbiter.spend(resources, "dropsites", { "wood": 100 }, "farmstead/next-fruit");
-				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for next fruit patch ${best[0].toFixed(0)},${best[1].toFixed(0)} (stock ${Math.round(this.fruitStock)})\n`);
-				return true;
-			}
-		}
-	}
 	return false;
 };
 
@@ -6129,11 +6208,11 @@ BrennusBot.prototype.checkReliefExpansion = function()
 	let wood = 0;
 	for (const s of gameState.getResourceSupplies("wood").values())
 		if (s.position() && s.resourceSupplyAmount() &&
-			this.edgeDistToSites(s.position(), sites) <= this.storehouseGateRadius)
+			this.edgeDistToSites(s.position(), sites) <= this.woodStrategy.gateRadius)
 			wood += s.resourceSupplyAmount();
 	if (wood > (this.reliefServedPeak.wood || 0))
 		this.reliefServedPeak.wood = wood;
-	if (wood < this.storehouseMinWoodMass && this.reliefServedPeak.wood >= this.storehouseMinWoodMass)
+	if (wood < this.woodStrategy.minWoodMass && this.reliefServedPeak.wood >= this.woodStrategy.minWoodMass)
 		this.reliefFire(`wood near dropsites exhausted (${wood} of peak ${this.reliefServedPeak.wood} left)`);
 };
 
