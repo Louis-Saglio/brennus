@@ -11,6 +11,9 @@ export function OffenseManager(bot)
 	this.clearOp = undefined;
 	// Per-spot clearing relaunch cooldown after an abort or give-up (key -> turn).
 	this.clearCool = {};
+	// Structures our ops just flipped to us (id -> turn captured);
+	// manageCaptures decides hold or delete before they drift back.
+	this.captures = {};
 	// Stuck-ram watchdog for the current march (id -> {x, z, still, nudges}); reset at each raid launch.
 	this.ramMarch = undefined;
 	// Print latches: one stuck / give-up line per 30 m corridor spot.
@@ -24,7 +27,8 @@ OffenseManager.prototype.serialize = function()
 {
 	return {
 		"clearOp": this.clearOp,
-		"clearCool": this.clearCool
+		"clearCool": this.clearCool,
+		"captures": this.captures
 	};
 };
 
@@ -32,16 +36,125 @@ OffenseManager.prototype.deserialize = function(data)
 {
 	this.clearOp = data?.clearOp;
 	this.clearCool = data?.clearCool || {};
+	this.captures = data?.captures || {};
 };
 
 /**
- * Offense: with no serious threat at home and a strong army, raze the
- * least defended enemy CC — enemy CCs claim the spots our expansion plan
- * needs (200 m rule) and their territory caps our map control. Raid at 75+
- * soldiers with at least 2 rams ready (basic infantry cannot raze a
- * garrisoned CC before reinforcements arrive; 60-strong raids bounced off
- * 19-37 defenders + CC arrows in agg11 s3); retreat and regroup below 50.
- * The last enemy CC is razed too — under conquest_civic_centers
+ * Register a just-flipped op target for the hold-or-delete sweep. The ops
+ * call this on their flip paths; the defense full-recall cancel drops op
+ * targets without looking at them and is the one path that would otherwise
+ * lose a capture silently (s12: CC flipped under the raid, the recall
+ * dropped the target, and the capture never reached the sweep).
+ */
+OffenseManager.prototype.registerIfCaptured = function(gameState, id)
+{
+	if (id === undefined)
+		return;
+	const ent = gameState.getEntityById(id);
+	if (ent?.owner() === this.bot.player)
+		this.captures[id] = this.bot.turn;
+};
+
+/**
+ * Capture-or-raze verdict for one structure: Petra's cost-benefit rule
+ * (petra/entityExtend.js allowCapture) lifted from one unit to the whole
+ * army. Capture when our aggregate capture strength — amplified as the
+ * target's hp drops (up to x10 near death, helpers/Attack.js) — beats its
+ * regen (base + each garrisoned unit's capture strength x
+ * GarrisonRegenRate, minus territory decay when the target is drifting)
+ * plus a margin over the capture-point total. The margin is stricter under
+ * defensive fire with a garrison (capturing into arrows costs bodies).
+ * Capture ignores structure armor — no template has Capture resistance —
+ * which is why infantry takes towers it cannot dent. No perimeter modeling:
+ * the ops re-decide every command block and own their abort clocks.
+ */
+OffenseManager.prototype.shouldCapture = function(target, armyEnts)
+{
+	if (!target.isCapturable())
+		return false;
+	// The Capture attack's RestrictedClasses: units can never capture these,
+	// no matter the verdict (they still decay territorially).
+	if (target.hasClass("Field") || target.hasClass("Palisade") || target.hasClass("Wall"))
+		return false;
+	let strength = 0;
+	for (const ent of armyEnts)
+		strength += ent.captureStrength() || 0;
+	if (!strength)
+		return false;
+	strength /= 0.1 + 0.9 * target.healthLevel();
+	let antiCapture = target.defaultRegenRate();
+	let garrisonN = 0;
+	if (target.isGarrisonHolder())
+	{
+		const garrisonRegenRate = target.garrisonRegenRate();
+		for (const gid of target.garrisoned() || [])
+		{
+			garrisonN++;
+			antiCapture += garrisonRegenRate * (this.bot.gameState.getEntityById(gid)?.captureStrength() || 0);
+		}
+	}
+	if (target.decaying())
+		antiCapture -= target.territoryDecayRate();
+	let cpTotal = 0;
+	for (const cp of target.capturePoints() || [])
+		cpTotal += cp;
+	const margin = target.hasDefensiveFire() && garrisonN ? 50 : 80;
+	return strength > antiCapture + cpTotal / margin;
+};
+
+/**
+ * Freshly captured structures: hold or delete before they drift back.
+ * Outside our connected territory, decay drains our capture pool at 20 cp/s
+ * (40 for fortresses) toward the connected owner; only the CC (30/s regen)
+ * and the fortress (45/s) out-regen it, and rome army camps and military
+ * docks never decay at all (TerritoryDecay disabled). Anything else left
+ * alone flips back inside a minute — a tower holds 25 s — so delete it
+ * while our pool is above the engine's 50% deletion threshold: the purge's
+ * point was denying the structure, not gifting it back. Runs in the
+ * defense dispatch so it also fires between ops.
+ */
+OffenseManager.prototype.manageCaptures = function(gameState)
+{
+	for (const id in this.captures)
+	{
+		const ent = gameState.getEntityById(+id);
+		if (!ent || ent.owner() !== this.bot.player)
+		{
+			if (ent)
+				print(`[CAPTURE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m lost the captured structure at ${ent.position()[0].toFixed(0)},${ent.position()[1].toFixed(0)} back to the enemy\n`);
+			delete this.captures[id];
+			continue;
+		}
+		if (!ent.decaying() || ent.defaultRegenRate() >= ent.territoryDecayRate())
+		{
+			print(`[CAPTURE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m holding captured ${ent.templateName().split("/").pop()} at ${ent.position()[0].toFixed(0)},${ent.position()[1].toFixed(0)}\n`);
+			delete this.captures[id];
+			continue;
+		}
+		const cp = ent.capturePoints() || [];
+		let total = 0;
+		for (const c of cp)
+			total += c;
+		if ((cp[this.bot.player] || 0) * 2 >= total)
+		{
+			print(`[CAPTURE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m deleting captured ${ent.templateName().split("/").pop()} at ${ent.position()[0].toFixed(0)},${ent.position()[1].toFixed(0)} — decays back to the enemy, denying it\n`);
+			ent.destroy();
+		}
+		delete this.captures[id];
+	}
+};
+
+/**
+ * Offense: with no serious threat at home and a strong army, take the
+ * least defended enemy CC — captured when the army's capture strength beats
+ * its regen (shouldCapture), razed by the rams otherwise. Enemy CCs claim
+ * the spots our expansion plan needs (200 m rule) and their territory caps
+ * our map control. Raid at 75+ soldiers with at least 2 rams ready even
+ * though infantry capture alone could flip the CC: the blob standing at
+ * the walls needs the rams' hp grind (it multiplies capture up to x10) and
+ * their armor tanking the arrows (60-strong raids bounced off 19-37
+ * defenders + CC arrows in agg11 s3); retreat and regroup below 50.
+ * The last enemy CC is taken too — under conquest_civic_centers
  * eliminating Petra is the win condition. Returns true while a raid is
  * commanded.
  */
@@ -83,9 +196,17 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 	if (this.target)
 	{
 		const target = gameState.getEntityById(this.target.id);
-		if (!target || !target.position())
+		// owner() === us: the infantry captured the CC under the rams' grind —
+		// same win as a raze, and the building is ours to boot.
+		if (!target || !target.position() || target.owner() === this.bot.player)
 		{
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m razed enemy CC at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)}\n`);
+			if (target?.owner() === this.bot.player)
+			{
+				this.captures[this.target.id] = this.bot.turn;
+				print(`[CAPTURE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m captured enemy CC at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)}\n`);
+			}
+			else
+				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m razed enemy CC at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)}\n`);
 			this.target = undefined;
 			this.bot.defenseManager.armyCmdTurn = 0;	// rally home next block
 			for (const ent of armyEnts)
@@ -93,12 +214,13 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 			sendRamsHome();
 			sendHealersHome();
 		}
-		else if ((ramEnts.length < 1 && !ramBlocked && !this.target.ramless) || this.bot.turn - (this.target.turn || 0) > 1800)
+		else if ((ramEnts.length < 1 && !ramBlocked && !this.target.ramless && !this.shouldCapture(target, armyEnts)) || this.bot.turn - (this.target.turn || 0) > 1800)
 		{
 			// Abort a stalled raid: no rams left means nobody razes the CC —
 			// the infantry just dies under its arrows while Petra reinforces
-			// (agg7 s1: one raid ground on for 12+ min at full army), unless
-			// the raid was launched pop-blocked — then it is the deadlock
+			// (agg7 s1: one raid ground on for 12+ min at full army) — unless
+			// the army's capture strength can still flip it (shouldCapture),
+			// or the raid was launched pop-blocked — then it is the deadlock
 			// break and its losses reopen ram pop. The age cap is 6 min, not
 			// 2: the walk alone to a far CC takes ~2 min, and
 			// agg8 s1 abort/relaunched twice at the 2-min mark — the army walked
@@ -111,6 +233,14 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 			sendRamsHome();
 			sendHealersHome();
 			return false;
+		}
+		else if (ramEnts.length < 1 && !this.target.ramless && !this.target.capWaive &&
+			this.shouldCapture(target, armyEnts))
+		{
+			// The rams died but the capture race is still won — say once why
+			// this ramless raid keeps going.
+			this.target.capWaive = true;
+			print(`[CAPTURE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m rams lost at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)} — finishing the CC by capture (army=${armyEnts.length})\n`);
 		}
 	}
 	if (!this.target)
@@ -196,6 +326,10 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid ${foes.length ? `contested: engaging ${foes.length} enemy unit(s) around the CC, rams keep battering` : "contest cleared: grinding the CC"} (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 	}
 	this.target.contestN = foes.length;
+	// Capture or raze: one verdict per command block — the whole army's
+	// capture strength against the CC's regen and garrison (shouldCapture).
+	const capEnt = gameState.getEntityById(this.target.id);
+	const cap = capEnt ? this.shouldCapture(capEnt, armyEnts) : false;
 	let attackers = 0;
 	for (const ent of armyEnts)
 	{
@@ -231,7 +365,7 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 			ent.attack(best.id(), false);
 			continue;
 		}
-		ent.attack(this.target.id, false);
+		ent.attack(this.target.id, cap);
 		attackers++;
 	}
 	if (attackers >= 1 && foes.length >= 1 &&
@@ -435,10 +569,16 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 	{
 		const target = gameState.getEntityById(this.purgeTarget.id);
 		// owner() === us: a captured structure flips mid-purge — that is a win,
-		// not a reason to keep attacking it.
+		// not a reason to keep attacking it. manageCaptures owns it from here.
 		if (!target || !target.position() || target.owner() === this.bot.player)
 		{
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purged enemy structure at ${this.purgeTarget.x.toFixed(0)},${this.purgeTarget.z.toFixed(0)}\n`);
+			if (target?.owner() === this.bot.player)
+			{
+				this.captures[this.purgeTarget.id] = this.bot.turn;
+				print(`[CAPTURE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m captured enemy ${this.purgeTarget.name} at ${this.purgeTarget.x.toFixed(0)},${this.purgeTarget.z.toFixed(0)}\n`);
+			}
+			else
+				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purged enemy structure at ${this.purgeTarget.x.toFixed(0)},${this.purgeTarget.z.toFixed(0)}\n`);
 			standDown();
 			return false;
 		}
@@ -544,6 +684,8 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purge ${purgeFoes.length ? `contested: engaging ${purgeFoes.length} enemy unit(s) around the ${this.purgeTarget.name}, rams keep battering` : `contest cleared: capturing the ${this.purgeTarget.name}`} (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 	}
 	this.purgeTarget.contestN = purgeFoes.length;
+	const purgeCapEnt = gameState.getEntityById(this.purgeTarget.id);
+	const purgeCap = purgeCapEnt ? this.shouldCapture(purgeCapEnt, armyEnts) : false;
 	let purgeAtk = 0;
 	for (const ent of armyEnts)
 	{
@@ -567,7 +709,7 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 			ent.attack(best.id(), false);
 			continue;
 		}
-		ent.attack(this.purgeTarget.id, true);
+		ent.attack(this.purgeTarget.id, purgeCap);
 		purgeAtk++;
 	}
 	if (purgeAtk >= 1 && purgeFoes.length >= 1 &&
@@ -611,6 +753,14 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 			ramEnts.push(ent);
 	}
 	const standDown = () => {
+		// A structure the op flipped on its way out is ours now — register it
+		// for the hold-or-delete sweep (manageCaptures).
+		if (this.clearOp?.structId !== undefined)
+		{
+			const s = gameState.getEntityById(this.clearOp.structId);
+			if (s?.owner() === this.bot.player)
+				this.captures[s.id()] = this.bot.turn;
+		}
 		this.clearOp = undefined;
 		this.bot.defenseManager.armyCmdTurn = 0;	// rally home next block
 		for (const ent of armyEnts)
@@ -739,6 +889,11 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 				structDist = d;
 			}
 		}
+		// Remember the structure under attack: if it flips to us, standDown
+		// hands it to the hold-or-delete sweep (manageCaptures).
+		if (struct)
+			op.structId = struct.id();
+		const structCap = struct ? this.shouldCapture(struct, armyEnts) : false;
 		for (const ent of armyEnts)
 		{
 			if (!ent.position())
@@ -764,7 +919,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 				continue;
 			}
 			if (struct)
-				ent.attack(struct.id(), true);
+				ent.attack(struct.id(), structCap);
 		}
 		if (struct)
 			for (const ram of ramEnts)

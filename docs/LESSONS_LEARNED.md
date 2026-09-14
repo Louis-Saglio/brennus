@@ -3,6 +3,56 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-14 (capture: verified mechanics + Brennus capture policy)
+
+- Verified against the pinned 0.28.0 source: ownership flips the moment the
+  owner's capture-point pool hits 0; the captor keeps the pool they
+  accumulated and regens from there (Capturable.js:167-176). No neutral
+  intermediate state.
+- Garrison and hp dominate capture resistance. Each garrisoned unit adds
+  its capture strength x GarrisonRegenRate to the building's cp regen —
+  the tech/aura-MODIFIED strength, not raw (Capturable.js:183-201;
+  docs/game_description/mechanics/capture.md:50 says "raw" — doc is wrong,
+  fix is pending). Capture damage scales 1/(0.1 + 0.9*hpFraction), up to
+  x10 on a near-dead building (helpers/Attack.js:175-185): grind hp first
+  (siege), then capture goes multiplicatively faster. Capture ignores
+  armor — no structure template has Capture resistance.
+- "Drift-back" is pure rate arithmetic, not a per-class exemption: outside
+  connected own territory, TerritoryDecay moves 20 cp/s (fortress x2 = 40)
+  from the owner's pool to the connected territory owner's. Only the CC
+  (30/s) and fortress (45/s) out-regen it; a wonder (5/s) drifts back in
+  ~133 s from full — the "wonders are exempt" belief is wrong. Rome army
+  camps and military docks are the true exceptions (TerritoryDecay disabled
+  in their templates); outposts decay only in enemy territory. Garrison
+  stops drift only via the regen math — there is no garrison-stops-decay
+  flag. Deleting a captured building requires holding >= 50% of its cp
+  (Commands.js:379-382), so the keep/delete decision must happen within
+  seconds of the flip.
+- Values to remember: generic structure 500 cp / 5 regen; military +
+  towers 500/10; temple 500/15; farmstead 300/5; CC 2500/30; fortress
+  4000/45; wonder 2000/5; rome army camp 1500/10; brit/gaul buildings x0.8
+  cp (celt_structures civ bonus). Unit capture strength (4 m range, 1
+  hit/s): infantry 2.5, cavalry 1.75, champions 5, heroes 10, women 1;
+  siege, ships and elephants have none. A lone 2.5-strength infantryman
+  makes zero progress against even 5 cp/s regen — capture is a mass game.
+- `Engine.PostCommand` attack defaults to allowCapture=false
+  (UnitAI.DEFAULT_CAPTURE) but common-api `entity.attack()` defaults it to
+  true — always pass the flag explicitly.
+- Petra's capture policy (petra/entityExtend.js allowCapture): capture when
+  the aggregate capture strength of the units attacking the target beats
+  regen + garrison - decay + sumCP/80 (/50 under defensive fire with a
+  garrison). She never picks targets BY capturability, only the attack
+  mode; she garrisons captured decaying defensive buildings with a computed
+  minimum garrison, and deletes her OWN military structures once an enemy
+  holds 30-50% of their cp (deny-capture scorched earth).
+- Brennus now: `shouldCapture()` (offense.js) ports that verdict to the
+  whole army and gates the raid/purge/clearance structure attacks; the raid
+  no longer aborts on losing its rams while capture can still finish the
+  CC. Flips are tracked (`captures`) and `manageCaptures` keeps self-
+  holding captures (CC, fortress, no-decay buildings, anything inside our
+  territory) and deletes the rest while >= 50% cp. `denyHostileCaptures`
+  (defense.js) scorches own Tower/Fortress/ArmyCamp at 50-70% own share.
+
 ## 2026-09-14 (dropsite placement: per-resource swappable strategies)
 
 - `manageDropSites` is now a thin orchestrator over three strategy objects

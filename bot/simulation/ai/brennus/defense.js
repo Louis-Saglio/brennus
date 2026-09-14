@@ -26,6 +26,11 @@ DefenseManager.prototype.manageDefense = function()
 
 	this.bot.armyManager.maintainRoster(gameState);
 
+	// Hold-or-delete freshly captured structures, and scorch our own military
+	// structures the enemy is about to flip.
+	this.bot.offenseManager.manageCaptures(gameState);
+	this.denyHostileCaptures(gameState);
+
 	this.bot.buildupManager.manageDefenseBuildings();
 	this.bot.buildupManager.manageDefenseTraining();
 	this.bot.buildupManager.manageMilitaryTechs();
@@ -197,6 +202,10 @@ DefenseManager.prototype.manageDefense = function()
 			else if (shortfall > 0)
 			{
 				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m recalling the whole army for the home threat, away mission canceled (army=${armyEnts.length}, threat=${nearThreat})\n`);
+				// The dropped op may have just flipped its target — hand it to
+				// the hold-or-delete sweep before losing the id.
+				this.bot.offenseManager.registerIfCaptured(gameState, this.bot.offenseManager.target?.id);
+				this.bot.offenseManager.registerIfCaptured(gameState, this.bot.offenseManager.purgeTarget?.id);
 				this.bot.offenseManager.target = undefined;
 				this.bot.offenseManager.purgeTarget = undefined;
 				this.recalled = {};
@@ -708,4 +717,37 @@ DefenseManager.prototype.findDenyTarget = function(mil, homePos)
 		return undefined;
 	const bp = best.position();
 	return { "id": best.id(), "x": bp[0], "z": bp[1], "needed": needed, "defenders": bestDef, "template": best.templateName() };
+};
+
+/**
+ * Deny-capture scorched earth (petra defenseManager does the same): once an
+ * enemy holds enough of one of our military structures' capture points that
+ * the flip is seconds away, delete it ourselves — a tower or fortress
+ * shooting for Petra is worse than a ruin. The band is 50-70% own share:
+ * below half the engine refuses deletion (Commands.js), above 70% our regen
+ * is still winning the race. Civic centres and wonders are never scorched —
+ * they are ConquestCritical, and deleting our own last CC is self-defeat.
+ * A forward build decaying in enemy territory lands in the same band and is
+ * deleted a few seconds before decay would take it — no harm done.
+ */
+DefenseManager.prototype.denyHostileCaptures = function(gameState)
+{
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		if (!ent.position() || ent.foundationProgress() !== undefined)
+			continue;
+		if (!ent.hasClass("Tower") && !ent.hasClass("Fortress") && !ent.hasClass("ArmyCamp"))
+			continue;
+		const cp = ent.capturePoints();
+		if (!cp)
+			continue;
+		let total = 0;
+		for (const c of cp)
+			total += c;
+		const ours = cp[this.bot.player] || 0;
+		if (ours * 2 < total || ours * 10 >= total * 7)
+			continue;
+		print(`[CAPTURE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m deleting own ${ent.templateName().split("/").pop()} at ${ent.position()[0].toFixed(0)},${ent.position()[1].toFixed(0)} — enemy capture past the denial point (own share ${(ours / total * 100).toFixed(0)}%)\n`);
+		ent.destroy();
+	}
 };
