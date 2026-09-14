@@ -8,6 +8,7 @@
 
 import { BaseAI } from "simulation/ai/common-api/baseAI.js";
 import { ResourceArbiter } from "simulation/ai/brennus/arbiter.js";
+import { OffenseManager } from "simulation/ai/brennus/offense.js";
 import { FarmsteadStrategy, MineStorehouseStrategy, WoodStorehouseStrategy } from "simulation/ai/brennus/construction.js";
 import "simulation/ai/brennus/army.js";
 import "simulation/ai/brennus/boom.js";
@@ -100,14 +101,11 @@ BrennusBot.prototype.CustomInit = function(gameState)
 
 	// Spot clearing: expansion spots vetoed only by enemy presence
 	// (expContested: key -> {x, z, since, seen, proven?, until?}) are cleared
-	// by the army via clearOp ({x, z, key, turn, proven?, arrivedTurn?,
-	// everArrived?}); clearCool (key -> turn) holds a per-spot relaunch
-	// cooldown after an abort or a give-up.
+	// by the army via the offense manager's clearing ops.
 	this.expContested = this.savedState?.expContested || {};
 
-	this.clearOp = this.savedState?.clearOp;
-
-	this.clearCool = this.savedState?.clearCool || {};
+	this.offenseManager = new OffenseManager(this);
+	this.offenseManager.deserialize(this.savedState?.offense);
 
 	// Defense: standing army roster (entityID -> 1), command throttle, shelter memory.
 	this.army = this.savedState?.army || {};
@@ -121,8 +119,8 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.spearNext = true;
 
 	// Proportional recall (ids recalled to a home threat, live only while the
-	// threat does) and border foundation denial state — transient like
-	// this.offense/this.purge.
+	// threat does) and border foundation denial state — transient like the
+	// offense manager's raid/purge targets.
 	this.recalled = {};
 	this.deny = undefined;
 	this.denyTried = {};
@@ -215,8 +213,7 @@ BrennusBot.prototype.Serialize = function()
 		"placeFailSince": this.placeFailSince,
 		"reliefServedPeak": this.reliefServedPeak,
 		"expContested": this.expContested,
-		"clearOp": this.clearOp,
-		"clearCool": this.clearCool,
+		"offense": this.offenseManager.serialize(),
 		"army": this.army,
 		"arbiter": this.arbiter.serialize(),
 		"rams": this.rams,

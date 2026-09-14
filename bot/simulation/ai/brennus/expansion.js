@@ -612,7 +612,7 @@ BrennusBot.prototype.manageExpansion = function()
 		// clearing op is never pruned.
 		for (const key in this.expContested)
 		{
-			if (this.clearOp && key === this.clearOp.key)
+			if (this.offenseManager.clearOp && key === this.offenseManager.clearOp.key)
 				continue;
 			const c = this.expContested[key];
 			if (this.nearEnemy([c.x, c.z], 100, 60))
@@ -658,8 +658,8 @@ BrennusBot.prototype.manageExpansion = function()
 			for (const key in this.expContested)
 			{
 				const c = this.expContested[key];
-				if (this.clearOp &&
-					Math.abs(c.x - this.clearOp.x) < 100 && Math.abs(c.z - this.clearOp.z) < 100)
+				if (this.offenseManager.clearOp &&
+					Math.abs(c.x - this.offenseManager.clearOp.x) < 100 && Math.abs(c.z - this.offenseManager.clearOp.z) < 100)
 					continue;
 				const alive = c.proven ? this.turn <= c.until : this.turn - c.seen <= 150;
 				if (alive && Math.abs(c.x - spot[0]) < 80 && Math.abs(c.z - spot[1]) < 80)
@@ -736,8 +736,8 @@ BrennusBot.prototype.manageExpansion = function()
 			// wonder) flowing; gated spots rotate to the back of the queue.
 			// Exempt the bubble an active clearing op is holding: the army on
 			// the spot IS the coverage.
-			const covered = this.clearOp &&
-				Math.abs(this.clearOp.x - spot[0]) < 100 && Math.abs(this.clearOp.z - spot[1]) < 100;
+			const covered = this.offenseManager.clearOp &&
+				Math.abs(this.offenseManager.clearOp.x - spot[0]) < 100 && Math.abs(this.offenseManager.clearOp.z - spot[1]) < 100;
 			if (!covered && !ownCCPos.some(c => SquareDistance(c, spot) < 260 * 260) &&
 				((this.enemyArmy || 0) > 100 || this.armyCount() < 50))
 			{

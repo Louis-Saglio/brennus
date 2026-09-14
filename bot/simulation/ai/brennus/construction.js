@@ -124,9 +124,9 @@ BrennusBot.prototype.manageConstruction = function()
 				// held it and no CC followed — the killers are not the
 				// blocker there (s13 churned 4 ops on one cursed spot).
 				let cooled = false;
-				for (const ck in this.clearCool)
+				for (const ck in this.offenseManager.clearCool)
 				{
-					if (this.turn - this.clearCool[ck] >= 1800)
+					if (this.turn - this.offenseManager.clearCool[ck] >= 1800)
 						continue;
 					const [cx, cz] = ck.split(",");
 					if (Math.abs(+cx - pb.x) < 100 && Math.abs(+cz - pb.z) < 100)

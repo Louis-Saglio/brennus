@@ -1,5 +1,38 @@
-import { BrennusBot } from "simulation/ai/brennus/brennus.js";
 import { SquareDistance } from "simulation/ai/brennus/helpers.js";
+
+export function OffenseManager(bot)
+{
+	this.bot = bot;
+	// Active raid on an enemy CC: {id, x, z, turn, ramless?, focusId?, contestN?, ...}.
+	this.target = undefined;
+	// Active purge of a border military structure: {id, x, z, turn, name}.
+	this.purgeTarget = undefined;
+	// Active clearing op on a contested expansion spot: {x, z, key, turn, proven?, arrivedTurn?, everArrived?}.
+	this.clearOp = undefined;
+	// Per-spot clearing relaunch cooldown after an abort or give-up (key -> turn).
+	this.clearCool = {};
+	// Stuck-ram watchdog for the current march (id -> {x, z, still, nudges}); reset at each raid launch.
+	this.ramMarch = undefined;
+	// Print latches: one stuck / give-up line per 30 m corridor spot.
+	this.ramStuckSpots = undefined;
+	this.ramGaveUpSpots = undefined;
+	// Throttle turn for the blocked-launch forensics line.
+	this.clearBlockedLog = undefined;
+}
+
+OffenseManager.prototype.serialize = function()
+{
+	return {
+		"clearOp": this.clearOp,
+		"clearCool": this.clearCool
+	};
+};
+
+OffenseManager.prototype.deserialize = function(data)
+{
+	this.clearOp = data?.clearOp;
+	this.clearCool = data?.clearCool || {};
+};
 
 /**
  * Offense: with no serious threat at home and a strong army, raze the
@@ -12,13 +45,13 @@ import { SquareDistance } from "simulation/ai/brennus/helpers.js";
  * eliminating Petra is the win condition. Returns true while a raid is
  * commanded.
  */
-BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, mil, homePos)
+OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, homePos)
 {
-	if (!this.warOn() || !armyEnts.length)
+	if (!this.bot.warOn() || !armyEnts.length)
 		return false;
 
 	const ramEnts = [];
-	for (const id in this.rams)
+	for (const id in this.bot.rams)
 	{
 		const ent = gameState.getEntityById(+id);
 		if (ent?.position())
@@ -47,20 +80,20 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			ent.foundationProgress() === undefined)
 			enemyCCs.push(ent);
 
-	if (this.offense)
+	if (this.target)
 	{
-		const target = gameState.getEntityById(this.offense.id);
+		const target = gameState.getEntityById(this.target.id);
 		if (!target || !target.position())
 		{
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m razed enemy CC at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)}\n`);
-			this.offense = undefined;
-			this.armyCmdTurn = 0;	// rally home next block
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m razed enemy CC at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)}\n`);
+			this.target = undefined;
+			this.bot.armyCmdTurn = 0;	// rally home next block
 			for (const ent of armyEnts)
 				ent.setStance("defensive");
 			sendRamsHome();
 			sendHealersHome();
 		}
-		else if ((ramEnts.length < 1 && !ramBlocked && !this.offense.ramless) || this.turn - (this.offense.turn || 0) > 1800)
+		else if ((ramEnts.length < 1 && !ramBlocked && !this.target.ramless) || this.bot.turn - (this.target.turn || 0) > 1800)
 		{
 			// Abort a stalled raid: no rams left means nobody razes the CC —
 			// the infantry just dies under its arrows while Petra reinforces
@@ -70,9 +103,9 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			// 2: the walk alone to a far CC takes ~2 min, and
 			// agg8 s1 abort/relaunched twice at the 2-min mark — the army walked
 			// home and back each time and the second CC never even got attacked.
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid aborted at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} (rams=${ramEnts.length}, age=${((this.turn - (this.offense.turn || 0)) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
-			this.offense = undefined;
-			this.armyCmdTurn = 0;
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid aborted at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)} (rams=${ramEnts.length}, age=${((this.bot.turn - (this.target.turn || 0)) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
+			this.target = undefined;
+			this.bot.armyCmdTurn = 0;
 			for (const ent of armyEnts)
 				ent.setStance("defensive");
 			sendRamsHome();
@@ -80,9 +113,9 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			return false;
 		}
 	}
-	if (!this.offense)
+	if (!this.target)
 	{
-		if (this.armyCount() < 75)
+		if (this.bot.armyCount() < 75)
 			return false;
 		// No rams, no raze: basic infantry cannot burn a garrisoned CC before
 		// reinforcements arrive — agg6 s2 raided with 0 rams at 20-21m and
@@ -112,31 +145,31 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		if (!best)
 			return false;
 		const bp = best.position();
-		this.offense = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn,
+		this.target = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.bot.turn,
 			// Latch the pop-block waiver: pop flickers across the 3-pop
 			// line as the raid trades losses, and re-checking ramBlocked
 			// per block abort/relaunches the raid every few seconds.
 			"ramless": ramBlocked && ramEnts.length < 2 ? true : undefined };
 		this.ramMarch = {};	// fresh stuck-ram tracking for the new march
-		this.purge = undefined;	// the raid takes precedence over any purge
-		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${Math.floor(bestScore / 10000)}, army=${armyEnts.length}, rams=${ramEnts.length}${this.offense.ramless ? ", no pop room for rams" : ""})\n`);
+		this.purgeTarget = undefined;	// the raid takes precedence over any purge
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${Math.floor(bestScore / 10000)}, army=${armyEnts.length}, rams=${ramEnts.length}${this.target.ramless ? ", no pop room for rams" : ""})\n`);
 		for (const ent of armyEnts)
 			ent.setStance("aggressive");
 	}
-	if (this.armyCount() < 50)
+	if (this.bot.armyCount() < 50)
 	{
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid spent, regrouping (army=${armyEnts.length})\n`);
-		this.offense = undefined;
-		this.armyCmdTurn = 0;
+		this.target = undefined;
+		this.bot.armyCmdTurn = 0;
 		for (const ent of armyEnts)
 			ent.setStance("defensive");
 		sendRamsHome();
 		sendHealersHome();
 		return false;
 	}
-	if (this.turn < this.armyCmdTurn)
+	if (this.bot.turn < this.bot.armyCmdTurn)
 		return true;
-	this.armyCmdTurn = this.turn + 10;
+	this.bot.armyCmdTurn = this.bot.turn + 10;
 	// Contest: enemy units within 100 m of the target. While any stand there,
 	// soldiers clear them instead of grinding the structure — raids that
 	// ignore defenders melt under their fire (replay review s50/51/52). Rams
@@ -148,7 +181,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 		if (ent.owner() === 0)
 			continue;
 		const pos = ent.position();
-		if (pos && SquareDistance(pos, [this.offense.x, this.offense.z]) < 100 * 100)
+		if (pos && SquareDistance(pos, [this.target.x, this.target.z]) < 100 * 100)
 			foes.push(ent);
 	}
 	// Contested-building alarm: fire whenever soldiers are ordered onto the
@@ -156,19 +189,19 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 	// per reinforcement wave, +15 since the last warning). The contest
 	// transitions themselves are telemetry (throttled: a scout dancing at
 	// the 100 m edge must not spam a line per block).
-	if (foes.length !== (this.offense.contestN || 0) &&
-		this.turn - (this.offense.contestLogTurn || -30) >= 30)
+	if (foes.length !== (this.target.contestN || 0) &&
+		this.bot.turn - (this.target.contestLogTurn || -30) >= 30)
 	{
-		this.offense.contestLogTurn = this.turn;
+		this.target.contestLogTurn = this.bot.turn;
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid ${foes.length ? `contested: engaging ${foes.length} enemy unit(s) around the CC, rams keep battering` : "contest cleared: grinding the CC"} (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 	}
-	this.offense.contestN = foes.length;
+	this.target.contestN = foes.length;
 	let attackers = 0;
 	for (const ent of armyEnts)
 	{
-		if (SquareDistance(ent.position(), [this.offense.x, this.offense.z]) >= 60 * 60)
+		if (SquareDistance(ent.position(), [this.target.x, this.target.z]) >= 60 * 60)
 		{
-			ent.attackMove(this.offense.x, this.offense.z, "Unit", false);
+			ent.attackMove(this.target.x, this.target.z, "Unit", false);
 			continue;
 		}
 		if (foes.length)
@@ -178,7 +211,7 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			// infantry. Nearest-foe remains the fallback.
 			if (ent.hasClass("Cavalry"))
 			{
-				const cavTarget = this.pickCavalryTarget(foes, ent.position());
+				const cavTarget = this.bot.pickCavalryTarget(foes, ent.position());
 				if (cavTarget)
 				{
 					ent.attack(cavTarget.id(), false);
@@ -198,41 +231,41 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
 			ent.attack(best.id(), false);
 			continue;
 		}
-		ent.attack(this.offense.id, false);
+		ent.attack(this.target.id, false);
 		attackers++;
 	}
 	if (attackers >= 1 && foes.length >= 1 &&
-		(this.offense.warned === undefined || foes.length >= this.offense.warned + 15))
+		(this.target.warned === undefined || foes.length >= this.target.warned + 15))
 	{
-		this.offense.warned = foes.length;
-		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy CC at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} with ${foes.length} enemy unit(s) nearby (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+		this.target.warned = foes.length;
+		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy CC at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)} with ${foes.length} enemy unit(s) nearby (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 	}
 	// Rams raze by priority — fortress, then the CC, then towers — one shared
 	// focus so the siege train converges, picked only inside the army's 60 m
 	// bubble so the rams never wander out from under the escort.
-	if (this.offense.focusId !== undefined)
+	if (this.target.focusId !== undefined)
 	{
-		const focus = gameState.getEntityById(this.offense.focusId);
-		if (!focus || !focus.position() || focus.owner() === this.player)
-			this.offense.focusId = undefined;
+		const focus = gameState.getEntityById(this.target.focusId);
+		if (!focus || !focus.position() || focus.owner() === this.bot.player)
+			this.target.focusId = undefined;
 	}
-	if (this.offense.focusId === undefined)
+	if (this.target.focusId === undefined)
 	{
 		const focus = this.pickRamFocus(gameState);
-		this.offense.focusId = focus ? focus.id() : this.offense.id;
-		if (focus && focus.id() !== this.offense.id)
+		this.target.focusId = focus ? focus.id() : this.target.id;
+		if (focus && focus.id() !== this.target.id)
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m rams focusing ${focus.templateName().split("/").pop()} at ${focus.position()[0].toFixed(0)},${focus.position()[1].toFixed(0)}\n`);
 	}
 	for (const ram of ramEnts)
 	{
-		if (SquareDistance(ram.position(), [this.offense.x, this.offense.z]) < 50 * 50)
-			ram.attack(this.offense.focusId, false);
+		if (SquareDistance(ram.position(), [this.target.x, this.target.z]) < 50 * 50)
+			ram.attack(this.target.focusId, false);
 		else
-			ram.attackMove(this.offense.x, this.offense.z, this.ramMarchFilter, false);
+			ram.attackMove(this.target.x, this.target.z, this.ramMarchFilter, false);
 		this.trackRamMarch(ram, gameState);
 	}
 	for (const ent of healerEnts)
-		ent.move(this.offense.x, this.offense.z);
+		ent.move(this.target.x, this.target.z);
 	return true;
 };
 
@@ -242,9 +275,9 @@ BrennusBot.prototype.manageOffense = function(gameState, armyEnts, healerEnts, m
  * CC, then towers/army camps, foundations of those last; ties break nearest
  * the raid target. Returns undefined when nothing but the raid CC is there.
  */
-BrennusBot.prototype.pickRamFocus = function(gameState)
+OffenseManager.prototype.pickRamFocus = function(gameState)
 {
-	const center = [this.offense.x, this.offense.z];
+	const center = [this.target.x, this.target.z];
 	const tierOf = ent => {
 		if (ent.hasClass("Fortress"))
 			return 0;
@@ -283,7 +316,7 @@ BrennusBot.prototype.pickRamFocus = function(gameState)
  * an { "attack": ... } object — the plain "Structure" string used before
  * has no .attack key and filtered NOTHING (UnitAI.js attackfilter).
  */
-BrennusBot.prototype.ramMarchFilter = { "attack": "Fortress CivCentre Tower WallTower ArmyCamp Wall Gate" };
+OffenseManager.prototype.ramMarchFilter = { "attack": "Fortress CivCentre Tower WallTower ArmyCamp Wall Gate" };
 
 /**
  * Stuck-ram watchdog for the raid march, run per command block. A ram
@@ -295,10 +328,10 @@ BrennusBot.prototype.ramMarchFilter = { "attack": "Fortress CivCentre Tower Wall
  * gets a direct attack order (re-paths to the target's edge), then a 40 m
  * hop toward the target, then is left alone — the raid age cap owns the rest.
  */
-BrennusBot.prototype.trackRamMarch = function(ram, gameState)
+OffenseManager.prototype.trackRamMarch = function(ram, gameState)
 {
 	const rp = ram.position();
-	const distT = Math.hypot(rp[0] - this.offense.x, rp[1] - this.offense.z);
+	const distT = Math.hypot(rp[0] - this.target.x, rp[1] - this.target.z);
 	const id = ram.id();
 	if (!this.ramMarch[id])
 	{
@@ -334,13 +367,13 @@ BrennusBot.prototype.trackRamMarch = function(ram, gameState)
 	if (tr.nudges === 0 && !(this.ramStuckSpots || []).some(p => SquareDistance(p, rp) < 30 * 30))
 	{
 		(this.ramStuckSpots = this.ramStuckSpots || []).push([rp[0], rp[1]]);
-		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m ram stuck at ${rp[0].toFixed(0)},${rp[1].toFixed(0)} — ${distT.toFixed(0)}m from the raid target at ${this.offense.x.toFixed(0)},${this.offense.z.toFixed(0)} (wedged on an obstruction, nudging)\n`);
+		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m ram stuck at ${rp[0].toFixed(0)},${rp[1].toFixed(0)} — ${distT.toFixed(0)}m from the raid target at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)} (wedged on an obstruction, nudging)\n`);
 	}
 	if (tr.nudges < 2)
-		ram.attack(this.offense.id, false);
+		ram.attack(this.target.id, false);
 	else if (tr.nudges === 2)
 	{
-		const dx = this.offense.x - rp[0], dz = this.offense.z - rp[1];
+		const dx = this.target.x - rp[0], dz = this.target.z - rp[1];
 		const n = Math.hypot(dx, dz) || 1;
 		ram.move(rp[0] + dx / n * 40, rp[1] + dz / n * 40);
 	}
@@ -375,21 +408,21 @@ BrennusBot.prototype.trackRamMarch = function(ram, gameState)
  * Gates sit below the raid's (60 not 75) but the donation rule stands: 1.5x
  * local superiority or stay home. Returns true while a purge is commanded.
  */
-BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil, homePos)
+OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, homePos)
 {
-	if (!this.warOn() || !armyEnts.length || !homePos)
+	if (!this.bot.warOn() || !armyEnts.length || !homePos)
 		return false;
 
 	const ramEnts = [];
-	for (const id in this.rams)
+	for (const id in this.bot.rams)
 	{
 		const ent = gameState.getEntityById(+id);
 		if (ent?.position())
 			ramEnts.push(ent);
 	}
 	const standDown = () => {
-		this.purge = undefined;
-		this.armyCmdTurn = 0;	// rally home next block
+		this.purgeTarget = undefined;
+		this.bot.armyCmdTurn = 0;	// rally home next block
 		for (const ent of armyEnts)
 			ent.setStance("defensive");
 		for (const ram of ramEnts)
@@ -398,32 +431,32 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 			ent.move(homePos[0], homePos[1]);
 	};
 
-	if (this.purge)
+	if (this.purgeTarget)
 	{
-		const target = gameState.getEntityById(this.purge.id);
+		const target = gameState.getEntityById(this.purgeTarget.id);
 		// owner() === us: a captured structure flips mid-purge — that is a win,
 		// not a reason to keep attacking it.
-		if (!target || !target.position() || target.owner() === this.player)
+		if (!target || !target.position() || target.owner() === this.bot.player)
 		{
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purged enemy structure at ${this.purge.x.toFixed(0)},${this.purge.z.toFixed(0)}\n`);
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purged enemy structure at ${this.purgeTarget.x.toFixed(0)},${this.purgeTarget.z.toFixed(0)}\n`);
 			standDown();
 			return false;
 		}
-		if (this.armyCount() < 40 || this.turn - this.purge.turn > 900 ||
+		if (this.bot.armyCount() < 40 || this.bot.turn - this.purgeTarget.turn > 900 ||
 			(target.hasClass("Fortress") && ramEnts.length < 1))
 		{
 			// Purge targets sit near home by construction, so 3 min (not the
 			// raid's 6) caps a stalled one. A fortress whose rams died
 			// mid-purge is abandoned too — without siege the army just bleeds
 			// against it.
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purge aborted at ${this.purge.x.toFixed(0)},${this.purge.z.toFixed(0)} (age=${((this.turn - this.purge.turn) / 300).toFixed(1)}m, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purge aborted at ${this.purgeTarget.x.toFixed(0)},${this.purgeTarget.z.toFixed(0)} (age=${((this.bot.turn - this.purgeTarget.turn) / 300).toFixed(1)}m, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 			standDown();
 			return false;
 		}
 	}
-	if (!this.purge)
+	if (!this.purgeTarget)
 	{
-		if (this.armyCount() < 60)
+		if (this.bot.armyCount() < 60)
 			return false;
 		// Their main force loitering near home pins the army: the camp sortie
 		// and the rally own it then, not a march to the border.
@@ -433,7 +466,7 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 				campN++;
 		if (campN >= 15)
 			return false;
-		const spots = this.expPlan?.spots || [];
+		const spots = this.bot.expPlan?.spots || [];
 		let best, bestScore, bestDef;
 		for (const ent of gameState.getEnemyStructures().values())
 		{
@@ -477,17 +510,17 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 				bestDef = defenders;
 			}
 		}
-		if (!best || this.armyCount() < bestDef * 1.5)
+		if (!best || this.bot.armyCount() < bestDef * 1.5)
 			return false;
 		const bp = best.position();
-		this.purge = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.turn, "name": best.templateName() };
+		this.purgeTarget = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.bot.turn, "name": best.templateName() };
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purging enemy ${best.templateName()} ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${bestDef}, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 		for (const ent of armyEnts)
 			ent.setStance("aggressive");
 	}
-	if (this.turn < this.armyCmdTurn)
+	if (this.bot.turn < this.bot.armyCmdTurn)
 		return true;
-	this.armyCmdTurn = this.turn + 10;
+	this.bot.armyCmdTurn = this.bot.turn + 10;
 	// Same contest rule as the raid: while enemy units stand within 100 m of
 	// the target, soldiers clear them instead of grinding the structure —
 	// 1.5x superiority was measured at launch, reinforcements are the
@@ -498,25 +531,25 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 		if (ent.owner() === 0)
 			continue;
 		const pos = ent.position();
-		if (pos && SquareDistance(pos, [this.purge.x, this.purge.z]) < 100 * 100)
+		if (pos && SquareDistance(pos, [this.purgeTarget.x, this.purgeTarget.z]) < 100 * 100)
 			purgeFoes.push(ent);
 	}
 	// Contested-building alarm: fire whenever soldiers are ordered onto the
 	// structure while enemy units stand nearby. Contest transitions are
 	// telemetry, throttled like the raid's.
-	if (purgeFoes.length !== (this.purge.contestN || 0) &&
-		this.turn - (this.purge.contestLogTurn || -30) >= 30)
+	if (purgeFoes.length !== (this.purgeTarget.contestN || 0) &&
+		this.bot.turn - (this.purgeTarget.contestLogTurn || -30) >= 30)
 	{
-		this.purge.contestLogTurn = this.turn;
-		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purge ${purgeFoes.length ? `contested: engaging ${purgeFoes.length} enemy unit(s) around the ${this.purge.name}, rams keep battering` : `contest cleared: capturing the ${this.purge.name}`} (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+		this.purgeTarget.contestLogTurn = this.bot.turn;
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purge ${purgeFoes.length ? `contested: engaging ${purgeFoes.length} enemy unit(s) around the ${this.purgeTarget.name}, rams keep battering` : `contest cleared: capturing the ${this.purgeTarget.name}`} (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 	}
-	this.purge.contestN = purgeFoes.length;
+	this.purgeTarget.contestN = purgeFoes.length;
 	let purgeAtk = 0;
 	for (const ent of armyEnts)
 	{
-		if (SquareDistance(ent.position(), [this.purge.x, this.purge.z]) >= 60 * 60)
+		if (SquareDistance(ent.position(), [this.purgeTarget.x, this.purgeTarget.z]) >= 60 * 60)
 		{
-			ent.attackMove(this.purge.x, this.purge.z, "Unit", false);
+			ent.attackMove(this.purgeTarget.x, this.purgeTarget.z, "Unit", false);
 			continue;
 		}
 		if (purgeFoes.length)
@@ -534,24 +567,24 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
 			ent.attack(best.id(), false);
 			continue;
 		}
-		ent.attack(this.purge.id, true);
+		ent.attack(this.purgeTarget.id, true);
 		purgeAtk++;
 	}
 	if (purgeAtk >= 1 && purgeFoes.length >= 1 &&
-		(this.purge.warned === undefined || purgeFoes.length >= this.purge.warned + 15))
+		(this.purgeTarget.warned === undefined || purgeFoes.length >= this.purgeTarget.warned + 15))
 	{
-		this.purge.warned = purgeFoes.length;
-		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy ${this.purge.name} at ${this.purge.x.toFixed(0)},${this.purge.z.toFixed(0)} with ${purgeFoes.length} enemy unit(s) nearby (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+		this.purgeTarget.warned = purgeFoes.length;
+		print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m attacking enemy ${this.purgeTarget.name} at ${this.purgeTarget.x.toFixed(0)},${this.purgeTarget.z.toFixed(0)} with ${purgeFoes.length} enemy unit(s) nearby (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
 	}
 	for (const ram of ramEnts)
 	{
-		if (SquareDistance(ram.position(), [this.purge.x, this.purge.z]) < 50 * 50)
-			ram.attack(this.purge.id, false);
+		if (SquareDistance(ram.position(), [this.purgeTarget.x, this.purgeTarget.z]) < 50 * 50)
+			ram.attack(this.purgeTarget.id, false);
 		else
-			ram.attackMove(this.purge.x, this.purge.z, this.ramMarchFilter, false);
+			ram.attackMove(this.purgeTarget.x, this.purgeTarget.z, this.ramMarchFilter, false);
 	}
 	for (const ent of healerEnts)
-		ent.move(this.purge.x, this.purge.z);
+		ent.move(this.purgeTarget.x, this.purgeTarget.z);
 	return true;
 };
 
@@ -565,13 +598,13 @@ BrennusBot.prototype.managePurge = function(gameState, armyEnts, healerEnts, mil
  * home, abort under 40 or after 3 min. Rams march only when a structure must
  * fall — they are too slow for a mobile sweep.
  */
-BrennusBot.prototype.manageClearance = function(gameState, armyEnts, healerEnts, mil, homePos)
+OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, mil, homePos)
 {
-	if (!this.warOn() || !armyEnts.length || !homePos)
+	if (!this.bot.warOn() || !armyEnts.length || !homePos)
 		return false;
 
 	const ramEnts = [];
-	for (const id in this.rams)
+	for (const id in this.bot.rams)
 	{
 		const ent = gameState.getEntityById(+id);
 		if (ent?.position())
@@ -579,7 +612,7 @@ BrennusBot.prototype.manageClearance = function(gameState, armyEnts, healerEnts,
 	}
 	const standDown = () => {
 		this.clearOp = undefined;
-		this.armyCmdTurn = 0;	// rally home next block
+		this.bot.armyCmdTurn = 0;	// rally home next block
 		for (const ent of armyEnts)
 			ent.setStance("defensive");
 		for (const ram of ramEnts)
@@ -592,16 +625,16 @@ BrennusBot.prototype.manageClearance = function(gameState, armyEnts, healerEnts,
 	{
 		const op = this.clearOp;
 		// Cached enemy positions: same veto predicate as the expansion scan.
-		const cleared = !this.nearEnemy([op.x, op.z], 100, 60);
+		const cleared = !this.bot.nearEnemy([op.x, op.z], 100, 60);
 		const bubbleDown = () => {
 			// One op sanitizes the whole bubble: drop every contested entry
 			// within 100 m so the re-order to a neighbor spot is not blocked
 			// by a sibling failure's hot-area guard.
-			for (const key in this.expContested)
+			for (const key in this.bot.expContested)
 			{
-				const c = this.expContested[key];
+				const c = this.bot.expContested[key];
 				if (Math.abs(c.x - op.x) < 100 && Math.abs(c.z - op.z) < 100)
-					delete this.expContested[key];
+					delete this.bot.expContested[key];
 			}
 		};
 		if (cleared && !op.proven)
@@ -651,34 +684,34 @@ BrennusBot.prototype.manageClearance = function(gameState, armyEnts, healerEnts,
 			{
 				op.everArrived = true;
 				if (op.arrivedTurn === undefined)
-					op.arrivedTurn = this.turn;
+					op.arrivedTurn = this.bot.turn;
 			}
 			if (!cleared)
 				op.arrivedTurn = undefined;
 			if (!ccStarted &&
-				(op.arrivedTurn !== undefined && this.turn - op.arrivedTurn > 300 ||
-				!op.everArrived && this.turn - op.turn > 450))
+				(op.arrivedTurn !== undefined && this.bot.turn - op.arrivedTurn > 300 ||
+				!op.everArrived && this.bot.turn - op.turn > 450))
 			{
 				// No CC order came (escort gate, affordability, static
 				// obstruction, no in-bubble spot): parking the army buys
 				// nothing more. Long cooldown — don't churn ops on it.
 				const why = op.arrivedTurn !== undefined ? "held clean" : "never arrived";
 				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m cleared expansion spot ${op.x.toFixed(0)},${op.z.toFixed(0)}, no CC order followed (${why}, atSpot=${atSpot}, army=${armyEnts.length}) — standing down\n`);
-				this.clearCool[op.key] = this.turn;
+				this.clearCool[op.key] = this.bot.turn;
 				standDown();
 				return false;
 			}
 		}
-		if (this.armyCount() < 40 || this.turn - op.turn > 900 || !this.expContested[op.key])
+		if (this.bot.armyCount() < 40 || this.bot.turn - op.turn > 900 || !this.bot.expContested[op.key])
 		{
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m clearing aborted at ${op.x.toFixed(0)},${op.z.toFixed(0)} (age=${((this.turn - op.turn) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
-			this.clearCool[op.key] = this.turn;
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m clearing aborted at ${op.x.toFixed(0)},${op.z.toFixed(0)} (age=${((this.bot.turn - op.turn) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
+			this.clearCool[op.key] = this.bot.turn;
 			standDown();
 			return false;
 		}
-		if (this.turn < this.armyCmdTurn)
+		if (this.bot.turn < this.bot.armyCmdTurn)
 			return true;
-		this.armyCmdTurn = this.turn + 10;
+		this.bot.armyCmdTurn = this.bot.turn + 10;
 		// Same contest rule as the raid and the purge: soldiers clear enemy
 		// units standing within 100 m of the spot first; structures are
 		// attacked (capture allowed) only once the field is theirs.
@@ -746,12 +779,12 @@ BrennusBot.prototype.manageClearance = function(gameState, armyEnts, healerEnts,
 		return true;
 	}
 
-	if (this.armyCount() < 60)
+	if (this.bot.armyCount() < 60)
 		return false;
 	// Clearing exists to unblock CC orders; with the expansion stages off
 	// there is nothing to unblock. (No plan-completeness gate: an exhausted
 	// plan is exactly when clearing is needed — the recompute adds spots.)
-	if (!this.reliefOn && !this.expansionOn())
+	if (!this.bot.reliefOn && !this.bot.expansionOn())
 		return false;
 	// Their main force loitering near home pins the army (same rule as the purge).
 	let campN = 0;
@@ -765,17 +798,17 @@ BrennusBot.prototype.manageClearance = function(gameState, armyEnts, healerEnts,
 	// gap is what lets the escorted order slip in (s47). A spot with no enemy
 	// left near it and nothing proven is dropped — the veto is already gone.
 	let best, bestKey, bestDef, bestProven, eligible = 0;
-	for (const key in this.expContested)
+	for (const key in this.bot.expContested)
 	{
-		const c = this.expContested[key];
-		if (!c.proven && this.turn - c.since < 450)
+		const c = this.bot.expContested[key];
+		if (!c.proven && this.bot.turn - c.since < 450)
 			continue;
-		if (this.turn - c.seen > 150 && (!c.proven || this.turn > c.until))
+		if (this.bot.turn - c.seen > 150 && (!c.proven || this.bot.turn > c.until))
 			continue;
-		if (this.clearCool[key] && this.turn - this.clearCool[key] < 1800)
+		if (this.clearCool[key] && this.bot.turn - this.clearCool[key] < 1800)
 			continue;	// 6 min: an area that resisted one op stays dangerous
 		let def = 0;
-		for (const p of this.enemyMobilesPos || [])
+		for (const p of this.bot.enemyMobilesPos || [])
 			if (SquareDistance(p, [c.x, c.z]) < 100 * 100)
 				def++;
 		let fortress = false, structs = 0;
@@ -793,7 +826,7 @@ BrennusBot.prototype.manageClearance = function(gameState, armyEnts, healerEnts,
 		}
 		if (!def && !structs && !c.proven)
 		{
-			delete this.expContested[key];
+			delete this.bot.expContested[key];
 			continue;
 		}
 		eligible++;
@@ -808,21 +841,21 @@ BrennusBot.prototype.manageClearance = function(gameState, armyEnts, healerEnts,
 			bestProven = c.proven;
 		}
 	}
-	if (!best || campN >= 15 || this.armyCount() < bestDef * 1.5)
+	if (!best || campN >= 15 || this.bot.armyCount() < bestDef * 1.5)
 	{
 		// Blocked-launch forensics, throttled: which gate keeps a contested
 		// spot from getting its clearing op (camp pins, no superiority,
 		// fortress without rams, or no eligible candidate yet).
-		const entries = Object.keys(this.expContested).length;
-		if (entries && this.turn - (this.clearBlockedLog || -300) >= 300)
+		const entries = Object.keys(this.bot.expContested).length;
+		if (entries && this.bot.turn - (this.clearBlockedLog || -300) >= 300)
 		{
-			this.clearBlockedLog = this.turn;
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m clearing blocked (entries=${entries} eligible=${eligible} bestDef=${best === undefined ? "-" : bestDef} army=${this.armyCount()} camp=${campN})\n`);
+			this.clearBlockedLog = this.bot.turn;
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m clearing blocked (entries=${entries} eligible=${eligible} bestDef=${best === undefined ? "-" : bestDef} army=${this.bot.armyCount()} camp=${campN})\n`);
 		}
 		return false;
 	}
-	this.clearOp = { "x": best.x, "z": best.z, "key": bestKey, "turn": this.turn, "proven": bestProven || undefined };
-	print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m clearing expansion spot ${best.x.toFixed(0)},${best.z.toFixed(0)} (defenders=${bestDef}, contested ${((this.turn - best.since) / 300).toFixed(1)}m${bestProven ? ", proven" : ""}, army=${armyEnts.length})\n`);
+	this.clearOp = { "x": best.x, "z": best.z, "key": bestKey, "turn": this.bot.turn, "proven": bestProven || undefined };
+	print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m clearing expansion spot ${best.x.toFixed(0)},${best.z.toFixed(0)} (defenders=${bestDef}, contested ${((this.bot.turn - best.since) / 300).toFixed(1)}m${bestProven ? ", proven" : ""}, army=${armyEnts.length})\n`);
 	for (const ent of armyEnts)
 		ent.setStance("aggressive");
 	return true;

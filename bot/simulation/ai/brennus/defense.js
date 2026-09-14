@@ -173,7 +173,7 @@ BrennusBot.prototype.manageDefense = function()
 		// still escalates.
 		if (this.deny)
 			this.deny = undefined;
-		if (this.offense || this.purge)
+		if (this.offenseManager.target || this.offenseManager.purgeTarget)
 		{
 			const needed = Math.ceil(nearThreat * 1.5) + threat.siegeN * 4;
 			let responding = 0;
@@ -212,8 +212,8 @@ BrennusBot.prototype.manageDefense = function()
 			else if (shortfall > 0)
 			{
 				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m recalling the whole army for the home threat, away mission canceled (army=${armyEnts.length}, threat=${nearThreat})\n`);
-				this.offense = undefined;
-				this.purge = undefined;
+				this.offenseManager.target = undefined;
+				this.offenseManager.purgeTarget = undefined;
 				this.recalled = {};
 				for (const ent of armyEnts)
 					ent.setStance("defensive");
@@ -242,7 +242,7 @@ BrennusBot.prototype.manageDefense = function()
 			// Responders: everyone when the army fights at home; under a split
 			// recall only the recalled and whoever is already near the threat —
 			// the rest of the army keeps its away-mission orders.
-			const split = !!(this.offense || this.purge);
+			const split = !!(this.offenseManager.target || this.offenseManager.purgeTarget);
 			const responders = [];
 			for (const ent of armyEnts)
 				if (!split || this.recalled[ent.id()] ||
@@ -349,7 +349,7 @@ BrennusBot.prototype.manageDefense = function()
 	{
 		// foundation denial in progress, commands issued there
 	}
-	else if (this.manageOffense(gameState, armyEnts, healerEnts, mil, homePos))
+	else if (this.offenseManager.raid(gameState, armyEnts, healerEnts, mil, homePos))
 	{
 		// raid in progress, commands issued there
 	}
@@ -365,11 +365,11 @@ BrennusBot.prototype.manageDefense = function()
 				ent.move(threat.x, threat.z);
 		}
 	}
-	else if (this.managePurge(gameState, armyEnts, healerEnts, mil, homePos))
+	else if (this.offenseManager.purge(gameState, armyEnts, healerEnts, mil, homePos))
 	{
 		// purge in progress, commands issued there
 	}
-	else if (this.manageClearance(gameState, armyEnts, healerEnts, mil, homePos))
+	else if (this.offenseManager.clearance(gameState, armyEnts, healerEnts, mil, homePos))
 	{
 		// clearing a contested expansion spot, commands issued there
 	}
@@ -637,7 +637,7 @@ BrennusBot.prototype.manageDeny = function(gameState, armyEnts, mil, homePos, de
 		this.deny = denyTarget;
 		this.deny.turn = this.turn;
 		// The purge re-targets once the denial is over.
-		this.purge = undefined;
+		this.offenseManager.purgeTarget = undefined;
 		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m denying enemy foundation ${denyTarget.template} at ${denyTarget.x.toFixed(0)},${denyTarget.z.toFixed(0)} (defenders=${denyTarget.defenders}, detachment=${denyTarget.needed}, army=${armyEnts.length})\n`);
 	}
 	else
@@ -669,7 +669,7 @@ BrennusBot.prototype.manageDeny = function(gameState, armyEnts, mil, homePos, de
  */
 BrennusBot.prototype.findDenyTarget = function(mil, homePos)
 {
-	if (!this.defenseOn() || !homePos || this.offense || this.deny)
+	if (!this.defenseOn() || !homePos || this.offenseManager.target || this.deny)
 		return undefined;
 	const gameState = this.gameState;
 	const spots = this.expPlan?.spots || [];
