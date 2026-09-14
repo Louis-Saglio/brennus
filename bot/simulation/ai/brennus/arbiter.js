@@ -182,9 +182,9 @@ ResourceArbiter.prototype.declaredAmount = function(name, resource)
  */
 ResourceArbiter.prototype.spenders = [
 	["defense", bot => bot.defenseManager.manageDefense()],
-	["phaseUp", bot => bot.managePhaseUp()],
-	["research", bot => bot.manageResearch()],
-	["workers", bot => bot.trainWorkers()],
+	["phaseUp", bot => bot.boomManager.managePhaseUp()],
+	["research", bot => bot.boomManager.manageResearch()],
+	["workers", bot => bot.boomManager.trainWorkers()],
 	["construction", bot => bot.manageConstruction()],
 	["barter", bot => bot.manageBarter()],
 	["expansion", bot => bot.manageExpansion()],

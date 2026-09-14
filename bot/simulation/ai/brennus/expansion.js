@@ -78,9 +78,9 @@ BrennusBot.prototype.expansionShares = function(total)
 	// "Served" is the alarm metric — edge within mineDistWarn of a dropsite:
 	// crews are never sized on mines whose staffing would trip the far-mine
 	// warning; coverage extends to new mines first (proactive storehouse).
-	const sites = this.dropsiteEdgeList();
+	const sites = this.economyManager.dropsiteEdgeList();
 	const served = { "stone": 0, "metal": 0 };
-	this.servedMineIds = new Set();
+	this.economyManager.servedMineIds = new Set();
 	for (const res of ["stone", "metal"])
 		for (const s of gameState.getResourceSupplies(res).values())
 		{
@@ -89,7 +89,7 @@ BrennusBot.prototype.expansionShares = function(total)
 				continue;
 			if (region !== undefined && this.accessibility.getAccessValue(pos) !== region)
 				continue;
-			if (this.edgeDistToSites(pos, sites) > this.mineDistWarn)
+			if (this.economyManager.edgeDistToSites(pos, sites) > this.mineDistWarn)
 				continue;
 			// Mines outside own territory can never get a storehouse
 			// (BuildRestrictions "own"): sizing the mining shares on them sends
@@ -98,7 +98,7 @@ BrennusBot.prototype.expansionShares = function(total)
 			if (!this.inOwnTerritory(pos[0], pos[1]))
 				continue;
 			served[res] += s.resourceSupplyAmount();
-			this.servedMineIds.add(s.id());
+			this.economyManager.servedMineIds.add(s.id());
 		}
 	const shares = { "food": 0.3, "wood": 0.2, "stone": 0.0, "metal": 0.0 };
 	let mining = 0;
@@ -401,13 +401,13 @@ BrennusBot.prototype.checkReliefExpansion = function()
 	if (this.turn - (this.reliefResourceCheck || 0) < 150)
 		return;
 	this.reliefResourceCheck = this.turn;
-	const sites = this.dropsiteEdgeList();
+	const sites = this.economyManager.dropsiteEdgeList();
 	for (const res of ["stone", "metal"])
 	{
 		let supply = 0;
 		for (const s of gameState.getResourceSupplies(res).values())
 			if (s.position() && s.resourceSupplyAmount() &&
-				this.edgeDistToSites(s.position(), sites) <= this.mineDistWarn)
+				this.economyManager.edgeDistToSites(s.position(), sites) <= this.mineDistWarn)
 				supply += s.resourceSupplyAmount();
 		if (supply > (this.reliefServedPeak[res] || 0))
 			this.reliefServedPeak[res] = supply;
@@ -420,7 +420,7 @@ BrennusBot.prototype.checkReliefExpansion = function()
 	let wood = 0;
 	for (const s of gameState.getResourceSupplies("wood").values())
 		if (s.position() && s.resourceSupplyAmount() &&
-			this.edgeDistToSites(s.position(), sites) <= this.woodStrategy.gateRadius)
+			this.economyManager.edgeDistToSites(s.position(), sites) <= this.woodStrategy.gateRadius)
 			wood += s.resourceSupplyAmount();
 	if (wood > (this.reliefServedPeak.wood || 0))
 		this.reliefServedPeak.wood = wood;
@@ -758,7 +758,7 @@ BrennusBot.prototype.manageExpansion = function()
 			// A lone builder dies or gets sheltered en route: send a party of 6.
 			const party = gameState.getOwnUnits()
 				.filter(ent => ent.isGatherer() && ent.position() &&
-					!this.armyManager.army[ent.id()] && ent.id() !== this.herderId)
+					!this.armyManager.army[ent.id()] && ent.id() !== this.economyManager.herderId)
 				.filterNearest(spot, 6).toEntityArray();
 			for (const ent of party)
 				ent.construct(ccType, spot[0], spot[1], this.getPlacementAngle(), undefined);
@@ -798,7 +798,7 @@ BrennusBot.prototype.manageTrade = function()
 			if (gameState.getPopulation() >= gameState.getPopulationLimit())
 				for (const ent of gameState.getOwnUnits().values())
 					if (ent.isGatherer() && !ent.hasClass("Cavalry") && ent.isIdle() && !this.armyManager.army[ent.id()] &&
-						!(ent.id() === this.herderId && !this.herdingDone))
+						!(ent.id() === this.economyManager.herderId && !this.economyManager.herdingDone))
 					{
 						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m dismissing idle civilian for a trader\n`);
 						ent.destroy();

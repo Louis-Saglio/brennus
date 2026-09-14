@@ -12,8 +12,8 @@ BrennusBot.prototype.logStatus = function()
 			continue;
 		if (ent.isIdle())
 			idle++;
-		else if (this.assignments[ent.id()])
-			counts[this.assignments[ent.id()]]++;
+		else if (this.economyManager.assignments[ent.id()])
+			counts[this.economyManager.assignments[ent.id()]]++;
 	}
 	let houses = 0, fields = 0, town = 0;
 	const houseType = gameState.applyCiv("structures/{civ}/house");
@@ -44,13 +44,13 @@ BrennusBot.prototype.logStatus = function()
 		demob++;
 
 	const rate = cls => {
-		const s = this.rateStats[cls];
+		const s = this.economyManager.rateStats[cls];
 		return s.theo > 0 ? `${Math.round(100 * s.amount / s.theo)}%` : "-";
 	};
 	const rates = `wood=${rate("wood")} grain=${rate("grain")} fruit=${rate("fruit")} stone=${rate("stone")} metal=${rate("metal")}`;
 
-	const foodmix = ["fruit", "grain", "meat"].map(c => `${c}=${Math.round(this.rateStats[c].amount)}`).join(" ");
-	for (const s of Object.values(this.rateStats))
+	const foodmix = ["fruit", "grain", "meat"].map(c => `${c}=${Math.round(this.economyManager.rateStats[c].amount)}`).join(" ");
+	for (const s of Object.values(this.economyManager.rateStats))
 	{
 		s.amount = 0;
 		s.theo = 0;
@@ -59,14 +59,14 @@ BrennusBot.prototype.logStatus = function()
 	const dropsiteDist = this.meanDropsiteDistances();
 	const terr = this.expansionOn() ? this.territoryPercent() : undefined;
 	print(`[HARNESS] t=${Math.round(gameState.getTimeElapsed() / 60000)}m ` +
-		`pop=${gameState.getPopulation()}/${gameState.getPopulationLimit()} idle=${idle} starved=${this.starvedUnits || 0} ` +
+		`pop=${gameState.getPopulation()}/${gameState.getPopulationLimit()} idle=${idle} starved=${this.economyManager.starvedUnits || 0} ` +
 		`gatherers food=${counts.food} wood=${counts.wood} stone=${counts.stone} metal=${counts.metal} ` +
 		`houses=${houses} fields=${fields} town=${town} techs=${techs}/${this.boomTechs.length} ` +
 		`rates ${rates} ` +
 		`foodmix ${foodmix} ` +
 		`dist wood=${dropsiteDist.wood}m grain=${dropsiteDist.grain}m fruit=${dropsiteDist.fruit}m ` +
 		`founds=${gameState.getOwnFoundations().toEntityArray().length} failedSpots=${(this.failedSpots || []).length} ` +
-		`fruitStock=${Math.round(this.fruitStock)} ` +
+		`fruitStock=${Math.round(this.economyManager.fruitStock)} ` +
 		`enemyArmy=${this.armyManager.enemyArmy || 0} siege=${this.armyManager.enemySiege || 0} enemyNear=${(this.armyManager.enemyNearestHome || 0).toFixed(0)}m ` +
 		`army=${this.armyManager.armyCount ? this.armyManager.armyCount() : 0} gar=${gar} demob=${demob} ` +
 		`terr=${terr ? terr.pct + "%(" + terr.own + "/" + terr.total + ")" : "-"} ` +
@@ -140,7 +140,7 @@ BrennusBot.prototype.meanDropsiteDistances = function()
 	{
 		if (!ent.isGatherer() || ent.isIdle() || !ent.position())
 			continue;
-		const tgt = this.gatherTarget[ent.id()];
+		const tgt = this.economyManager.gatherTarget[ent.id()];
 		if (tgt?.generic !== "wood")
 			continue;
 		const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
@@ -159,7 +159,7 @@ BrennusBot.prototype.meanDropsiteDistances = function()
 	{
 		if (!ent.isGatherer() || ent.isIdle() || !ent.position())
 			continue;
-		const tgt = this.gatherTarget[ent.id()];
+		const tgt = this.economyManager.gatherTarget[ent.id()];
 		if (tgt?.generic !== "food" || tgt?.specific !== "fruit")
 			continue;
 		const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
@@ -186,19 +186,19 @@ BrennusBot.prototype.meanDropsiteDistances = function()
 BrennusBot.prototype.farMineGatherers = function()
 {
 	const gameState = this.gameState;
-	const sites = this.dropsiteEdgeList();
+	const sites = this.economyManager.dropsiteEdgeList();
 	if (!sites.length)
 		return [];
-	const edge = pos => this.edgeDistToSites(pos, sites);
+	const edge = pos => this.economyManager.edgeDistToSites(pos, sites);
 	const miners = {};	// supplyId -> {res, pos, n}
 	for (const ent of gameState.getOwnUnits().values())
 	{
 		if (!ent.isGatherer() || ent.isIdle() || !ent.position())
 			continue;
-		const res = this.assignments[ent.id()];
+		const res = this.economyManager.assignments[ent.id()];
 		if (res !== "stone" && res !== "metal")
 			continue;
-		const tgt = this.gatherTarget[ent.id()];
+		const tgt = this.economyManager.gatherTarget[ent.id()];
 		if (tgt?.generic !== res)
 			continue;
 		const pos = gameState.getEntityById(tgt.supplyId)?.position();

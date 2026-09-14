@@ -570,7 +570,7 @@ BuildupManager.prototype.manageDefenseTraining = function()
 		for (const ent of gameState.getOwnUnits().values())
 		{
 			if (!ent.position() || !ent.isGatherer() || this.bot.armyManager.army[ent.id()] ||
-				ent.id() === this.bot.herderId || ent.hasClass("Soldier") || ent.hasClass("Trader"))
+				ent.id() === this.bot.economyManager.herderId || ent.hasClass("Soldier") || ent.hasClass("Trader"))
 				continue;
 			workers++;
 			if (ent.isIdle())
@@ -585,7 +585,7 @@ BuildupManager.prototype.manageDefenseTraining = function()
 		{
 			this.nextDismissTurn = this.bot.turn + 3;
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m dismissing a civilian for army pop room (workers=${workers})\n`);
-			delete this.bot.assignments[victim.id()];
+			delete this.bot.economyManager.assignments[victim.id()];
 			victim.destroy();
 		}
 	}

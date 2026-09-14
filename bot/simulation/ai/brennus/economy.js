@@ -1,18 +1,113 @@
-import { BrennusBot } from "simulation/ai/brennus/brennus.js";
 import { SquareDistance } from "simulation/ai/brennus/helpers.js";
 
+export function EconomyManager(bot)
+{
+	this.bot = bot;
+	// Gathering assignments (entityID -> resource) and the pinned mines
+	// (resource -> mine id) the miners concentrate on until full.
+	this.assignments = {};
+	this.mineId = {};
+	// Gather-rate telemetry state (read in logStatus).
+	this.carry = {};
+	this.gatherTarget = {};
+	this.lastDelivery = {};
+	this.rateStats =
+		{ "wood": { "amount": 0, "theo": 0 }, "grain": { "amount": 0, "theo": 0 },
+		  "fruit": { "amount": 0, "theo": 0 }, "meat": { "amount": 0, "theo": 0 },
+		  "stone": { "amount": 0, "theo": 0 }, "metal": { "amount": 0, "theo": 0 } };
+	// Herding lifecycle (see manageHerding).
+	this.herderId = undefined;
+	this.herdTarget = undefined;
+	this.herdingDone = false;
+	this.herdCmdTurn = 0;
+	this.herdStartTurn = 0;
+	this.herdStartDist = Infinity;
+	this.herdBestDist = Infinity;
+	this.herdWoundTurn = 0;
+	this.herdFast = false;
+	this.herdKill = false;
+	this.herdLastPos = undefined;
+	// Pinned food dropsite the steer pushes toward (an unpinned target zigzags between dropsites).
+	this.herdDrop = undefined;
+	this.herdWoundDist = Infinity;
+	this.huntDbgLog = undefined;
+	this.herdKillLog = undefined;
+	// Served-fruit stock, refreshed every 25 turns by updateResourceScan.
+	this.fruitStock = 0;
+	this.resourceScanRefresh = undefined;
+	// Per-block drift census read by the dropsite strategies, and other
+	// transient gather bookkeeping (reset on load, as before).
+	this.minersFreed = undefined;
+	this.woodUnderserved = undefined;
+	this.woodFrontier = undefined;
+	this.woodFreeSlots = undefined;
+	this.minePullLog = undefined;
+	this.gatherCounts = undefined;
+	this.starvedUnits = undefined;
+	// Dropsite-served mine ids, written fresh by the expansion shares.
+	this.servedMineIds = undefined;
+}
+
+EconomyManager.prototype.serialize = function()
+{
+	return {
+		"assignments": this.assignments,
+		"carry": this.carry,
+		"gatherTarget": this.gatherTarget,
+		"lastDelivery": this.lastDelivery,
+		"rateStats": this.rateStats,
+		"herderId": this.herderId,
+		"herdTarget": this.herdTarget,
+		"herdingDone": this.herdingDone,
+		"herdStartTurn": this.herdStartTurn,
+		"herdStartDist": this.herdStartDist,
+		"herdBestDist": this.herdBestDist,
+		"herdWoundTurn": this.herdWoundTurn,
+		"herdFast": this.herdFast,
+		"herdKill": this.herdKill,
+		"herdLastPos": this.herdLastPos,
+		"herdDrop": this.herdDrop,
+		"herdWoundDist": this.herdWoundDist,
+		"mineId": this.mineId
+	};
+};
+
+EconomyManager.prototype.deserialize = function(data)
+{
+	this.assignments = data?.assignments || {};
+	this.carry = data?.carry || {};
+	this.gatherTarget = data?.gatherTarget || {};
+	this.lastDelivery = data?.lastDelivery || {};
+	this.rateStats = data?.rateStats ||
+		{ "wood": { "amount": 0, "theo": 0 }, "grain": { "amount": 0, "theo": 0 },
+		  "fruit": { "amount": 0, "theo": 0 }, "meat": { "amount": 0, "theo": 0 },
+		  "stone": { "amount": 0, "theo": 0 }, "metal": { "amount": 0, "theo": 0 } };
+	this.herderId = data?.herderId;
+	this.herdTarget = data?.herdTarget;
+	this.herdingDone = data?.herdingDone || false;
+	// herdStartTurn/herdStartDist/herdBestDist stay at constructor defaults:
+	// the pre-manager entry wrote them to the blob but never restored them.
+	this.herdWoundTurn = data?.herdWoundTurn || 0;
+	this.herdFast = data?.herdFast || false;
+	this.herdKill = data?.herdKill || false;
+	this.herdLastPos = data?.herdLastPos;
+	this.herdDrop = data?.herdDrop;
+	this.herdWoundDist = data?.herdWoundDist || Infinity;
+	this.mineId = data?.mineId || {};
+};
+
 // ---------------------------------------------------------------- gathering
-BrennusBot.prototype.assignGatherers = function()
+EconomyManager.prototype.assignGatherers = function()
 {
 	const counts = { "food": 0, "wood": 0, "stone": 0, "metal": 0 };
 	const idle = [];
 
 	// The city bank is spent once the research starts: release all miners once so the shares reassign them.
-	if (!this.minersFreed && (this.gameState.isResearching("phase_city_generic") ||
-		this.gameState.isResearched("phase_city_generic")))
+	if (!this.minersFreed && (this.bot.gameState.isResearching("phase_city_generic") ||
+		this.bot.gameState.isResearched("phase_city_generic")))
 	{
 		this.minersFreed = true;
-		for (const ent of this.gameState.getOwnUnits().values())
+		for (const ent of this.bot.gameState.getOwnUnits().values())
 			if ((this.assignments[ent.id()] === "stone" || this.assignments[ent.id()] === "metal") &&
 				ent.isGatherer() && !ent.isIdle() && ent.position())
 				ent.stopMoving();
@@ -21,7 +116,7 @@ BrennusBot.prototype.assignGatherers = function()
 	{
 		// The engine's gather autocontinue drifts pickers to far unserved supplies: stop empty-handed fruit/meat gatherers working > 45 m from every food dropsite.
 		const sites = this.foodDropsitePositions();
-		for (const ent of this.gameState.getOwnUnits().values())
+		for (const ent of this.bot.gameState.getOwnUnits().values())
 		{
 			if (this.assignments[ent.id()] !== "food" || !ent.isGatherer() ||
 				ent.isIdle() || !ent.position())
@@ -37,7 +132,7 @@ BrennusBot.prototype.assignGatherers = function()
 			if (tgt?.generic !== "food" ||
 				(tgt?.specific !== "fruit" && tgt?.specific !== "meat"))
 				continue;
-			const anchor = this.gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
+			const anchor = this.bot.gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
 			if (!sites.some(d => SquareDistance(anchor, d) < 45 * 45))
 				ent.stopMoving();
 		}
@@ -52,12 +147,12 @@ BrennusBot.prototype.assignGatherers = function()
 		// slots, so manageDropSites can extend coverage BEFORE the woodline
 		// saturates instead of waiting for the first stranded chopper.
 		const sites = this.woodDropsitePositions();
-		const r2 = this.woodServeDist * this.woodServeDist;
+		const r2 = this.bot.woodServeDist * this.bot.woodServeDist;
 		this.woodUnderserved = [];
 		this.woodFrontier = [];
 		let served; // scanned once per block, only if some chopper drifted
 		const slots = new Map();
-		for (const ent of this.gameState.getOwnUnits().values())
+		for (const ent of this.bot.gameState.getOwnUnits().values())
 		{
 			if (this.assignments[ent.id()] !== "wood" || !ent.isGatherer() ||
 				ent.isIdle() || !ent.position())
@@ -69,14 +164,14 @@ BrennusBot.prototype.assignGatherers = function()
 			const tgt = this.gatherTarget[ent.id()];
 			if (tgt?.generic !== "wood")
 				continue;
-			const tree = this.gameState.getEntityById(tgt.supplyId);
+			const tree = this.bot.gameState.getEntityById(tgt.supplyId);
 			const anchor = tree?.position();
 			if (!anchor || sites.some(d => SquareDistance(anchor, d) < r2))
 				continue;
 			if (served === undefined)
 			{
 				served = [];
-				for (const s of this.gameState.getResourceSupplies("wood").values())
+				for (const s of this.bot.gameState.getResourceSupplies("wood").values())
 				{
 					const sp = s.position();
 					if (!sp || !s.resourceSupplyAmount() || s.isFull())
@@ -87,13 +182,13 @@ BrennusBot.prototype.assignGatherers = function()
 					slots.set(s.id(), s.resourceSupplyNumGatherers() || 0);
 				}
 			}
-			const region = this.accessibility.getAccessValue(ent.position());
+			const region = this.bot.accessibility.getAccessValue(ent.position());
 			let best, bestD = Infinity;
 			for (const s of served)
 			{
-				if ((slots.get(s.id()) || 0) >= this.treeMaxGatherers)
+				if ((slots.get(s.id()) || 0) >= this.bot.treeMaxGatherers)
 					continue;
-				if (this.accessibility.getAccessValue(s.position()) !== region)
+				if (this.bot.accessibility.getAccessValue(s.position()) !== region)
 					continue;
 				if (!this.canGatherSupply(ent, s))
 					continue;
@@ -121,7 +216,7 @@ BrennusBot.prototype.assignGatherers = function()
 		{
 			this.woodFreeSlots = 0;
 			for (const s of served)
-				this.woodFreeSlots += Math.max(0, this.treeMaxGatherers - (slots.get(s.id()) || 0));
+				this.woodFreeSlots += Math.max(0, this.bot.treeMaxGatherers - (slots.get(s.id()) || 0));
 		}
 	}
 
@@ -140,7 +235,7 @@ BrennusBot.prototype.assignGatherers = function()
 		let stuckWhy; // rejection census, filled alongside served
 		const pulled = { "stone": 0, "metal": 0 };
 		const stuck = { "stone": 0, "metal": 0 };
-		for (const ent of this.gameState.getOwnUnits().values())
+		for (const ent of this.bot.gameState.getOwnUnits().values())
 		{
 			const res = this.assignments[ent.id()];
 			if ((res !== "stone" && res !== "metal") || !ent.isGatherer() ||
@@ -153,8 +248,8 @@ BrennusBot.prototype.assignGatherers = function()
 			const tgt = this.gatherTarget[ent.id()];
 			if (tgt?.generic !== res)
 				continue;
-			const anchor = this.gameState.getEntityById(tgt.supplyId)?.position();
-			if (!anchor || this.edgeDistToSites(anchor, sites) <= this.mineGatherServeDist)
+			const anchor = this.bot.gameState.getEntityById(tgt.supplyId)?.position();
+			if (!anchor || this.edgeDistToSites(anchor, sites) <= this.bot.mineGatherServeDist)
 				continue;
 			if (served === undefined)
 			{
@@ -165,43 +260,43 @@ BrennusBot.prototype.assignGatherers = function()
 				for (const rr of ["stone", "metal"])
 				{
 					stuckWhy[rr] = { "full": 0, "region": 0, "enemy": 0, "cant": 0 };
-					for (const s of this.gameState.getResourceSupplies(rr).values())
+					for (const s of this.bot.gameState.getResourceSupplies(rr).values())
 					{
 						const sp = s.position();
 						if (!sp || !s.resourceSupplyAmount())
 							continue;
 						const edge = this.edgeDistToSites(sp, sites);
-						if (edge > this.mineDistWarn)
+						if (edge > this.bot.mineDistWarn)
 						{
-							if (!s.isFull() && this.inOwnTerritory(sp[0], sp[1]))
+							if (!s.isFull() && this.bot.inOwnTerritory(sp[0], sp[1]))
 								terrMines[rr].push({ "s": s, "edge": edge });
 							continue;
 						}
 						if (s.isFull())
 						{
-							if (edge <= this.mineGatherServeDist)
+							if (edge <= this.bot.mineGatherServeDist)
 								stuckWhy[rr].full++;
 							continue;
 						}
-						if (edge <= this.mineGatherServeDist)
+						if (edge <= this.bot.mineGatherServeDist)
 							served[rr].push(s);
 						else
 							band[rr].push(s);
 					}
 				}
 			}
-			const region = this.accessibility.getAccessValue(ent.position());
+			const region = this.bot.accessibility.getAccessValue(ent.position());
 			const pick = list =>
 			{
 				let best, bestD = Infinity;
 				for (const s of list)
 				{
-					if (this.accessibility.getAccessValue(s.position()) !== region)
+					if (this.bot.accessibility.getAccessValue(s.position()) !== region)
 					{
 						stuckWhy[res].region++;
 						continue;
 					}
-					if (this.armyManager.nearEnemy(s.position(), 100, 60))
+					if (this.bot.armyManager.nearEnemy(s.position(), 100, 60))
 					{
 						stuckWhy[res].enemy++;
 						continue;
@@ -221,14 +316,14 @@ BrennusBot.prototype.assignGatherers = function()
 				return best;
 			};
 			let best = pick(served[res]) || pick(band[res]);
-			if (!best && !this.inOwnTerritory(anchor[0], anchor[1]))
+			if (!best && !this.bot.inOwnTerritory(anchor[0], anchor[1]))
 			{
 				let bestEdge = Infinity;
 				for (const m of terrMines[res])
 				{
-					if (this.accessibility.getAccessValue(m.s.position()) !== region)
+					if (this.bot.accessibility.getAccessValue(m.s.position()) !== region)
 						continue;
-					if (this.armyManager.nearEnemy(m.s.position(), 100, 60))
+					if (this.bot.armyManager.nearEnemy(m.s.position(), 100, 60))
 						continue;
 					if (!this.canGatherSupply(ent, m.s))
 						continue;
@@ -261,10 +356,10 @@ BrennusBot.prototype.assignGatherers = function()
 					{ "pulled": 0, "stuck": 0, "lastTurn": -150 };
 				log.pulled += pulled[rr];
 				log.stuck += stuck[rr];
-				if (this.turn - log.lastTurn < 150)
+				if (this.bot.turn - log.lastTurn < 150)
 					continue;
-				log.lastTurn = this.turn;
-				const t = (this.gameState.getTimeElapsed() / 60000).toFixed(1);
+				log.lastTurn = this.bot.turn;
+				const t = (this.bot.gameState.getTimeElapsed() / 60000).toFixed(1);
 				const w = stuckWhy[rr];
 				print(`[HARNESS] t=${t}m ${rr} pull-back: pulled ${log.pulled}, stuck ${log.stuck} (served: ${served[rr].length} free, band: ${band[rr].length}, in-terr far: ${terrMines[rr].length}, rejected full=${w.full} region=${w.region} enemy=${w.enemy} cant=${w.cant})\n`);
 				log.pulled = 0;
@@ -273,9 +368,9 @@ BrennusBot.prototype.assignGatherers = function()
 		}
 	}
 
-	for (const ent of this.gameState.getOwnUnits().values())
+	for (const ent of this.bot.gameState.getOwnUnits().values())
 	{
-		if (!ent.isGatherer() || !ent.position() || (this.armyManager.army[ent.id()] && !this.armyManager.demobilized[ent.id()]))
+		if (!ent.isGatherer() || !ent.position() || (this.bot.armyManager.army[ent.id()] && !this.bot.armyManager.demobilized[ent.id()]))
 			continue;
 
 		if (ent.id() === this.herderId && !this.herdingDone)
@@ -301,9 +396,9 @@ BrennusBot.prototype.assignGatherers = function()
 		const total = idle.length + counts.food + counts.wood + counts.stone + counts.metal;
 		if (total >= 10)
 		{
-			const shares = this.currentShares(total);
+			const shares = this.bot.currentShares(total);
 			let pulled = 0;
-			for (const ent of this.gameState.getOwnUnits().values())
+			for (const ent of this.bot.gameState.getOwnUnits().values())
 			{
 				if (pulled >= 2)
 					break;
@@ -326,7 +421,7 @@ BrennusBot.prototype.assignGatherers = function()
 		return;
 
 	const total = idle.length + counts.food + counts.wood + counts.stone + counts.metal;
-	const shares = this.currentShares(total);
+	const shares = this.bot.currentShares(total);
 	this.starvedUnits = 0;
 	for (const ent of idle)
 	{
@@ -365,10 +460,10 @@ BrennusBot.prototype.assignGatherers = function()
 	}
 };
 
-BrennusBot.prototype.findSupply = function(unit, resource)
+EconomyManager.prototype.findSupply = function(unit, resource)
 {
 	const pos = unit.position();
-	const region = this.accessibility.getAccessValue(pos);
+	const region = this.bot.accessibility.getAccessValue(pos);
 
 	// Wood: the tree minimizing the full walk cycle (unit -> tree + tree ->
 	// nearest dropsite). Trees at slot capacity are skipped — past
@@ -377,22 +472,22 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 	if (resource === "wood")
 	{
 		const drops = this.woodDropsitePositions();
-		const candidates = this.gameState.getResourceSupplies("wood").filterNearest(pos, 20).toEntityArray();
+		const candidates = this.bot.gameState.getResourceSupplies("wood").filterNearest(pos, 20).toEntityArray();
 		for (const respectSlots of [true, false])
 		{
 			let best, bestD = Infinity;
 			for (const supply of candidates)
 			{
 				const supplyPos = supply.position();
-				if (!supplyPos || this.accessibility.getAccessValue(supplyPos) !== region)
+				if (!supplyPos || this.bot.accessibility.getAccessValue(supplyPos) !== region)
 					continue;
-				if (this.armyManager.nearEnemy(supplyPos, 100, 60))
+				if (this.bot.armyManager.nearEnemy(supplyPos, 100, 60))
 					continue;
 				if (!supply.resourceSupplyAmount() || supply.isFull())
 					continue;
 				if (!this.canGatherSupply(unit, supply))
 					continue;
-				if (respectSlots && (supply.resourceSupplyNumGatherers() || 0) >= this.treeMaxGatherers)
+				if (respectSlots && (supply.resourceSupplyNumGatherers() || 0) >= this.bot.treeMaxGatherers)
 					continue;
 				let dd = Infinity;
 				for (const dp of drops)
@@ -418,18 +513,18 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 	{
 		const dropsites = this.foodDropsitePositions();
 		let best, bestD = Infinity;
-		for (const s of this.gameState.getResourceSupplies("food").values())
+		for (const s of this.bot.gameState.getResourceSupplies("food").values())
 		{
 			const supplyPos = s.position();
-			if (!supplyPos || this.accessibility.getAccessValue(supplyPos) !== region)
+			if (!supplyPos || this.bot.accessibility.getAccessValue(supplyPos) !== region)
 				continue;
 			const specific = s.resourceSupplyType()?.specific;
 			if (specific !== "fruit" &&
 				!(specific === "meat" && !s.get("Health") &&
-					this.inOwnTerritory(supplyPos[0], supplyPos[1]) &&
+					this.bot.inOwnTerritory(supplyPos[0], supplyPos[1]) &&
 					!(s.id() === this.herdTarget && !this.herdingDone)))
 				continue;
-			if (this.armyManager.nearEnemy(supplyPos, 100, 60))
+			if (this.bot.armyManager.nearEnemy(supplyPos, 100, 60))
 				continue;
 			if (!s.resourceSupplyAmount() || s.isFull())
 				continue;
@@ -450,20 +545,20 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 
 	if ((resource === "stone" || resource === "metal") && this.mineId[resource] !== undefined)
 	{
-		const mine = this.gameState.getEntityById(this.mineId[resource]);
+		const mine = this.bot.gameState.getEntityById(this.mineId[resource]);
 		const minePos = mine?.position();
 		if (minePos && mine.resourceSupplyAmount() && !mine.isFull() &&
-			this.accessibility.getAccessValue(minePos) === region &&
-			this.edgeDistToSites(minePos, this.dropsiteEdgeList()) <= this.mineGatherServeDist &&
-			!this.armyManager.nearEnemy(minePos, 100, 60) &&
+			this.bot.accessibility.getAccessValue(minePos) === region &&
+			this.edgeDistToSites(minePos, this.dropsiteEdgeList()) <= this.bot.mineGatherServeDist &&
+			!this.bot.armyManager.nearEnemy(minePos, 100, 60) &&
 			this.canGatherSupply(unit, mine))
 			return mine;
 	}
 
-	let candidates = this.gameState.getResourceSupplies(resource).filterNearest(pos, 10).toEntityArray();
+	let candidates = this.bot.gameState.getResourceSupplies(resource).filterNearest(pos, 10).toEntityArray();
 	if (resource === "food")
 
-		candidates = candidates.concat(this.gameState.getHuntableSupplies().filterNearest(pos, 10).toEntityArray());
+		candidates = candidates.concat(this.bot.gameState.getHuntableSupplies().filterNearest(pos, 10).toEntityArray());
 	const foodSites = resource === "food" ? this.foodDropsitePositions() : null;
 
 	// Stone/metal: the bot never orders anyone to a mine past the alarm
@@ -479,9 +574,9 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 	for (const supply of candidates)
 	{
 		const supplyPos = supply.position();
-		if (!supplyPos || this.accessibility.getAccessValue(supplyPos) !== region)
+		if (!supplyPos || this.bot.accessibility.getAccessValue(supplyPos) !== region)
 			continue;
-		if (this.armyManager.nearEnemy(supplyPos, 100, 60))
+		if (this.bot.armyManager.nearEnemy(supplyPos, 100, 60))
 			continue;
 		if (!supply.resourceSupplyAmount() || supply.isFull())
 			continue;
@@ -494,22 +589,22 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 			!foodSites.some(d => SquareDistance(supplyPos, d) < 45 * 45))
 			continue;
 
-		if (mineRes && this.expansionOn() &&
+		if (mineRes && this.bot.expansionOn() &&
 			this.servedMineIds && !this.servedMineIds.has(supply.id()))
 			continue;
 
 		// Civilians never leave the territory for meat.
 		if (resource === "food" && supply.isHuntable() && !unit.hasClass("Cavalry") &&
-			!this.inOwnTerritory(supplyPos[0], supplyPos[1]))
+			!this.bot.inOwnTerritory(supplyPos[0], supplyPos[1]))
 			continue;
 		if (!mineRes)
 			return supply;
 		const edge = this.edgeDistToSites(supplyPos, edgeSites);
-		if (edge <= this.mineDistWarn)
+		if (edge <= this.bot.mineDistWarn)
 			return supply;
 		if (!firstAny)
 			firstAny = supply;
-		if (this.inOwnTerritory(supplyPos[0], supplyPos[1]) && edge < bestTerrEdge)
+		if (this.bot.inOwnTerritory(supplyPos[0], supplyPos[1]) && edge < bestTerrEdge)
 		{
 			bestTerrEdge = edge;
 			bestTerr = supply;
@@ -519,20 +614,20 @@ BrennusBot.prototype.findSupply = function(unit, resource)
 		return undefined;
 	if (bestTerr)
 		return bestTerr;
-	if (this.expansionOn() || !firstAny)
+	if (this.bot.expansionOn() || !firstAny)
 		return undefined;
-	for (const s of this.gameState.getResourceSupplies(resource).values())
+	for (const s of this.bot.gameState.getResourceSupplies(resource).values())
 	{
 		const sp = s.position();
-		if (sp && s.resourceSupplyAmount() && this.inOwnTerritory(sp[0], sp[1]))
+		if (sp && s.resourceSupplyAmount() && this.bot.inOwnTerritory(sp[0], sp[1]))
 			return undefined;
 	}
 	return firstAny;
 };
 
-BrennusBot.prototype.woodDropsitePositions = function()
+EconomyManager.prototype.woodDropsitePositions = function()
 {
-	const gameState = this.gameState;
+	const gameState = this.bot.gameState;
 	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
 	const sites = [];
 	for (const ent of gameState.getOwnStructures().values())
@@ -550,13 +645,13 @@ BrennusBot.prototype.woodDropsitePositions = function()
 	return sites;
 };
 
-BrennusBot.prototype.obstructionHalfDiag = function(ent)
+EconomyManager.prototype.obstructionHalfDiag = function(ent)
 {
 	const o = ent.get("Obstruction/Static");
 	return o ? Math.hypot(+o["@width"], +o["@depth"]) / 2 : 8;
 };
 
-BrennusBot.prototype.centroid = function(points)
+EconomyManager.prototype.centroid = function(points)
 {
 	let sx = 0, sz = 0;
 	for (const p of points)
@@ -568,9 +663,9 @@ BrennusBot.prototype.centroid = function(points)
 };
 
 /** Storehouse/CC positions with obstruction half-diagonals (storehouse foundations included): edge distance to this list is the serve metric every mine-coverage consumer shares (pull-back, storehouse demand, warning). */
-BrennusBot.prototype.dropsiteEdgeList = function()
+EconomyManager.prototype.dropsiteEdgeList = function()
 {
-	const gameState = this.gameState;
+	const gameState = this.bot.gameState;
 	const sites = [];
 	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
 	for (const ent of gameState.getOwnStructures().values())
@@ -582,7 +677,7 @@ BrennusBot.prototype.dropsiteEdgeList = function()
 	return sites;
 };
 
-BrennusBot.prototype.edgeDistToSites = function(pos, sites)
+EconomyManager.prototype.edgeDistToSites = function(pos, sites)
 {
 	let d = Infinity;
 	for (const s of sites)
@@ -590,9 +685,9 @@ BrennusBot.prototype.edgeDistToSites = function(pos, sites)
 	return d;
 };
 
-BrennusBot.prototype.foodDropsitePositions = function()
+EconomyManager.prototype.foodDropsitePositions = function()
 {
-	const gameState = this.gameState;
+	const gameState = this.bot.gameState;
 	const farmType = gameState.applyCiv("structures/{civ}/farmstead");
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
 	const sites = [];
@@ -610,7 +705,7 @@ BrennusBot.prototype.foodDropsitePositions = function()
 	return sites;
 };
 
-BrennusBot.prototype.nearestFoodDropsite = function(pos)
+EconomyManager.prototype.nearestFoodDropsite = function(pos)
 {
 	let best = pos, bestD = Infinity;
 	for (const site of this.foodDropsitePositions())
@@ -631,16 +726,16 @@ BrennusBot.prototype.nearestFoodDropsite = function(pos)
  * time; the cavalry shoots once from the far side, follows without attacking,
  * and kills near the pinned food dropsite. Other animals are killed in place.
  */
-BrennusBot.prototype.manageHerding = function()
+EconomyManager.prototype.manageHerding = function()
 {
-	const gameState = this.gameState;
+	const gameState = this.bot.gameState;
 	if (this.herdingDone)
 		return;
-	const cc = this.getCivicCentre();
+	const cc = this.bot.getCivicCentre();
 	if (!cc)
 		return;
 	const ccPos = cc.position();
-	const region = this.accessibility.getAccessValue(ccPos);
+	const region = this.bot.accessibility.getAccessValue(ccPos);
 	let herder = this.herderId !== undefined ? gameState.getEntityById(this.herderId) : undefined;
 	if (herder && (!herder.position() || !herder.isGatherer()))
 		herder = undefined;
@@ -680,7 +775,7 @@ BrennusBot.prototype.manageHerding = function()
 			if (s.get("Health") || !s.resourceSupplyAmount() || s.isFull())
 				continue;
 			const sp = s.position();
-			if (!sp || this.accessibility.getAccessValue(sp) !== region)
+			if (!sp || this.bot.accessibility.getAccessValue(sp) !== region)
 				continue;
 			const d = SquareDistance(sp, this.herdLastPos);
 			if (d < bestD)
@@ -705,14 +800,14 @@ BrennusBot.prototype.manageHerding = function()
 			this.huntDbgLog = true;
 			const tp = target.position();
 			const dr = this.nearestFoodDropsite(tp);
-			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m carcass ${target.templateName()} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} mode=${this.herdKill ? "collect" : "herd"} inTerr=${this.inOwnTerritory(tp[0], tp[1])} dropDist=${Math.hypot(tp[0] - dr[0], tp[1] - dr[1]).toFixed(0)}\n`);
+			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m carcass ${target.templateName()} at ${tp[0].toFixed(0)},${tp[1].toFixed(0)} mode=${this.herdKill ? "collect" : "herd"} inTerr=${this.bot.inOwnTerritory(tp[0], tp[1])} dropDist=${Math.hypot(tp[0] - dr[0], tp[1] - dr[1]).toFixed(0)}\n`);
 		}
 
-		if (this.herdKill || !this.inOwnTerritory(target.position()[0], target.position()[1]))
+		if (this.herdKill || !this.bot.inOwnTerritory(target.position()[0], target.position()[1]))
 		{
-			if (this.turn >= this.herdCmdTurn)
+			if (this.bot.turn >= this.herdCmdTurn)
 			{
-				this.herdCmdTurn = this.turn + 25;
+				this.herdCmdTurn = this.bot.turn + 25;
 				const st = herder.unitAIState() || "";
 				if (st.indexOf("GATHER") === -1 && st.indexOf("RETURNRESOURCE") === -1)
 					herder.gather(target);
@@ -731,21 +826,21 @@ BrennusBot.prototype.manageHerding = function()
 				const pos = s.position();
 				if (!pos || !s.get("Health") || !s.isHuntable())
 					continue;
-				if (this.accessibility.getAccessValue(pos) !== region || this.armyManager.nearEnemy(pos, 100, 60))
+				if (this.bot.accessibility.getAccessValue(pos) !== region || this.bot.armyManager.nearEnemy(pos, 100, 60))
 					continue;
 				const d = SquareDistance(pos, ccPos);
-				if (d < 35 * 35 || (inBand && d > this.herdMax * this.herdMax) || d >= bestD)
+				if (d < 35 * 35 || (inBand && d > this.bot.herdMax * this.bot.herdMax) || d >= bestD)
 					continue;
 				const skittish = s.get("UnitAI/DefaultStance") === "skittish";
 				if (herdableOnly &&
-					!(skittish && d <= this.herdCutoff * this.herdCutoff))
+					!(skittish && d <= this.bot.herdCutoff * this.bot.herdCutoff))
 					continue;
 				bestD = d;
 				best = s;
 			}
 			return best;
 		};
-		target = (this.herdPrefer ? nearest(true, true) : undefined) ||
+		target = (this.bot.herdPrefer ? nearest(true, true) : undefined) ||
 			nearest(false, true) || nearest(false, false);
 		this.herdTarget = target?.id();
 		if (!target)
@@ -757,7 +852,7 @@ BrennusBot.prototype.manageHerding = function()
 			return;
 		}
 		this.herdCmdTurn = 0;
-		this.herdStartTurn = this.turn;
+		this.herdStartTurn = this.bot.turn;
 		this.herdStartDist = Math.sqrt(SquareDistance(target.position(), ccPos));
 		this.herdBestDist = this.herdStartDist;
 		this.herdWoundTurn = 0;
@@ -767,7 +862,7 @@ BrennusBot.prototype.manageHerding = function()
 		this.herdWoundDist = Infinity;
 
 		this.herdFast = target.get("UnitAI/DefaultStance") === "skittish";
-		this.herdKill = !this.herdFast || this.herdStartDist > this.herdCutoff;
+		this.herdKill = !this.herdFast || this.herdStartDist > this.bot.herdCutoff;
 		this.herdLastPos = target.position();
 		{
 			const tp = target.position();
@@ -778,9 +873,9 @@ BrennusBot.prototype.manageHerding = function()
 	{
 
 		this.herdLastPos = target.position();
-		if (this.turn >= this.herdCmdTurn)
+		if (this.bot.turn >= this.herdCmdTurn)
 		{
-			this.herdCmdTurn = this.turn + 10;
+			this.herdCmdTurn = this.bot.turn + 10;
 			herder.attack(target.id(), false);
 		}
 		return;
@@ -794,7 +889,7 @@ BrennusBot.prototype.manageHerding = function()
 	if (target.isHurt() && !this.herdWoundTurn)
 	{
 
-		this.herdWoundTurn = this.turn;
+		this.herdWoundTurn = this.bot.turn;
 		this.herdCmdTurn = 0;
 		this.herdDrop = drop;
 		this.herdWoundDist = dist;
@@ -802,12 +897,12 @@ BrennusBot.prototype.manageHerding = function()
 		print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m wounded ${target.templateName()} at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} dropDist=${dist.toFixed(0)}\n`);
 		return;
 	}
-	if (this.turn < this.herdCmdTurn)
+	if (this.bot.turn < this.herdCmdTurn)
 		return;
 	if (!target.isHurt())
 	{
 
-		this.herdCmdTurn = this.turn + 10;
+		this.herdCmdTurn = this.bot.turn + 10;
 		const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
 		const n = Math.hypot(dx, dz) || 1;
 		const bx = pos[0] + dx / n * 6, bz = pos[1] + dz / n * 6;
@@ -821,16 +916,16 @@ BrennusBot.prototype.manageHerding = function()
 	}
 	const fleeing = (target.unitAIState() || "").indexOf("FLEEING") !== -1;
 
-	if (dist < this.herdKillDist ||
-		(!fleeing && this.turn - this.herdWoundTurn > 10) ||
-		(this.turn - this.herdStartTurn > 150 && dist > this.herdWoundDist + 5))
+	if (dist < this.bot.herdKillDist ||
+		(!fleeing && this.bot.turn - this.herdWoundTurn > 10) ||
+		(this.bot.turn - this.herdStartTurn > 150 && dist > this.herdWoundDist + 5))
 	{
 		if (!this.herdKillLog)
 		{
 			this.herdKillLog = true;
-			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m kill ${target.templateName()} at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} dropDist=${dist.toFixed(0)} inTerr=${this.inOwnTerritory(pos[0], pos[1])} fleeing=${fleeing}\n`);
+			print(`[HUNT] t=${(gameState.getTimeElapsed() / 60000).toFixed(2)}m kill ${target.templateName()} at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} dropDist=${dist.toFixed(0)} inTerr=${this.bot.inOwnTerritory(pos[0], pos[1])} fleeing=${fleeing}\n`);
 		}
-		this.herdCmdTurn = this.turn + 10;
+		this.herdCmdTurn = this.bot.turn + 10;
 		const hp = herder.position();
 
 		const hd = Math.hypot(hp[0] - drop[0], hp[1] - drop[1]);
@@ -853,7 +948,7 @@ BrennusBot.prototype.manageHerding = function()
 		return;
 	}
 
-	this.herdCmdTurn = this.turn + 10;
+	this.herdCmdTurn = this.bot.turn + 10;
 	const dx = pos[0] - drop[0], dz = pos[1] - drop[1];
 	const n = Math.hypot(dx, dz) || 1;
 	const bx = pos[0] + dx / n * 6, bz = pos[1] + dz / n * 6;
@@ -864,7 +959,7 @@ BrennusBot.prototype.manageHerding = function()
 		herder.stopMoving();
 };
 
-BrennusBot.prototype.canGatherSupply = function(unit, supply)
+EconomyManager.prototype.canGatherSupply = function(unit, supply)
 {
 	const rates = unit.get("ResourceGatherer/Rates");
 	const type = supply.resourceSupplyType();
@@ -877,27 +972,27 @@ BrennusBot.prototype.canGatherSupply = function(unit, supply)
  * Economy scan, throttled to every 25 turns: served fruit stock (field
  * demand reads it) and the pinned stone/metal mines.
  */
-BrennusBot.prototype.updateResourceScan = function()
+EconomyManager.prototype.updateResourceScan = function()
 {
-	if (this.turn < (this.resourceScanRefresh || 0))
+	if (this.bot.turn < (this.resourceScanRefresh || 0))
 		return;
-	this.resourceScanRefresh = this.turn + 25;
+	this.resourceScanRefresh = this.bot.turn + 25;
 
 	{
-		const cc = this.getCivicCentre();
+		const cc = this.bot.getCivicCentre();
 		let stock = 0;
 		if (cc)
 		{
-			const region = this.accessibility.getAccessValue(cc.position());
+			const region = this.bot.accessibility.getAccessValue(cc.position());
 			const sites = this.foodDropsitePositions();
-			for (const s of this.gameState.getResourceSupplies("food").values())
+			for (const s of this.bot.gameState.getResourceSupplies("food").values())
 			{
 				if (s.resourceSupplyType()?.specific !== "fruit")
 					continue;
 				const pos = s.position();
 				if (pos && s.resourceSupplyAmount() > 30 &&
-					this.accessibility.getAccessValue(pos) === region &&
-					!this.armyManager.nearEnemy(pos, 100, 60) &&
+					this.bot.accessibility.getAccessValue(pos) === region &&
+					!this.bot.armyManager.nearEnemy(pos, 100, 60) &&
 					sites.some(d => SquareDistance(pos, d) < 45 * 45))
 					stock += s.resourceSupplyAmount();
 			}
@@ -906,23 +1001,23 @@ BrennusBot.prototype.updateResourceScan = function()
 	}
 
 	{
-		const cc = this.getCivicCentre();
+		const cc = this.bot.getCivicCentre();
 		if (cc)
 		{
 			const ccPos = cc.position();
 			for (const resource of ["stone", "metal"])
 			{
 				const pinned = this.mineId[resource] !== undefined ?
-					this.gameState.getEntityById(this.mineId[resource]) : undefined;
+					this.bot.gameState.getEntityById(this.mineId[resource]) : undefined;
 				const pinnedPos = pinned?.position();
 				if (pinnedPos && pinned.resourceSupplyAmount() > 0 &&
-					!this.armyManager.nearEnemy(pinnedPos, 100, 60))
+					!this.bot.armyManager.nearEnemy(pinnedPos, 100, 60))
 					continue;
 				let best, bestD = Infinity;
-				for (const s of this.gameState.getResourceSupplies(resource).values())
+				for (const s of this.bot.gameState.getResourceSupplies(resource).values())
 				{
 					const pos = s.position();
-					if (!pos || !s.resourceSupplyAmount() || this.armyManager.nearEnemy(pos, 100, 60))
+					if (!pos || !s.resourceSupplyAmount() || this.bot.armyManager.nearEnemy(pos, 100, 60))
 						continue;
 					const d = SquareDistance(pos, ccPos);
 					if (d < bestD)
@@ -937,24 +1032,15 @@ BrennusBot.prototype.updateResourceScan = function()
 	}
 };
 
-BrennusBot.prototype.inOwnTerritory = function(x, z)
-{
-	const terr = this.territoryMap;
-	const i = Math.floor(x / terr.cellSize), j = Math.floor(z / terr.cellSize);
-	if (i < 0 || j < 0 || i >= terr.width || j >= terr.height)
-		return false;
-	return (terr.data[i + j * terr.width] & 0x1F) === this.player;
-};
-
 // ------------------------------------------------- gather-rate telemetry
 /**
  * Telemetry: a delivery (carried load resets) yields effective rate =
  * amount / cycle time; theoretical = template rate x the diminishing-
  * returns multiplier. Aggregated per class; read in logStatus.
  */
-BrennusBot.prototype.sampleGatherRates = function()
+EconomyManager.prototype.sampleGatherRates = function()
 {
-	const gameState = this.gameState;
+	const gameState = this.bot.gameState;
 	const now = gameState.getTimeElapsed();
 	const seen = {};
 	for (const ent of gameState.getOwnUnits().values())

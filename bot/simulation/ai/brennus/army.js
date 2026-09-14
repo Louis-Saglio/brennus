@@ -68,13 +68,13 @@ ArmyManager.prototype.maintainRoster = function(gameState)
 			if (ent.hasClass("Healer"))
 			{
 				this.healers[id] = 1;
-				delete this.bot.assignments[id];
+				delete this.bot.economyManager.assignments[id];
 				continue;
 			}
-			if (this.army[id] || !ent.hasClass("Soldier") || id === this.bot.herderId)
+			if (this.army[id] || !ent.hasClass("Soldier") || id === this.bot.economyManager.herderId)
 				continue;
 			this.army[id] = 1;
-			delete this.bot.assignments[id];
+			delete this.bot.economyManager.assignments[id];
 			if (ent.position())
 				ent.setStance("defensive");
 		}
@@ -278,7 +278,7 @@ ArmyManager.prototype.manageDemobilization = function(gameState, incoming)
 				else
 					ent.stopMoving();
 			}
-			delete this.bot.assignments[id];
+			delete this.bot.economyManager.assignments[id];
 			delete this.demobilized[id];
 			n++;
 		}
@@ -299,7 +299,7 @@ ArmyManager.prototype.manageDemobilization = function(gameState, incoming)
 		if (!ent?.position() || !ent.isGatherer() || ent.hasClass("Cavalry"))
 			continue;
 		this.demobilized[id] = 1;
-		delete this.bot.assignments[id];
+		delete this.bot.economyManager.assignments[id];
 		ent.stopMoving();
 		added++;
 	}

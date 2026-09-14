@@ -537,7 +537,7 @@ DefenseManager.prototype.manageDefense = function()
 		return;
 	for (const ent of gameState.getOwnUnits().values())
 	{
-		if (!ent.isGatherer() || !ent.position() || (this.bot.armyManager.army[ent.id()] && !this.bot.armyManager.demobilized[ent.id()]) || ent.id() === this.bot.herderId)
+		if (!ent.isGatherer() || !ent.position() || (this.bot.armyManager.army[ent.id()] && !this.bot.armyManager.demobilized[ent.id()]) || ent.id() === this.bot.economyManager.herderId)
 			continue;
 		const state = ent.unitAIState() || "";
 		if (state.indexOf("GARRISON") !== -1 || state.indexOf("REPAIR") !== -1)

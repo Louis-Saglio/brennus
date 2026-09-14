@@ -1,16 +1,19 @@
-import { BrennusBot } from "simulation/ai/brennus/brennus.js";
+export function BoomManager(bot)
+{
+	this.bot = bot;
+}
 
 // ---------------------------------------------------------------- phases
-BrennusBot.prototype.nextPhaseTech = function()
+BoomManager.prototype.nextPhaseTech = function()
 {
-	return { 1: "phase_town_generic", 2: "phase_city_generic" }[this.gameState.currentPhase()];
+	return { 1: "phase_town_generic", 2: "phase_city_generic" }[this.bot.gameState.currentPhase()];
 };
 
 /** Town: a short hard bank (pause spending, fill, research). City: a
  * reserve that training/construction only spend above. */
-BrennusBot.prototype.managePhaseUp = function()
+BoomManager.prototype.managePhaseUp = function()
 {
-	const gameState = this.gameState;
+	const gameState = this.bot.gameState;
 	const tech = this.nextPhaseTech();
 	// War fund: while the early-muster buildings (barracks, temple)
 	// are still missing, hold 150 wood out of the boom's reach — the house
@@ -19,8 +22,8 @@ BrennusBot.prototype.managePhaseUp = function()
 	// 9.1/9.5m, then starved). 300 strangled the house stream (agg5 s1: pop
 	// cap stalled at 120); 150 is one barracks at a time. Must be set before
 	// the early returns below so the money accumulates through every hold.
-	if (!this.warOn() && this.arbiter.declared("defenseGap"))
-		this.arbiter.reserve("phaseBank", { "wood": this.arbiterParams.warChest.fundWood });
+	if (!this.bot.warOn() && this.bot.arbiter.declared("defenseGap"))
+		this.bot.arbiter.reserve("phaseBank", { "wood": this.bot.arbiterParams.warChest.fundWood });
 	if (!tech || gameState.isResearching(tech) || gameState.isResearched(tech))
 		return;
 	if (!gameState.canResearch(tech))
@@ -28,7 +31,7 @@ BrennusBot.prototype.managePhaseUp = function()
 
 	if (tech === "phase_town_generic")
 	{
-		const fert = this.houseTrainingTech;
+		const fert = this.bot.houseTrainingTech;
 		// Delay the town bank until the house-training tech is at least researching.
 		const t = gameState.getTimeElapsed();
 		if (!gameState.isResearched(fert) && !gameState.isResearching(fert) &&
@@ -41,33 +44,33 @@ BrennusBot.prototype.managePhaseUp = function()
 		for (const ent of gameState.getOwnStructures().values())
 			if (ent.templateName() === fieldType)
 				bootstrapFields++;
-		if (t < 300000 && bootstrapFields < 2 && this.fruitStock < 1500)
+		if (t < 300000 && bootstrapFields < 2 && this.bot.economyManager.fruitStock < 1500)
 			return;
 	}
-	const cost = this.phaseUpCost[tech];
+	const cost = this.bot.phaseUpCost[tech];
 	if (tech === "phase_town_generic")
 	{
-		this.arbiter.hold("banking");
-		this.arbiter.reserve("phaseBank", { "food": 500, "wood": 500 });
+		this.bot.arbiter.hold("banking");
+		this.bot.arbiter.reserve("phaseBank", { "food": 500, "wood": 500 });
 	}
 	else
-		this.arbiter.reserve("phaseBank", { ...cost,
-			"wood": (cost.wood || 0) + this.arbiter.reserved("wood") });
+		this.bot.arbiter.reserve("phaseBank", { ...cost,
+			"wood": (cost.wood || 0) + this.bot.arbiter.reserved("wood") });
 
 	// City: the boom used to hold the research start until the grain-rate and
 	// house-cap techs were out (fallback 13:20). This bot cannot wait: city
 	// unlocks fanatics/arsenal/rams and the 100-army war stage, and the war
 	// fund starves those very techs (agg5 s1: plows at 16.4m, city never —
 	// the bot died in town phase with 1000 stone and 1800 metal banked).
-	if (!this.arbiter.check(this.arbiter.books("phaseUp"), "phaseUp", cost, tech))
+	if (!this.bot.arbiter.check(this.bot.arbiter.books("phaseUp"), "phaseUp", cost, tech))
 		return;
 
-	this.arbiter.hold("phaseReady");
-	const cc = this.getCivicCentre();
+	this.bot.arbiter.hold("phaseReady");
+	const cc = this.bot.getCivicCentre();
 	if (cc && !cc.trainingQueue()?.length)
 	{
 		cc.research(tech);
-		this.arbiter.hold("construction");
+		this.bot.arbiter.hold("construction");
 	}
 	else if (cc && gameState.getPopulation() >= gameState.getPopulationLimit())
 
@@ -76,27 +79,18 @@ BrennusBot.prototype.managePhaseUp = function()
 			cc.stopProduction(item.id);
 };
 
-BrennusBot.prototype.getCivicCentre = function()
-{
-	const ccType = this.gameState.applyCiv("structures/{civ}/civil_centre");
-	for (const ent of this.gameState.getOwnStructures().values())
-		if (ent.templateName() === ccType)
-			return ent;
-	return undefined;
-};
-
 // ---------------------------------------------------------------- training
-BrennusBot.prototype.trainWorkers = function()
+BoomManager.prototype.trainWorkers = function()
 {
-	const gameState = this.gameState;
-	const resources = this.arbiter.books("workers");
+	const gameState = this.bot.gameState;
+	const resources = this.bot.arbiter.books("workers");
 
 	// Leave pop room for the mustering army and its refills: stop the civilian
 	// stream at the cap once the war stage is on. Gating this on army <
 	// target yo-yoed (army full → train to the cap → dismiss for the next
 	// batch → retrain…).
-	if (this.warOn() &&
-		gameState.getPopulation() >= gameState.getPopulationLimit() - this.arbiterParams.popPartition.warPopHeadroom)
+	if (this.bot.warOn() &&
+		gameState.getPopulation() >= gameState.getPopulationLimit() - this.bot.arbiterParams.popPartition.warPopHeadroom)
 		return;
 
 	// War-stage pop discipline: hold workers at the pop-partition cap and
@@ -108,14 +102,14 @@ BrennusBot.prototype.trainWorkers = function()
 	// Refilling army losses with women only to dismiss them on the next
 	// soldier batch is a pure food leak — def10-12 logged 400-900 dismissals
 	// per game (≈ 20-45k food).
-	if (this.warOn())
+	if (this.bot.warOn())
 	{
 		let workers = 0;
 		for (const u of gameState.getOwnUnits().values())
 			if (u.isGatherer() && !u.hasClass("Soldier") && !u.hasClass("Trader") &&
-				u.id() !== this.herderId)
+				u.id() !== this.bot.economyManager.herderId)
 				workers++;
-		if (workers >= this.arbiterParams.popPartition.workerCap)
+		if (workers >= this.bot.arbiterParams.popPartition.workerCap)
 			return;
 	}
 
@@ -126,28 +120,28 @@ BrennusBot.prototype.trainWorkers = function()
 	// 100 starved the boom techs and stalled city phase, and agg6's 130
 	// still meant city at 18.5-20.2m — city gates fanatics/rams/raids, so
 	// every minute here is a minute off the kill clock.
-	if (this.defenseOn() && !this.warOn())
+	if (this.bot.defenseOn() && !this.bot.warOn())
 	{
 		let workers = 0;
 		for (const u of gameState.getOwnUnits().values())
 			if (u.isGatherer() && !u.hasClass("Soldier") && !u.hasClass("Trader") &&
-				u.id() !== this.herderId)
+				u.id() !== this.bot.economyManager.herderId)
 				workers++;
-		if (workers >= this.arbiterParams.popPartition.workerCap)
+		if (workers >= this.bot.arbiterParams.popPartition.workerCap)
 			return;
 	}
 
-	const reserveFood = this.arbiter.reserved("food");
+	const reserveFood = this.bot.arbiter.reserved("food");
 
-	const fertFloor = this.arbiter.declaredAmount("fert", "food");
+	const fertFloor = this.bot.arbiter.declaredAmount("fert", "food");
 	// The early muster has first claim on musterShare × the estimated food
 	// flow: the women stream spends only the surplus above it (the old
 	// emergent race — muster first at cost-level floors, women the
 	// remainder — made an explicit parameter).
-	const flowFloor = this.arbiter.declared("musterActive") ?
-		Math.round(this.arbiterParams.foodSplit.musterShare * this.arbiter.income.food) : 0;
+	const flowFloor = this.bot.arbiter.declared("musterActive") ?
+		Math.round(this.bot.arbiterParams.foodSplit.musterShare * this.bot.arbiter.income.food) : 0;
 	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
-	const houseTraining = gameState.isResearched(this.houseTrainingTech);
+	const houseTraining = gameState.isResearched(this.bot.houseTrainingTech);
 
 	for (const ent of gameState.getOwnStructures().values())
 	{
@@ -155,15 +149,15 @@ BrennusBot.prototype.trainWorkers = function()
 		if (ent.templateName() === ccType)
 		{
 
-			if (this.arbiter.held("phaseReady"))
+			if (this.bot.arbiter.held("phaseReady"))
 				continue;
 			type = gameState.applyCiv("units/{civ}/support_civilian");
-			batch = this.arbiterParams.foodSplit.womanCcBatch;
+			batch = this.bot.arbiterParams.foodSplit.womanCcBatch;
 		}
 		else if (houseTraining && ent.hasClass("House") && ent.foundationProgress() === undefined)
 		{
 			type = gameState.applyCiv("units/{civ}/support_civilian_house");
-			batch = this.arbiterParams.foodSplit.womanHouseBatch;
+			batch = this.bot.arbiterParams.foodSplit.womanHouseBatch;
 		}
 		else
 			continue;
@@ -172,7 +166,7 @@ BrennusBot.prototype.trainWorkers = function()
 		if (queue && !queue.length && resources.food >= reserveFood + fertFloor + flowFloor + 50 * batch)
 		{
 			ent.train(gameState.getPlayerCiv(), type, batch, {});
-			this.arbiter.spend(resources, "workers", { "food": 50 * batch }, `women x${batch}`);
+			this.bot.arbiter.spend(resources, "workers", { "food": 50 * batch }, `women x${batch}`);
 		}
 	}
 };
@@ -180,37 +174,37 @@ BrennusBot.prototype.trainWorkers = function()
 // ---------------------------------------------------------------- research
 /** Boom techs, one per block, from genuine surplus only (reserve and
  * pending wood kept intact); Fertility Festival first. */
-BrennusBot.prototype.manageResearch = function()
+BoomManager.prototype.manageResearch = function()
 {
-	const gameState = this.gameState;
-	const resources = this.arbiter.books("research");
-	const reserve = this.arbiter.reservedAll();
-	if (this.arbiter.held("banking"))
+	const gameState = this.bot.gameState;
+	const resources = this.bot.arbiter.books("research");
+	const reserve = this.bot.arbiter.reservedAll();
+	if (this.bot.arbiter.held("banking"))
 		return;
 
-	const fert = this.houseTrainingTech;
-	this.arbiter.declare("fert", null);
+	const fert = this.bot.houseTrainingTech;
+	this.bot.arbiter.declare("fert", null);
 	if (!gameState.isResearched(fert) && !gameState.isResearching(fert) &&
 		gameState.getTimeElapsed() >= 240000)
 	{
 		const affordable = resources.canAfford({ "food": 260, "wood": 110, "metal": 110 });
 		const facility = gameState.findResearchers(fert)?.toEntityArray()
 			.filter(ent => ent.foundationProgress() === undefined && (ent.trainingQueue()?.length || 0) <= 1)[0];
-		this.arbiter.declare("fert", !!facility && gameState.canResearch(fert) && !affordable ? { "food": 300 } : null);
+		this.bot.arbiter.declare("fert", !!facility && gameState.canResearch(fert) && !affordable ? { "food": 300 } : null);
 		if (affordable && facility)
 		{
 			facility.research(fert);
-			this.arbiter.spend(resources, "research", { "food": 250, "wood": 100, "metal": 100 }, fert);
+			this.bot.arbiter.spend(resources, "research", { "food": 250, "wood": 100, "metal": 100 }, fert);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${fert}\n`);
-			this.arbiter.hold("construction");
+			this.bot.arbiter.hold("construction");
 		}
 		return;
 	}
 
-	if (this.manageExpansionTechs())
+	if (this.bot.manageExpansionTechs())
 		return;
 
-	for (const tech of this.boomTechs)
+	for (const tech of this.bot.boomTechs)
 	{
 		if (gameState.isResearched(tech) || gameState.isResearching(tech))
 			continue;
@@ -236,12 +230,12 @@ BrennusBot.prototype.manageResearch = function()
 		if (facility)
 		{
 			facility.research(tech);
-			this.arbiter.spend(resources, "research", cost, tech);
+			this.bot.arbiter.spend(resources, "research", cost, tech);
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m research ${tech}\n`);
-			this.arbiter.hold("construction");
+			this.bot.arbiter.hold("construction");
 		}
 		return;
 	}
 
-	this.manageExpansionTechs();
+	this.bot.manageExpansionTechs();
 };

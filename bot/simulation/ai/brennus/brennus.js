@@ -9,13 +9,13 @@
 import { BaseAI } from "simulation/ai/common-api/baseAI.js";
 import { ResourceArbiter } from "simulation/ai/brennus/arbiter.js";
 import { ArmyManager } from "simulation/ai/brennus/army.js";
+import { BoomManager } from "simulation/ai/brennus/boom.js";
 import { BuildupManager } from "simulation/ai/brennus/buildup.js";
 import { DefenseManager } from "simulation/ai/brennus/defense.js";
+import { EconomyManager } from "simulation/ai/brennus/economy.js";
 import { OffenseManager } from "simulation/ai/brennus/offense.js";
 import { FarmsteadStrategy, MineStorehouseStrategy, WoodStorehouseStrategy } from "simulation/ai/brennus/construction.js";
-import "simulation/ai/brennus/boom.js";
 import "simulation/ai/brennus/config.js";
-import "simulation/ai/brennus/economy.js";
 import "simulation/ai/brennus/expansion.js";
 import "simulation/ai/brennus/placement.js";
 import "simulation/ai/brennus/status.js";
@@ -39,8 +39,6 @@ BrennusBot.prototype.CustomInit = function(gameState)
 
 	this.ccAngle = undefined;
 
-	this.assignments = this.savedState?.assignments || {}; // entityID -> resource
-
 	this.builderAssignments = this.savedState?.builderAssignments || {};
 
 	this.pendingBuilds = this.savedState?.pendingBuilds || []; // [{template, x, z, turn}]
@@ -53,36 +51,10 @@ BrennusBot.prototype.CustomInit = function(gameState)
 
 	this.failedSpots = this.savedState?.failedSpots || [];
 
-	this.carry = this.savedState?.carry || {};
-
-	this.gatherTarget = this.savedState?.gatherTarget || {};
-
-	this.lastDelivery = this.savedState?.lastDelivery || {};
-
-	this.rateStats = this.savedState?.rateStats ||
-		{ "wood": { "amount": 0, "theo": 0 }, "grain": { "amount": 0, "theo": 0 },
-		  "fruit": { "amount": 0, "theo": 0 }, "meat": { "amount": 0, "theo": 0 },
-		  "stone": { "amount": 0, "theo": 0 }, "metal": { "amount": 0, "theo": 0 } };
-
-	this.herderId = this.savedState?.herderId;
-	this.herdTarget = this.savedState?.herdTarget;
-	this.herdingDone = this.savedState?.herdingDone || false;
-	this.herdCmdTurn = 0;
-	this.herdStartTurn = 0;
-	this.herdStartDist = Infinity;
-	this.herdBestDist = Infinity;
-	this.herdWoundTurn = this.savedState?.herdWoundTurn || 0;
-	this.herdFast = this.savedState?.herdFast || false;
-	this.herdKill = this.savedState?.herdKill || false;
-	this.herdLastPos = this.savedState?.herdLastPos;
-
-	// Pinned food dropsite the steer pushes toward (an unpinned target zigzags between dropsites).
-	this.herdDrop = this.savedState?.herdDrop;
-	this.herdWoundDist = this.savedState?.herdWoundDist || Infinity;
-
-	this.fruitStock = 0;
-
-	this.mineId = this.savedState?.mineId || {}; // resource -> pinned mine (miners concentrate until full)
+	// Gathering assignment, herding, mine pinning and gather-rate telemetry.
+	this.economyManager = new EconomyManager(this);
+	this.economyManager.deserialize(this.savedState?.economy);
+	this.boomManager = new BoomManager(this);
 
 	this.expPlan = this.savedState?.expPlan || null; // {spots, next, done, simPct}
 
@@ -108,7 +80,7 @@ BrennusBot.prototype.CustomInit = function(gameState)
 
 	// Army rosters and enemy intel, home-defense dispatch, war production.
 	this.armyManager = new ArmyManager(this);
-	this.armyManager.deserialize(this.savedState?.armyManager);
+	this.armyManager.deserialize(this.savedState?.army);
 	this.defenseManager = new DefenseManager(this);
 	this.buildupManager = new BuildupManager(this);
 
@@ -145,10 +117,10 @@ BrennusBot.prototype.OnUpdate = function()
 
 		// A research or defense-building order holds construction for the rest of the block: research + construct in the same block would overdraw the pre-command resource snapshot.
 		this.arbiter.resetBlock();
-		this.updateResourceScan();
-		this.assignGatherers();
-		this.manageHerding();
-		this.sampleGatherRates();
+		this.economyManager.updateResourceScan();
+		this.economyManager.assignGatherers();
+		this.economyManager.manageHerding();
+		this.economyManager.sampleGatherRates();
 		this.arbiter.runSpenders();
 	}
 	const phase = this.gameState.currentPhase();
@@ -172,34 +144,17 @@ BrennusBot.prototype.OnUpdate = function()
 BrennusBot.prototype.Serialize = function()
 {
 	return {
-		"assignments": this.assignments,
 		"builderAssignments": this.builderAssignments,
 		"pendingBuilds": this.pendingBuilds,
 		"bootstrapStoreTried": this.bootstrapStoreTried,
 		"failedSpots": this.failedSpots,
-		"carry": this.carry,
-		"gatherTarget": this.gatherTarget,
-		"lastDelivery": this.lastDelivery,
-		"rateStats": this.rateStats,
-		"herderId": this.herderId,
-		"herdTarget": this.herdTarget,
-		"herdingDone": this.herdingDone,
-		"herdStartTurn": this.herdStartTurn,
-		"herdStartDist": this.herdStartDist,
-		"herdBestDist": this.herdBestDist,
-		"herdWoundTurn": this.herdWoundTurn,
-		"herdFast": this.herdFast,
-		"herdKill": this.herdKill,
-		"herdLastPos": this.herdLastPos,
-		"herdDrop": this.herdDrop,
-		"herdWoundDist": this.herdWoundDist,
-		"mineId": this.mineId,
 		"expPlan": this.expPlan,
 		"expOn": this.expOn,
 		"reliefOn": this.reliefOn,
 		"placeFailSince": this.placeFailSince,
 		"reliefServedPeak": this.reliefServedPeak,
 		"expContested": this.expContested,
+		"economy": this.economyManager.serialize(),
 		"offense": this.offenseManager.serialize(),
 		"army": this.armyManager.serialize(),
 		"arbiter": this.arbiter.serialize(),
@@ -210,4 +165,23 @@ BrennusBot.prototype.Deserialize = function(data, sharedScript)
 {
 	this.savedState = data;
 	this.isDeserialized = true;
+};
+
+// ---------------------------------------------------------------- lookups
+BrennusBot.prototype.getCivicCentre = function()
+{
+	const ccType = this.gameState.applyCiv("structures/{civ}/civil_centre");
+	for (const ent of this.gameState.getOwnStructures().values())
+		if (ent.templateName() === ccType)
+			return ent;
+	return undefined;
+};
+
+BrennusBot.prototype.inOwnTerritory = function(x, z)
+{
+	const terr = this.territoryMap;
+	const i = Math.floor(x / terr.cellSize), j = Math.floor(z / terr.cellSize);
+	if (i < 0 || j < 0 || i >= terr.width || j >= terr.height)
+		return false;
+	return (terr.data[i + j * terr.width] & 0x1F) === this.player;
 };

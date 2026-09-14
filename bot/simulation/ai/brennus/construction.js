@@ -66,10 +66,10 @@ BrennusBot.prototype.manageConstruction = function()
 			continue;
 		const builders = gameState.getOwnUnits()
 			.filter(ent => ent.isGatherer() && ent.isBuilder() && ent.position() &&
-				!(ent.id() === this.herderId && !this.herdingDone) &&
+				!(ent.id() === this.economyManager.herderId && !this.economyManager.herdingDone) &&
 				!this.armyManager.army[ent.id()] &&
 				!taken.has(ent.id()) &&
-				(!rush || this.assignments[ent.id()] === "wood"))
+				(!rush || this.economyManager.assignments[ent.id()] === "wood"))
 			.filterNearest(fpos, needed);
 		if (rush && !cur.length)
 			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m rush-building storehouse at ${fpos[0].toFixed(0)},${fpos[1].toFixed(0)} (${needed} wood choppers)\n`);
@@ -253,12 +253,12 @@ BrennusBot.prototype.manageConstruction = function()
 	// read it (until step C the early gate below read the previous block's
 	// declaration — an accident of statement order, not a policy).
 	let foodGatherers = 0;
-	for (const res of Object.values(this.assignments))
+	for (const res of Object.values(this.economyManager.assignments))
 		if (res === "food")
 			foodGatherers++;
 	const fieldCap = this.expansionOn() ? 60 : (gameState.currentPhase() === 1 ? 4 : 30);
 	// Fields open at t=1:30 or when served fruit runs low: they must stand before the fruit runs out.
-	const desiredFields = this.fruitStock < 4000 || gameState.getTimeElapsed() > 90000 ?
+	const desiredFields = this.economyManager.fruitStock < 4000 || gameState.getTimeElapsed() > 90000 ?
 		Math.min(fieldCap, Math.max(2, Math.ceil(foodGatherers / 3) + 1)) : 0;
 	let fields = 0;
 	for (const ent of gameState.getOwnStructures().values())
@@ -269,7 +269,7 @@ BrennusBot.prototype.manageConstruction = function()
 
 	// Bootstrap only: the first 2 fields outrank the house stream while served fruit is nearly out.
 	this.arbiter.declare("field", (fields + fieldFoundations) < Math.min(2, desiredFields) &&
-		this.fruitStock < 800 ? { "wood": 100 } : null);
+		this.economyManager.fruitStock < 800 ? { "wood": 100 } : null);
 
 	if (margin < 2 && houseFoundations < this.maxHouseFoundations &&
 		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
@@ -421,10 +421,10 @@ export const WoodStorehouseStrategy = {
 		const gameState = bot.gameState;
 		const resources = ctx.resources;
 
-		const underserved = (bot.woodUnderserved || []).filter(u => u.wood >= this.minTreeWood);
-		const frontier = (bot.woodFrontier || []).filter(u => u.wood >= this.minTreeWood);
+		const underserved = (bot.economyManager.woodUnderserved || []).filter(u => u.wood >= this.minTreeWood);
+		const frontier = (bot.economyManager.woodFrontier || []).filter(u => u.wood >= this.minTreeWood);
 		let demand = underserved;
-		if (!demand.length && (bot.woodFreeSlots ?? Infinity) < bot.woodSlotMargin)
+		if (!demand.length && (bot.economyManager.woodFreeSlots ?? Infinity) < bot.woodSlotMargin)
 			demand = frontier;
 		if (demand.length && ctx.storeCount < (bot.expansionOn() ? 40 : 18) &&
 			resources.wood >= 100)
@@ -443,14 +443,14 @@ export const WoodStorehouseStrategy = {
 				}
 				return mass;
 			};
-			const ranked = demand.map(u => [bot.edgeDistToSites(u.pos, ctx.woodSites), u.pos])
+			const ranked = demand.map(u => [bot.economyManager.edgeDistToSites(u.pos, ctx.woodSites), u.pos])
 				.sort((a, b) => b[0] - a[0]);
 			const tried = [];
 			for (const [, pos] of ranked)
 			{
 				if (tried.some(p => SquareDistance(p, pos) < 25 * 25))
 					continue;
-				const center = bot.centroid(demand.filter(u => Math.hypot(u.pos[0] - pos[0], u.pos[1] - pos[1]) < 25)
+				const center = bot.economyManager.centroid(demand.filter(u => Math.hypot(u.pos[0] - pos[0], u.pos[1] - pos[1]) < 25)
 					.map(u => u.pos));
 				tried.push(center);
 				const mass = massNear(center);
@@ -502,11 +502,11 @@ export const MineStorehouseStrategy = {
 			{
 				if (!ent.isGatherer() || ent.isIdle() || !ent.position())
 					continue;
-				const tgt = bot.gatherTarget[ent.id()];
+				const tgt = bot.economyManager.gatherTarget[ent.id()];
 				if (tgt?.generic !== "stone" && tgt?.generic !== "metal")
 					continue;
 				const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
-				const d = bot.edgeDistToSites(anchor, ctx.woodSites);
+				const d = bot.economyManager.edgeDistToSites(anchor, ctx.woodSites);
 				if (d > bot.mineGatherServeDist)
 					underserved.push(anchor);
 				if (d > worstDist)
@@ -519,15 +519,15 @@ export const MineStorehouseStrategy = {
 			// expansion headcount: two miners at 40+ m is already coverage demand.
 			// It also skips the mine-storehouse cooldown and the reserve-padded
 			// wood floor — every turn at 40+ m costs more than the 100 wood.
-			const far = underserved.filter(p => bot.edgeDistToSites(p, ctx.woodSites) > bot.mineDistWarn);
+			const far = underserved.filter(p => bot.economyManager.edgeDistToSites(p, ctx.woodSites) > bot.mineDistWarn);
 			if ((underserved.length >= (bot.expansionOn() ? 5 : 2) || far.length >= 2) &&
 				!(bot.expansionOn() && far.length < 2 && bot.turn - (this.lastMineStoreTurn || -1000) < 40))
 			{
 				bot.arbiter.declare("dropsite", { "wood": 100 });
-				const sMine = bot.mineId.stone !== undefined ?
-					gameState.getEntityById(bot.mineId.stone) : undefined;
-				const mMine = bot.mineId.metal !== undefined ?
-					gameState.getEntityById(bot.mineId.metal) : undefined;
+				const sMine = bot.economyManager.mineId.stone !== undefined ?
+					gameState.getEntityById(bot.economyManager.mineId.stone) : undefined;
+				const mMine = bot.economyManager.mineId.metal !== undefined ?
+					gameState.getEntityById(bot.economyManager.mineId.metal) : undefined;
 				const sPos = sMine?.position(), mPos = mMine?.position();
 				// Pinned stone and metal mines close together share ONE storehouse between them.
 				// Not when the trigger is a far drift cluster: the demand sits at
@@ -553,7 +553,7 @@ export const MineStorehouseStrategy = {
 					}
 				}
 				const clump = underserved.filter(p => Math.hypot(p[0] - worst[0], p[1] - worst[1]) < 25);
-				const center = bot.centroid(clump);
+				const center = bot.economyManager.centroid(clump);
 				const planned = ctx.storeFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 45) ||
 					ctx.storePending(center);
 				const pos = resources.wood >= (far.length >= 2 ? 100 : ctx.woodFloor) && !planned &&
@@ -584,7 +584,7 @@ export const MineStorehouseStrategy = {
 						continue;
 					// Coverage-first: open the richest in-territory mine past the
 					// alarm distance before mining shares ever reach it.
-					if (bot.edgeDistToSites(pos, ctx.woodSites) <= bot.mineDistWarn)
+					if (bot.economyManager.edgeDistToSites(pos, ctx.woodSites) <= bot.mineDistWarn)
 						continue;
 					bestAmt = s.resourceSupplyAmount();
 					best = pos;
@@ -656,20 +656,20 @@ export const FarmsteadStrategy = {
 
 		const farmType = gameState.applyCiv("structures/{civ}/farmstead");
 		const fieldType = gameState.applyCiv("structures/{civ}/field");
-		const foodSites = [{ "pos": cc.position(), "half": bot.obstructionHalfDiag(cc) }];
+		const foodSites = [{ "pos": cc.position(), "half": bot.economyManager.obstructionHalfDiag(cc) }];
 		const farmFoundations = [];
 		let farmCount = 0;
 		for (const f of ctx.foundations)
 			if (gameState.getBuiltTemplate(f.templateName()).templateName() === farmType && f.position())
 			{
-				foodSites.push({ "pos": f.position(), "half": bot.obstructionHalfDiag(f) });
+				foodSites.push({ "pos": f.position(), "half": bot.economyManager.obstructionHalfDiag(f) });
 				farmFoundations.push(f.position());
 				farmCount++;
 			}
 		for (const ent of gameState.getOwnStructures().values())
 			if (ent.templateName() === farmType && ent.position())
 			{
-				foodSites.push({ "pos": ent.position(), "half": bot.obstructionHalfDiag(ent) });
+				foodSites.push({ "pos": ent.position(), "half": bot.economyManager.obstructionHalfDiag(ent) });
 				farmCount++;
 			}
 		let worstField, worstFieldDist = 15;
@@ -678,7 +678,7 @@ export const FarmsteadStrategy = {
 		{
 			if (ent.templateName() !== fieldType || ent.foundationProgress() !== undefined || !ent.position())
 				continue;
-			const d = bot.edgeDistToSites(ent.position(), foodSites) - 15.5;
+			const d = bot.economyManager.edgeDistToSites(ent.position(), foodSites) - 15.5;
 			if (d > 15)
 				unservedFields.push(ent.position());
 			if (d > worstFieldDist)
@@ -690,7 +690,7 @@ export const FarmsteadStrategy = {
 		if (unservedFields.length >= 2 && farmCount < 12)
 		{
 			const cluster = unservedFields.filter(p => Math.hypot(p[0] - worstField[0], p[1] - worstField[1]) < 30);
-			const center = bot.centroid(cluster);
+			const center = bot.economyManager.centroid(cluster);
 			const planned = farmFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 25);
 			const pos = !planned && resources.wood >= ctx.woodFloor &&
 				bot.tryConstruct(farmType, "dropsite", center);
@@ -708,11 +708,11 @@ export const FarmsteadStrategy = {
 		{
 			if (!ent.isGatherer() || ent.isIdle() || !ent.position())
 				continue;
-			const tgt = bot.gatherTarget[ent.id()];
+			const tgt = bot.economyManager.gatherTarget[ent.id()];
 			if (tgt?.generic !== "food" || tgt?.specific !== "fruit")
 				continue;
 			const anchor = gameState.getEntityById(tgt.supplyId)?.position() || ent.position();
-			const d = bot.edgeDistToSites(anchor, foodSites);
+			const d = bot.economyManager.edgeDistToSites(anchor, foodSites);
 			if (d > 18)
 				unservedFruit.push(anchor);
 			if (d > worstFruitDist)
@@ -725,7 +725,7 @@ export const FarmsteadStrategy = {
 		{
 			bot.arbiter.declare("dropsite", { "wood": 100 });
 			const cluster = unservedFruit.filter(p => Math.hypot(p[0] - worstFruit[0], p[1] - worstFruit[1]) < 25);
-			const center = bot.centroid(cluster);
+			const center = bot.economyManager.centroid(cluster);
 			const planned = farmFoundations.some(p => Math.hypot(p[0] - center[0], p[1] - center[1]) < 25);
 			const pos = !planned && resources.wood >= ctx.woodFloor &&
 				bot.tryConstruct(farmType, "dropsite", center);
@@ -737,7 +737,7 @@ export const FarmsteadStrategy = {
 			}
 		}
 
-		if (bot.fruitStock < 600 && farmCount < 12 && resources.wood >= ctx.woodFloor)
+		if (bot.economyManager.fruitStock < 600 && farmCount < 12 && resources.wood >= ctx.woodFloor)
 		{
 			const region = bot.accessibility.getAccessValue(cc.position());
 			const fruits = gameState.getResourceSupplies("food").toEntityArray()
@@ -767,7 +767,7 @@ export const FarmsteadStrategy = {
 				if (pos)
 				{
 					bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "farmstead/next-fruit");
-					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for next fruit patch ${best[0].toFixed(0)},${best[1].toFixed(0)} (stock ${Math.round(bot.fruitStock)})\n`);
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m farmstead at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} for next fruit patch ${best[0].toFixed(0)},${best[1].toFixed(0)} (stock ${Math.round(bot.economyManager.fruitStock)})\n`);
 					return true;
 				}
 			}
@@ -788,20 +788,20 @@ BrennusBot.prototype.buildDropsiteContext = function(foundations, reserve, resou
 	if (!cc)
 		return null;
 	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
-	const woodSites = [{ "pos": cc.position(), "half": this.obstructionHalfDiag(cc) }];
+	const woodSites = [{ "pos": cc.position(), "half": this.economyManager.obstructionHalfDiag(cc) }];
 	const storeFoundations = [];
 	let storeCount = 0;
 	for (const f of foundations)
 		if (gameState.getBuiltTemplate(f.templateName()).templateName() === storeType && f.position())
 		{
-			woodSites.push({ "pos": f.position(), "half": this.obstructionHalfDiag(f) });
+			woodSites.push({ "pos": f.position(), "half": this.economyManager.obstructionHalfDiag(f) });
 			storeFoundations.push(f.position());
 			storeCount++;
 		}
 	for (const ent of gameState.getOwnStructures().values())
 		if (ent.templateName() === storeType && ent.position())
 		{
-			woodSites.push({ "pos": ent.position(), "half": this.obstructionHalfDiag(ent) });
+			woodSites.push({ "pos": ent.position(), "half": this.economyManager.obstructionHalfDiag(ent) });
 			storeCount++;
 		}
 	return {
