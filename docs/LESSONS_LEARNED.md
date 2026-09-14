@@ -1192,3 +1192,21 @@ unchanged.
   The tally and the aggregates are the signal; both are neutral.
 - Kept per doctrine: theoretically sound, no harmful mechanism found,
   hard-seed bucket 12 -> 3 held (47, 88, 170).
+
+## 2026-09-14 (mod AI split into ES modules: verified bit-identical)
+
+- A mod AI can be split into multiple files: the engine loads AI scripts
+  as ES modules, so sibling files under `simulation/ai/<bot>/` import each
+  other by full VFS path (`import { X } from "simulation/ai/brennus/arbiter.js"`)
+  — same pattern Petra uses inside the public mod. `data.json` keeps
+  pointing at the entry file only.
+- Side-effect attach pattern (domain modules do
+  `BrennusBot.prototype.foo = ...` at top level): module bodies evaluate
+  BEFORE the entry body, so the entry must link BaseAI with
+  `Object.setPrototypeOf(BrennusBot.prototype, BaseAI.prototype)` —
+  `prototype = Object.create(...)` would wipe every method the modules
+  just attached. Circular imports back to the entry are safe because
+  `export function BrennusBot` is hoisted (initialized at instantiation).
+- Verified: monolith vs split, seeds 101/202/303 standard matches —
+  byte-identical end-game stats.json and identical turn counts, 0 JS
+  errors. Determinism survives a pure code-motion split.
