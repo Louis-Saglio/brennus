@@ -1293,3 +1293,38 @@ unchanged.
   never serialized (dead read on load); expansionRegion never
   serialized. One real bug was fixed instead: the army roster serialize
   key mismatch ("army" written, "armyManager" read).
+
+## 2026-09-15 (muster-and-engage: verified engine mechanics + design facts)
+
+- UnitAI stance semantics, verified in the pinned 0.28.0 source
+  (UnitAI.js g_Stances): a unit's auto-attack query range is
+  stance-dependent (GetQueryRange) — defensive (respondHoldGround):
+  min(attackRange + vision/2, vision) ≈ 49 m for melee infantry, ~75-90 m
+  for ranged; standground (respondStandGround): attack range only.
+  defensive does not chase; AI-issued move orders are FORCED
+  (UnitAI.Walk: force=true), and a forced order suppresses retaliation
+  (INDIVIDUAL.Attacked responds only when the current order is not
+  forced) — soldiers walking to a muster point keep walking under fire
+  instead of being pulled into skirmishes. Idle defensive units at the
+  point auto-engage whatever crosses ~49 m.
+- Infantry run speeds (docs/game_description/generic/units): spearman
+  15.9 m/s, slinger 10.8 walk, archer 10.3 walk, javelineer 19.0 run,
+  fanatic 22.2 run, sword cavalry 25.2 run. The ranged infantry really
+  is faster than the melee line, so any order that sends a scattered
+  army at one target point delivers the ranged first, alone.
+- Melee/Ranged are VisibleClasses on the infantry/cavalry templates;
+  hasClass("Melee") / hasClass("Ranged") work (same path the cavalry
+  picker already used).
+- Raid-response design that fixed the early-fight k/d (s61/s69/s113 all
+  flipped loss -> win): muster at 45 m from the threatened CC toward the
+  enemy; HOLD (forced moves, no charge) until the enemy's leading edge
+  is at 70 m of the muster, or 2/3 of responders are gathered and it is
+  at 110 m; then engage as one block — melee attackMove the centroid,
+  ranged attackMove a back line 30 m behind it, cavalry keeps its
+  siege-then-ranged priority targets. A near-home group (5+ within
+  250 m of home) that is part of a larger force (8+ within 250 m of its
+  centroid) is a wave's vanguard: muster-only, and it suppresses the
+  leftover-raider swat — the swat was feeding 6-28-man detachments into
+  70-113-man waves (s113: 52 -> 45 before the ring even tripped).
+  Gates: minor-probe engage allowed only when no 20+ wave is inbound;
+  serious-branch engage keeps the nearThreat superiority gate.

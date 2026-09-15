@@ -18,6 +18,8 @@ export function DefenseManager(bot)
 	this.lastSeriousTurn = 0;
 	this.hadThreat = false;
 	this.swatting = false;
+	// Muster hold/engage log latch (reset when the coast is clear).
+	this.musterState = undefined;
 }
 
 DefenseManager.prototype.manageDefense = function()
@@ -111,11 +113,25 @@ DefenseManager.prototype.manageDefense = function()
 
 	// Wave early warning for the working army: 5+ enemy soldiers/siege within
 	// 250 m of home recall the gatherers before the 120 m threat ring does.
-	let nearHome = 0;
+	// The near-home group that is part of a larger force (8+ within 250 m of
+	// its centroid) is a marching wave's vanguard, not a probe: the muster
+	// branches below hold against it instead of charging out.
+	let nearHome = 0, nearX = 0, nearZ = 0;
 	if (homePos)
 		for (const p of mil)
 			if (SquareDistance(p, homePos) < 250 * 250)
+			{
 				nearHome++;
+				nearX += p[0];
+				nearZ += p[1];
+			}
+	let waveSize = 0;
+	if (nearHome >= 5)
+		for (const p of mil)
+			if (SquareDistance(p, [nearX / nearHome, nearZ / nearHome]) < 250 * 250)
+				waveSize++;
+	if (!serious && !threat && nearHome < 5)
+		this.musterState = undefined;
 	// A border foundation going up is a threat too: keep the army mobilized
 	// for the denial (Petra founds border fortresses during our boom).
 	const denyTarget = this.findDenyTarget(mil, homePos);
@@ -264,47 +280,10 @@ DefenseManager.prototype.manageDefense = function()
 						shelters.push(ent);
 			}
 			if ((split ? responders.length : this.bot.armyManager.armyCount()) >= nearThreat)
-			{
-				// Local superiority: eject the garrisons (wherever they are —
-				// the fight may have moved CCs since they hid) and take the
-				// fight to them.
-				this.bot.armyManager.ejectArmyGarrisons(gameState);
-				// Cavalry hunts its preferred targets directly (siege first,
-				// then the ranged back line) instead of blobbing in with the
-				// attackMove — an attackMove would drop it onto the enemy's
-				// melee frontline, which is exactly where it is weakest.
-				// The foe scan runs at most once per command round and only
-				// when cavalry is actually among the responders.
-				let cavFoes;
-				for (const ent of responders)
-				{
-					if (ent.hasClass("Cavalry"))
-					{
-						if (cavFoes === undefined)
-						{
-							cavFoes = [];
-							for (const foe of gameState.getEnemyUnits().values())
-							{
-								if (foe.owner() === 0 || (!foe.hasClass("Soldier") && !foe.hasClass("Siege")))
-									continue;
-								const fp = foe.position();
-								if (fp && SquareDistance(fp, [threat.x, threat.z]) < 100 * 100)
-									cavFoes.push(foe);
-							}
-						}
-						const target = this.bot.armyManager.pickCavalryTarget(cavFoes, ent.position());
-						if (target)
-						{
-							ent.attack(target.id(), false);
-							continue;
-						}
-					}
-					ent.attackMove(threat.x, threat.z, "Unit", false);
-				}
-				if (!split)
-					for (const ent of healerEnts)
-						ent.move(threat.x, threat.z);
-			}
+				// Local superiority: meet them at the muster, gathered and in
+				// formation — never a scattered charge at the centroid.
+				this.musterEngage(gameState, threat.x, threat.z, threat.ccx, threat.ccz,
+					responders, split ? [] : healerEnts, mil, true);
 			else
 			{
 				// Outnumbered: garrison the shelters, CC first. Each
@@ -349,14 +328,15 @@ DefenseManager.prototype.manageDefense = function()
 	}
 	else if (threat)
 	{
-		// Minor probes while no raid is on: swat them.
+		// Minor probes while no raid is on: the same muster-and-engage — a
+		// handful of raiders dies at the muster line to a gathered army, not
+		// to the fastest two javelineers of a scattered one. When a wave is
+		// inbound the "probe" is its vanguard: hold, the serious branch owns
+		// the engage decision.
 		if (this.bot.turn >= this.armyCmdTurn)
 		{
 			this.armyCmdTurn = this.bot.turn + 10;
-			for (const ent of armyEnts)
-				ent.attackMove(threat.x, threat.z, "Unit", false);
-			for (const ent of healerEnts)
-				ent.move(threat.x, threat.z);
+			this.musterEngage(gameState, threat.x, threat.z, threat.ccx, threat.ccz, armyEnts, healerEnts, mil, waveSize < 20);
 		}
 	}
 	else if (this.bot.offenseManager.purge(gameState, armyEnts, healerEnts, mil, homePos))
@@ -404,14 +384,29 @@ DefenseManager.prototype.manageDefense = function()
 		}
 		if (!sortie && this.bot.turn >= this.armyCmdTurn)
 		{
+			// Incoming wave beyond the ring: muster the army at home NOW so the
+			// wave meets a gathered line, not a speed-sorted queue of
+			// detachments (s61/s69/s113: the swat fed 6-28-man detachments
+			// into 70-113-man waves while the muster was still walking home).
+			// Below 20 it is a big raid the gathered army beats at the muster
+			// line, so engaging out of the muster is allowed; 20+ is a real
+			// wave — pure hold, the serious branch engages on the ring breach.
+			if (waveSize >= 8 && armyEnts.length >= 6)
+			{
+				this.armyCmdTurn = this.bot.turn + 10;
+				this.swatting = false;
+				this.musterEngage(gameState, nearX / nearHome, nearZ / nearHome, homePos[0], homePos[1], armyEnts, healerEnts, mil, waveSize < 20);
+			}
 			// Dispersed leftovers: raiders beyond every CC's 120 m threat ring
 			// but still inside the economy's reach burn outer buildings while
 			// the army stands idle (s63 loss-review note — the threat scan is
 			// CC-centric and never sees them). Swat the biggest such group
 			// (3-14: 15+ is a siege camp, the sortie's job) with a proportional
 			// detachment; the serious branch preempts if a real wave lands.
+			// Never while a wave is incoming (above): the "leftover group" is
+			// its vanguard and the detachment is a donation.
 			let swat;
-			if (armyEnts.length >= 6)
+			if (waveSize < 8 && armyEnts.length >= 6)
 			{
 				const ccps = [], anchors = [];
 				for (const ent of gameState.getOwnStructures().values())
@@ -474,7 +469,7 @@ DefenseManager.prototype.manageDefense = function()
 				for (let i = 0; i < det; i++)
 					armyEnts[i].attackMove(swat.x, swat.z, "Unit", false);
 			}
-			else
+			else if (waveSize < 8)
 			{
 				this.swatting = false;
 				if (this.bot.expansionManager.warOn())
@@ -579,6 +574,116 @@ DefenseManager.prototype.manageDefense = function()
 			ent.garrison(best.ent);
 		}
 	}
+};
+
+/**
+ * Muster-and-engage: how the army meets an enemy force closing on a CC.
+ * The old answer — attackMove the threat centroid from wherever the soldiers
+ * stand — feeds the enemy a speed-sorted queue: javelineers (run 19 m/s)
+ * and slingers arrive first and die without cover, the spearmen (15.9)
+ * trickle in after, and the ranged support is already dead when the melee
+ * line finally forms (s61/s69/s113 first-wave losses). Instead:
+ * - HOLD at a muster point 45 m from the threatened CC toward the enemy
+ *   until the enemy closes to 70 m of it, or until 2/3 of the responders
+ *   are gathered and the enemy is at 110 m. The fight then starts with the
+ *   whole army present, on our ground, in CC-arrow range. Holding soldiers
+ *   keep their defensive stance: whatever walks into their auto-engage
+ *   range (~50 m melee) is met where the army stands.
+ * - ENGAGE as one block: melee attack-move the threat centroid, ranged
+ *   attack-move a back line 30 m behind it (they halt at weapon range and
+ *   shoot over the melee instead of standing in it), cavalry hunts its
+ *   priority targets (siege, then enemy ranged) as before, healers hold
+ *   the back line.
+ * `allowEngage` gates the engage half: an incoming wave still outside the
+ * ring is muster-only — charging out to meet it is exactly the trap.
+ * Logs the hold/engage transitions (musterState latch). Returns true when
+ * the engage was ordered.
+ */
+DefenseManager.prototype.musterEngage = function(gameState, tx, tz, ccx, ccz, responders, healerEnts, mil, allowEngage)
+{
+	// The muster point sits between the CC and the threat, 45 m out from the
+	// CC (halfway when the threat is closer than that).
+	const dx = tx - ccx, dz = tz - ccz;
+	const d = Math.hypot(dx, dz) || 1;
+	const stand = Math.min(45, d / 2);
+	const mp = [ccx + dx / d * stand, ccz + dz / d * stand];
+	// Enemy leading edge: nearest enemy of the threat's own group (the 200 m
+	// around its centroid — wider than the superiority count's 150 m so a
+	// cavalry-led vanguard counts too) to the muster point.
+	let foe2 = Infinity;
+	for (const p of mil)
+		if (SquareDistance(p, [tx, tz]) < 200 * 200)
+			foe2 = Math.min(foe2, SquareDistance(p, mp));
+	let atMp = 0;
+	for (const ent of responders)
+		if (SquareDistance(ent.position(), mp) < 30 * 30)
+			atMp++;
+	if (!allowEngage || (foe2 >= 70 * 70 && (atMp * 3 < responders.length * 2 || foe2 >= 110 * 110)))
+	{
+		// Hold: walk everyone not yet there; soldiers already fighting
+		// (auto-engaged at the line) fight on.
+		for (const ent of responders)
+			if (SquareDistance(ent.position(), mp) > 20 * 20 &&
+				(ent.unitAIState() || "").indexOf("COMBAT") === -1)
+				ent.move(mp[0], mp[1]);
+		for (const ent of healerEnts)
+			ent.move(mp[0], mp[1]);
+		if (this.musterState !== "hold" && responders.length)
+		{
+			this.musterState = "hold";
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m mustering ${responders.length} soldiers at ${mp[0].toFixed(0)},${mp[1].toFixed(0)} (enemy ${foe2 === Infinity ? "-" : Math.sqrt(foe2).toFixed(0)}m out)\n`);
+		}
+		return false;
+	}
+	// Eject the garrisons (wherever they are — the fight may have moved CCs
+	// since they hid): the balance says fight, so everyone fights.
+	this.bot.armyManager.ejectArmyGarrisons(gameState);
+	// Back line 30 m behind the centroid, toward the muster (at the muster
+	// itself when the enemy is on top of it).
+	const bx = d > 30 ? tx - dx / d * 30 : mp[0];
+	const bz = d > 30 ? tz - dz / d * 30 : mp[1];
+	// Cavalry hunts its preferred targets directly (siege first, then the
+	// ranged back line) instead of blobbing in with the attackMove — an
+	// attackMove would drop it onto the enemy's melee frontline, which is
+	// exactly where it is weakest. The foe scan runs at most once per
+	// command round and only when cavalry is actually among the responders.
+	let cavFoes;
+	for (const ent of responders)
+	{
+		if (ent.hasClass("Cavalry"))
+		{
+			if (cavFoes === undefined)
+			{
+				cavFoes = [];
+				for (const foe of gameState.getEnemyUnits().values())
+				{
+					if (foe.owner() === 0 || (!foe.hasClass("Soldier") && !foe.hasClass("Siege")))
+						continue;
+					const fp = foe.position();
+					if (fp && SquareDistance(fp, [tx, tz]) < 100 * 100)
+						cavFoes.push(foe);
+				}
+			}
+			const target = this.bot.armyManager.pickCavalryTarget(cavFoes, ent.position());
+			if (target)
+			{
+				ent.attack(target.id(), false);
+				continue;
+			}
+		}
+		if (!ent.hasClass("Cavalry") && ent.hasClass("Ranged"))
+			ent.attackMove(bx, bz, "Unit", false);
+		else
+			ent.attackMove(tx, tz, "Unit", false);
+	}
+	for (const ent of healerEnts)
+		ent.move(bx, bz);
+	if (this.musterState !== "engage" && responders.length)
+	{
+		this.musterState = "engage";
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m engaging from the muster (gathered ${atMp}/${responders.length}, enemy ${foe2 === Infinity ? "-" : Math.sqrt(foe2).toFixed(0)}m out)\n`);
+	}
+	return true;
 };
 
 /**
