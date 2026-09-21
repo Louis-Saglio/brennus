@@ -1446,3 +1446,18 @@ unchanged.
 - kiln vps runner killed two jobs mid-run at the same wall-clock second
   (exit 124 after 109 s and 14 s, far under wall_budget_s=1800) — a
   runner-side event, not a game crash; rerun such jobs.
+
+## 2026-09-21 (full 1-400 sweep at 29bfb48: 383W/17T/0L, sweep throughput)
+
+- Full standard-settings sweep seeds 1-400 (sweeps/2026-09-21-s400):
+  383 win / 17 timeout / 0 loss, 0 JS errors, 0 failed-AI, all runner
+  exit codes 0. Win durations min 19.7 / avg 27.8 / max 44.4 game-min.
+  All four d5d6ccd baseline losses (279/316/356/373) cleared: 279 win,
+  the rest timeout. Timeout seeds: 2 41 66 76 140 152 162 170 172 215
+  230 263 267 285 316 356 373.
+- kiln throughput with both runners up (pc 14 slots + vps 2 slots,
+  ~210/~142 turns/s): a 374-job queue drained in ~75 wall min. Bulk
+  submission via the MCP HTTP endpoint (submit.py pattern, one batch per
+  seed, resumable via jobs.tsv) handles 374 jobs fine — recmust3's
+  "submission cut short at seed 361" was a session limit, not a server
+  cap.
