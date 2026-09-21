@@ -22,6 +22,12 @@ export function DefenseManager(bot)
 	this.musterState = undefined;
 	// Outnumbered-garrison log latch (same lifetime).
 	this.garrisonLogged = false;
+	// Inbound-wave tracker for the early away-mission recall: wave centroid
+	// distance to home last run, consecutive closing runs, and the relaunch
+	// suppression latch set by a recall.
+	this.waveDist = undefined;
+	this.waveClosing = 0;
+	this.waveRecallUntil = 0;
 }
 
 DefenseManager.prototype.manageDefense = function()
@@ -172,6 +178,26 @@ DefenseManager.prototype.manageDefense = function()
 		const ent = gameState.getEntityById(+id);
 		if (ent?.position())
 			healerEnts.push(ent);
+	}
+	// Inbound-wave tracker: the wave's centroid closing steadily on home for
+	// 3+ runs. A static siege camp at 200-250 m flickers around a fixed
+	// distance and never trips this — canceling raids over a standing camp
+	// would kill the raid-race wins on camped maps.
+	let waveInbound = false;
+	if (homePos && waveSize >= 40)
+	{
+		const wd = Math.hypot(nearX / nearHome - homePos[0], nearZ / nearHome - homePos[1]);
+		if (this.waveDist !== undefined && wd < this.waveDist - 5)
+			this.waveClosing++;
+		else if (this.waveDist === undefined || wd > this.waveDist + 5)
+			this.waveClosing = 0;
+		this.waveDist = wd;
+		waveInbound = this.waveClosing >= 3;
+	}
+	else
+	{
+		this.waveDist = undefined;
+		this.waveClosing = 0;
 	}
 	if (serious)
 	{
@@ -342,6 +368,10 @@ DefenseManager.prototype.manageDefense = function()
 			}
 		}
 	}
+	else if (waveInbound && this.waveRecall(gameState, armyEnts, healerEnts, milSiege, homePos, waveSize))
+	{
+		// away mission recalled early, army rallied home
+	}
 	else if (this.manageDeny(gameState, armyEnts, mil, homePos, denyTarget))
 	{
 		// foundation denial in progress, commands issued there
@@ -395,11 +425,13 @@ DefenseManager.prototype.manageDefense = function()
 			// marches (Petra converges), and agg8 s2's 20.7m sortie at 60-vs-32
 			// turned into 60-vs-83 mid-field and donated ~30 soldiers. 1.5x or
 			// stay home and let the towers and CC arrows bleed the camp instead.
-			if (campN >= 15 && this.bot.armyManager.armyCount() >= 100 && this.bot.armyManager.armyCount() >= campN * 1.5 && this.bot.turn >= this.armyCmdTurn)
+			// Never while a wave is closing on home: meeting it mid-field is the
+			// muster-and-hold doctrine's exact counterexample.
+			if (campN >= 15 && !waveInbound && this.bot.armyManager.armyCount() >= 100 && this.bot.armyManager.armyCount() >= campN * 1.5 && this.bot.turn >= this.armyCmdTurn)
 			{
 				sortie = true;
 				this.armyCmdTurn = this.bot.turn + 10;
-				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m sortie against siege camp ${(cx / campN).toFixed(0)},${(cz / campN).toFixed(0)} (camp=${campN}, army=${armyEnts.length})\n`);
+				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m sortie against siege camp ${(cx / campN).toFixed(0)},${(cz / campN).toFixed(0)} (camp=${campN}, army=${armyEnts.length}, enemy=${this.bot.armyManager.enemyArmy || 0})\n`);
 				for (const ent of armyEnts)
 					ent.attackMove(cx / campN, cz / campN, "Unit", false);
 				for (const ent of healerEnts)
@@ -598,6 +630,51 @@ DefenseManager.prototype.manageDefense = function()
 			ent.garrison(best.ent);
 		}
 	}
+};
+
+/**
+ * Early recall of an away mission (raid/purge) on an inbound wave: the wave
+ * crosses the 120 m threat ring in seconds, where the proportional recall
+ * would run anyway — but a raid 300-500 m out needs the walk time NOW, and
+ * every block it keeps grinding is men the home defense loses (recmust3
+ * s244: the raid spent itself to 49 exactly as the 105-man ball crossed the
+ * ring; the survivors were 465 m away and the CC fell 3 min later). Full
+ * cancel only: when the away force can spare the 1.5x shortfall, the ring's
+ * proportional recall owns the response. Relaunches are suppressed for 30 s
+ * (waveRecallUntil) or the next block re-raids the same target.
+ */
+DefenseManager.prototype.waveRecall = function(gameState, armyEnts, healerEnts, milSiege, homePos, waveSize)
+{
+	if (!this.bot.offenseManager.target && !this.bot.offenseManager.purgeTarget)
+		return false;
+	let wSiege = 0;
+	for (const p of milSiege)
+		if (SquareDistance(p, homePos) < 250 * 250)
+			wSiege++;
+	const needed = Math.ceil(waveSize * 1.5) + wSiege * 4;
+	if (armyEnts.length - needed >= 50)
+		return false;
+	print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wave inbound (${waveSize}${wSiege ? `+${wSiege} siege` : ""} closing, ${this.waveDist.toFixed(0)}m from home) — recalling the away mission early (army=${armyEnts.length})\n`);
+	this.bot.offenseManager.registerIfCaptured(gameState, this.bot.offenseManager.target?.id);
+	this.bot.offenseManager.registerIfCaptured(gameState, this.bot.offenseManager.purgeTarget?.id);
+	this.bot.offenseManager.target = undefined;
+	this.bot.offenseManager.purgeTarget = undefined;
+	this.armyCmdTurn = 0;
+	this.waveRecallUntil = this.bot.turn + 150;
+	for (const ent of armyEnts)
+	{
+		ent.setStance("defensive");
+		ent.move(homePos[0], homePos[1]);
+	}
+	for (const id in this.bot.armyManager.rams)
+	{
+		const ram = gameState.getEntityById(+id);
+		if (ram?.position())
+			ram.move(homePos[0], homePos[1]);
+	}
+	for (const ent of healerEnts)
+		ent.move(homePos[0], homePos[1]);
+	return true;
 };
 
 /**

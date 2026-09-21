@@ -21,6 +21,8 @@ export function OffenseManager(bot)
 	this.ramGaveUpSpots = undefined;
 	// Throttle turn for the blocked-launch forensics line.
 	this.clearBlockedLog = undefined;
+	// Throttle turn for the pop-blocked-waiver hold line.
+	this.waiverHoldLog = undefined;
 }
 
 OffenseManager.prototype.serialize = function()
@@ -225,7 +227,7 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 			// 2: the walk alone to a far CC takes ~2 min, and
 			// agg8 s1 abort/relaunched twice at the 2-min mark — the army walked
 			// home and back each time and the second CC never even got attacked.
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid aborted at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)} (rams=${ramEnts.length}, age=${((this.bot.turn - (this.target.turn || 0)) / 300).toFixed(1)}m, army=${armyEnts.length})\n`);
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid aborted at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)} (rams=${ramEnts.length}, age=${((this.bot.turn - (this.target.turn || 0)) / 300).toFixed(1)}m, army=${armyEnts.length}, enemy=${this.bot.armyManager.enemyArmy || 0})\n`);
 			this.target = undefined;
 			this.bot.defenseManager.armyCmdTurn = 0;
 			for (const ent of armyEnts)
@@ -245,15 +247,11 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 	}
 	if (!this.target)
 	{
-		if (this.bot.armyManager.armyCount() < 75)
+		// Suppressed for 30 s after a wave-inbound recall — without the latch
+		// the next block re-raids the same target and the cancel never sticks.
+		if (this.bot.turn < this.bot.defenseManager.waveRecallUntil)
 			return false;
-		// No rams, no raze: basic infantry cannot burn a garrisoned CC before
-		// reinforcements arrive — agg6 s2 raided with 0 rams at 20-21m and
-		// spent the army twice for nothing (the "arsenal not built yet"
-		// exception let those raids fire). Except when pop-blocked: the siege
-		// can never train then, so waiting deadlocks the war stage at full
-		// pop — the raid goes in ramless and its losses reopen ram pop.
-		if (ramEnts.length < 2 && !ramBlocked)
+		if (this.bot.armyManager.armyCount() < 75)
 			return false;
 		if (enemyCCs.length < 1)
 			return false;
@@ -275,6 +273,38 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 		if (!best)
 			return false;
 		const bp = best.position();
+		// bestScore mixes defenders and squared distance; the launch line needs
+		// the true defender count on its own (the sweep's "defenders=" column
+		// was distSq-inflated and unreadable as a defense measure).
+		let defenders = 0;
+		for (const p of mil)
+			if (SquareDistance(p, bp) < 100 * 100)
+				defenders++;
+		// No rams, no raze: basic infantry cannot burn a garrisoned CC before
+		// reinforcements arrive — agg6 s2 raided with 0 rams at 20-21m and
+		// spent the army twice for nothing (the "arsenal not built yet"
+		// exception let those raids fire). Except when pop-blocked: the siege
+		// can never train then, so waiting deadlocks the war stage at full
+		// pop — the raid goes in ramless and its losses reopen ram pop.
+		if (ramEnts.length < 2 && !ramBlocked)
+			return false;
+		// ...but the pop-block waiver walks the whole army 300-500 m out on a
+		// ramless grind. While Petra outmasses us globally that walk leaves
+		// home empty for minutes and the grind gets sandwiched by the
+		// converging field army (wavrec1 s244: launched 103-vs-159 at 464 m,
+		// cleared the 17 defenders, then the 105-man ball destroyed the raid
+		// on its ground and took the empty home). Sit the deadlock out on
+		// defense instead — the wave the army stays home for reopens ram pop
+		// just as well.
+		if (ramEnts.length < 2 && this.bot.armyManager.armyCount() < (this.bot.armyManager.enemyArmy || 0))
+		{
+			if (this.bot.turn >= (this.waiverHoldLog || 0))
+			{
+				this.waiverHoldLog = this.bot.turn + 300;
+				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m pop-blocked raid held: outnumbered (army=${this.bot.armyManager.armyCount()}, enemy=${this.bot.armyManager.enemyArmy || 0})\n`);
+			}
+			return false;
+		}
 		this.target = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.bot.turn,
 			// Latch the pop-block waiver: pop flickers across the 3-pop
 			// line as the raid trades losses, and re-checking ramBlocked
@@ -282,13 +312,14 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 			"ramless": ramBlocked && ramEnts.length < 2 ? true : undefined };
 		this.ramMarch = {};	// fresh stuck-ram tracking for the new march
 		this.purgeTarget = undefined;	// the raid takes precedence over any purge
-		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${Math.floor(bestScore / 10000)}, army=${armyEnts.length}, rams=${ramEnts.length}${this.target.ramless ? ", no pop room for rams" : ""})\n`);
+		const dist = homePos ? Math.hypot(bp[0] - homePos[0], bp[1] - homePos[1]) : 0;
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raiding enemy CC ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${defenders}, army=${armyEnts.length}, rams=${ramEnts.length}, enemy=${this.bot.armyManager.enemyArmy || 0}, dist=${dist.toFixed(0)}m${this.target.ramless ? ", no pop room for rams" : ""})\n`);
 		for (const ent of armyEnts)
 			ent.setStance("aggressive");
 	}
 	if (this.bot.armyManager.armyCount() < 50)
 	{
-		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid spent, regrouping (army=${armyEnts.length})\n`);
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid spent, regrouping (army=${armyEnts.length}, enemy=${this.bot.armyManager.enemyArmy || 0}, contesters=${this.target.contestN || 0})\n`);
 		this.target = undefined;
 		this.bot.defenseManager.armyCmdTurn = 0;
 		for (const ent of armyEnts)
@@ -323,7 +354,7 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 		this.bot.turn - (this.target.contestLogTurn || -30) >= 30)
 	{
 		this.target.contestLogTurn = this.bot.turn;
-		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid ${foes.length ? `contested: engaging ${foes.length} enemy unit(s) around the CC, rams keep battering` : "contest cleared: grinding the CC"} (army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid ${foes.length ? `contested: engaging ${foes.length} enemy unit(s) around the CC, rams keep battering` : "contest cleared: grinding the CC"} (army=${armyEnts.length}, rams=${ramEnts.length}, enemy=${this.bot.armyManager.enemyArmy || 0})\n`);
 	}
 	this.target.contestN = foes.length;
 	// Capture or raze: one verdict per command block — the whole army's
@@ -596,6 +627,8 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 	}
 	if (!this.purgeTarget)
 	{
+		if (this.bot.turn < this.bot.defenseManager.waveRecallUntil)
+			return false;	// wave-inbound recall suppression, as the raid's
 		if (this.bot.armyManager.armyCount() < 60)
 			return false;
 		// Their main force loitering near home pins the army: the camp sortie
@@ -654,7 +687,7 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 			return false;
 		const bp = best.position();
 		this.purgeTarget = { "id": best.id(), "x": bp[0], "z": bp[1], "turn": this.bot.turn, "name": best.templateName() };
-		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purging enemy ${best.templateName()} ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${bestDef}, army=${armyEnts.length}, rams=${ramEnts.length})\n`);
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m purging enemy ${best.templateName()} ${bp[0].toFixed(0)},${bp[1].toFixed(0)} (defenders=${bestDef}, army=${armyEnts.length}, rams=${ramEnts.length}, enemy=${this.bot.armyManager.enemyArmy || 0})\n`);
 		for (const ent of armyEnts)
 			ent.setStance("aggressive");
 	}

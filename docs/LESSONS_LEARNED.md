@@ -1399,3 +1399,50 @@ unchanged.
   raid size can no longer proxy for Petra's weakness now that war surge
   decouples the two. Needs a full re-validation, so it was NOT applied
   here.
+
+## 2026-09-21 (loss-seed autopsy: wave-inbound early recall + outnumbered waiver hold)
+
+- The old raid launch line's `defenders=` was `floor(bestScore/10000)`
+  where bestScore = defenders*10000 + SQUARED distance — inflated by up to
+  +29 at 540 m. s244's "38 defenders" was really ~17. All raid/purge/
+  sortie lines now print true defenders plus `enemy=<enemyArmy>` and
+  `dist=<m>`; without those fields the losing and winning raids are
+  indistinguishable in the logs.
+- The recmust3 3 losses (s244/s263/s267) share one shape: war surge
+  re-masses the army past the offense gates while Petra still outmasses
+  globally, the away army grinds too long and cannot come home. s244:
+  ramless waiver raid launched 103-vs-159 at 464 m, cleared the 17
+  defenders, then died to the converging field army (103->49 in 72 s);
+  the survivors walked home through the incoming 105+2-siege ball
+  (49->17 in 12 s). s263: raid bled 120->66 in 0.8 min before the 120 m
+  ring recall. s267: sortie donated 119->38 (enemy=152).
+- Fix 1 — wave-inbound early recall (defense.js): 5+ enemies within
+  250 m of home seed a centroid; 40+ enemies within 250 m of it = wave;
+  the centroid closing >5 m for 3 consecutive defense runs = waveInbound.
+  A static siege camp flickers around a fixed distance and never trips
+  it. On waveInbound the away raid/purge is full-canceled unless the army
+  can spare the 1.5x+siege shortfall (then the ring's proportional recall
+  owns it); relaunches are suppressed 30 s via waveRecallUntil or the
+  next block re-raids the same target; sorties are gated on !waveInbound.
+- LIMIT: the tracker sees only what LOS shows. s244's wave was first
+  sighted at 174 m, ~4 s before the ring breach — no recall fires early
+  enough there; that shape needs the launch gate instead.
+- Fix 2 — the pop-block ramless waiver requires not outnumbered globally
+  (armyCount >= enemyArmy). Outnumbered, the waiver's 300-500 m ramless
+  walk empties home and gets sandwiched by the converging field army.
+  wavrec1 telemetry: losing launch enemy=159 (army=103); every winning
+  waiver launch faced enemy<=151, and the guards whose launches the gate
+  holds (enemy 103-151) simply relaunched 1-7 min later at enemy 17-67
+  and won anyway. Hold print throttled to 1/300 turns (waiverHoldLog).
+- Probes (kiln vps only, pc down; standard settings): wavrec1 (recall +
+  telemetry, 9 seeds) 6W/2T/1L, 0 JS errors — s263/s267 loss->timeout
+  (matches d5d6ccd), 6 win guards held, s244 still lost (LOS limit).
+  wavrec2 (+ waiver gate, 7 seeds) 7W/0T/0L — s244 loss->WIN 44.4m
+  (held t=28.6, garrisoned 112 vs 121 at t=29.9, razed 3 CCs after
+  t=35), s327 timeout->win. wavval (15 seeds: loss neighbors 243-268,
+  sweep timeouts 215/230/316/356, race wins 340/352, waiver wins
+  206/234) 11W/4T/0L, 0 JS errors — no seed worse than its sweep
+  verdict.
+- kiln vps runner killed two jobs mid-run at the same wall-clock second
+  (exit 124 after 109 s and 14 s, far under wall_budget_s=1800) — a
+  runner-side event, not a game crash; rerun such jobs.
