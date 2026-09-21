@@ -1328,3 +1328,74 @@ unchanged.
   70-113-man waves (s113: 52 -> 45 before the ring even tripped).
   Gates: minor-probe engage allowed only when no 20+ wave is inbound;
   serious-branch engage keeps the nearThreat superiority gate.
+
+## 2026-09-20 (war-chest muster-floor deadlock: the 4-loss autopsy + recovery muster)
+
+- The d5d6ccd/dbcc240 sweep's 4 losses (s279/s316/s356/s373) all share one
+  shape: Brennus wins or trades the first wave (~t=15), a fragmented
+  decisive battle at t=21-24 (muster-engage fired at 4/65 to 41/73 gathered,
+  into Petra's converging ball) wipes the army, and then the **war-chest
+  muster-floor deadlock**: the war-stage floors (food>=300, wood>=300, 400
+  under defenseGap) assume an intact war economy. In a raided economy the
+  women stream (250-food batches, no floor) and the construction skim take
+  every accumulation below the floors, so ZERO soldiers are trained for
+  12-22 min while pop recovers and Petra masses 118-149+siege and razes the
+  lone CC. The blackout was invisible in the logs — only stats showed it.
+- Regression pre-check on the 187 wins: 43 have >=1 post-war minute with
+  army<40 && enemyArmy>army, but almost always 1-3 min (transient dip
+  before the war chest fires) — so a gated emergency mode is safe there;
+  only the chronic version is pathological.
+- Fixes (all latched, hysteresis against boundary flapping):
+  `armyBroken()` (enter: warOn && army<40 && enemy>army; exit: army>=50 or
+  enemy<=army/2) switches the muster back to the proven pre-city cadence
+  (cost floors, surge batch 3) and reorders defense to soldiers-before-
+  buildings with military techs skipped (s373's wood spikes bought 4
+  useless arsenals while 13 soldiers held the base; s356 researched 14
+  techs in 80 s incl. unlock_champion_infantry for an army of 15). A
+  missing barracks still rebuilds: with no trainer the training stage
+  spends nothing and the buildings stage gets the stock.
+- **War surge**: outnumbered during the war stage (!broken), the 300/400
+  floors stall the muster exactly when replacements matter (s356: 11.2k
+  food banked, wood 272<400, army 58 vs 155). Cost floors + batch 3 while
+  behind, exit only at n>=4/3*enemy so near-parity wobble does not flap.
+- **Barter gap**: manageBarter had a pre-city branch and an expansionOn
+  branch but NOTHING between — a warOn, pop<300, !expansionOn game (the
+  camped shape) banks a 5-11k food mountain while wood sits <300 and every
+  military gate stalls; the 5k-gap leveling rule only fired at t=38-41.
+  New emergency branch: wood<250 && food>=1500, every 15 turns, price
+  guard sell.food/buy.wood>=0.5, barter 500 food->wood.
+- `undefined !== false` print-spam trap: a manager method that falls off
+  its end returns undefined; `behind` computed from such a value compared
+  `!== this.behindWar` (init false) re-latched and re-printed every block.
+  Coerce with `!!` before comparing latches.
+- Probe arc on the 4 losses (kiln, standard settings): round 1 (recovery
+  muster only) 4L -> 4 timeouts, army re-masses, raids at t=39-43; round 2
+  (+war surge) s279 win 39.9m, army reaches 104-122 (was capped ~51-61);
+  round 3 (+emergency barter) s279 win 41.3m, the other 3 timeouts end
+  militarily won but too late (s356: enemy down to 5-6 army at t=40-43,
+  12 siege, 2 fortresses razed; s373: CC razed t=41.3). Residual blocker
+  for the last 3: the camped wood-poor economy delays arsenal/rams/raids
+  ~5-10 min past the 45-min cap; the relief-expansion wood trigger
+  (`wood < minWoodMass` after peak) fires too late, and earlier triggers
+  false-fired the relief goldens — left as-is on purpose.
+- Validation (2026-09-21, kiln, seeds 201-361 — Louis called the sweep
+  there): 153W/5T/3L vs the same seeds' baseline 151W/7T/3L, 0 JS errors.
+  s279 loss->win (41.3m, bit-identical to the probe — determinism holds
+  across runner hosts), s316/s356 loss->timeout, plus s320/s340/s352
+  timeout->win; churn the other way: s327 win->timeout, s263/s267
+  timeout->loss (both hopeless maps — Petra at 129-174 army by t=16-20 —
+  where the baseline merely survived to the cap), and s244 win(44.4m,
+  itself a near-cap coin flip)->loss(33m).
+- s244 regression mechanism (next iteration's lever): war surge re-massed
+  the army to 103 by t=28.6, tripping the 75-man raid gate 13 min earlier
+  than the baseline — but the surge queued batches also filled the 272 pop
+  cap, the arsenal was 2 min behind (t=30.1 vs baseline 28.0), so the
+  ramBlocked waiver ("no pop room for rams") let the raid launch with
+  rams=0 into 38 defenders + a 147-strong converging army: 103->39 in one
+  minute, then the counterattack razed the CC. The waiver is common and
+  mostly fine (41/161 seeds used it, 39 won), so the fix is not to remove
+  it but to gate the raid on GLOBAL enemy strength (e.g. no launch while
+  enemyArmy > army) or to withhold the waiver when defenders are heavy —
+  raid size can no longer proxy for Petra's weakness now that war surge
+  decouples the two. Needs a full re-validation, so it was NOT applied
+  here.

@@ -149,6 +149,31 @@ ArmyManager.prototype.armyCount = function()
 };
 
 /**
+ * Recovery-muster predicate (see manageDefenseTraining): the war-stage
+ * muster floors assume an intact war economy; after a rout the women stream
+ * and construction skim every accumulation below 300/400 and the army never
+ * re-fields (s279/s316/s356/s373: zero soldiers trained for 12-22 min after
+ * the wipe, then the lone CC fell). Hysteresis against boundary flapping:
+ * enter below 40 while outnumbered, exit at 50+ or once the enemy is mostly
+ * spent.
+ */
+ArmyManager.prototype.armyBroken = function()
+{
+	const n = this.armyCount();
+	const enemy = this.enemyArmy || 0;
+	const was = !!this.broken;
+	if (!this.bot.expansionManager.warOn())
+		this.broken = false;
+	else if (was)
+		this.broken = n < 50 && enemy * 2 > n;
+	else
+		this.broken = n < 40 && enemy > n;
+	if (this.broken !== was)
+		print(`[DEFENSE] t=${(this.bot.gameState.getTimeElapsed() / 60000).toFixed(1)}m recovery muster ${this.broken ? "on" : "off"} (army=${n} enemy=${enemy})\n`);
+	return !!this.broken;
+};
+
+/**
  * Cavalry target choice: nearest Siege first — rams are the enemy's kill
  * clock, and their 35 pierce / 7 hack armor makes javelins useless while
  * sword cavalry's hack (plus gaul's +10% cavalry damage bonus) cuts

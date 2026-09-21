@@ -20,6 +20,8 @@ export function DefenseManager(bot)
 	this.swatting = false;
 	// Muster hold/engage log latch (reset when the coast is clear).
 	this.musterState = undefined;
+	// Outnumbered-garrison log latch (same lifetime).
+	this.garrisonLogged = false;
 }
 
 DefenseManager.prototype.manageDefense = function()
@@ -33,9 +35,23 @@ DefenseManager.prototype.manageDefense = function()
 	this.bot.offenseManager.manageCaptures(gameState);
 	this.denyHostileCaptures(gameState);
 
-	this.bot.buildupManager.manageDefenseBuildings();
-	this.bot.buildupManager.manageDefenseTraining();
-	this.bot.buildupManager.manageMilitaryTechs();
+	// Recovery muster: soldiers before buildings, and no combat techs for an
+	// army that does not exist — s373's wood spikes bought 4 useless arsenals
+	// while 13 soldiers held the base, and s356 researched 14 techs in 80 s
+	// (incl. unlock_champion_infantry) for an army of 15. A missing barracks
+	// still rebuilds: with no trainer standing the training stage spends
+	// nothing and the buildings stage gets the stock.
+	if (this.bot.armyManager.armyBroken())
+	{
+		this.bot.buildupManager.manageDefenseTraining();
+		this.bot.buildupManager.manageDefenseBuildings();
+	}
+	else
+	{
+		this.bot.buildupManager.manageDefenseBuildings();
+		this.bot.buildupManager.manageDefenseTraining();
+		this.bot.buildupManager.manageMilitaryTechs();
+	}
 
 	// Enemy soldiers/siege in the world, once for the threat scan and the shelter.
 	const mil = [];
@@ -131,7 +147,10 @@ DefenseManager.prototype.manageDefense = function()
 			if (SquareDistance(p, [nearX / nearHome, nearZ / nearHome]) < 250 * 250)
 				waveSize++;
 	if (!serious && !threat && nearHome < 5)
+	{
 		this.musterState = undefined;
+		this.garrisonLogged = false;
+	}
 	// A border foundation going up is a threat too: keep the army mobilized
 	// for the denial (Petra founds border fortresses during our boom).
 	const denyTarget = this.findDenyTarget(mil, homePos);
@@ -293,6 +312,11 @@ DefenseManager.prototype.manageDefense = function()
 				// outside and trading against a bigger blob is a donation
 				// (agg3 s3: 34 basics melted into a 106-unit wave at 16m
 				// while the CC idled).
+				if (!this.garrisonLogged)
+				{
+					this.garrisonLogged = true;
+					print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m garrisoning ${responders.length} soldiers, outnumbered ${split ? responders.length : this.bot.armyManager.armyCount()} vs ${nearThreat} near CC ${threat.ccx.toFixed(0)},${threat.ccz.toFixed(0)}\n`);
+				}
 				const frees = shelters.map(s => Math.max(0, (+s.garrisonMax() || 0) - s.garrisonedSlots()));
 				const garrisonIn = ent =>
 				{

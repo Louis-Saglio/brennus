@@ -11,6 +11,11 @@ export function BuildupManager(bot)
 	this.nextDismissTurn = undefined;
 	// Wonder funding window start (set the first time the hold engages).
 	this.wonderHoldSince = undefined;
+	// Muster-starvation alarm state (first floor-blocked block, last warning).
+	this.starvedSince = undefined;
+	this.starveWarnTurn = undefined;
+	// War-surge log latch (outnumbered during the war stage).
+	this.behindWar = false;
 	// Barracks alternation: spearmen, then javelineers.
 	this.spearNext = true;
 }
@@ -400,10 +405,38 @@ BuildupManager.prototype.manageDefenseTraining = function()
 	// temples/forge/arsenal are outstanding (def11-13: starving the
 	// construction budget froze the muster).
 	const boom = this.bot.expansionManager.warOn();
-	const milBatch = boom ? this.bot.arbiterParams.warChest.musterBatch :
-		surging ? this.bot.arbiterParams.surge.batch : this.bot.arbiterParams.foodSplit.musterBatch;
-	const floorF = boom ? this.bot.arbiterParams.warChest.musterFood : this.bot.arbiterParams.foodSplit.musterFloor.food;
-	const floorW = boom ? (this.bot.arbiter.declared("defenseGap") ? this.bot.arbiterParams.warChest.musterWoodGap : this.bot.arbiterParams.warChest.musterWood) : this.bot.arbiterParams.foodSplit.musterFloor.wood;
+	// Recovery muster: after a rout the war-chest floors never fire — the
+	// women stream and construction skim every accumulation below 300/400
+	// and the army sits at ~20 for 12-22 min while Petra re-masses and razes
+	// the lone CC (s279/s316/s356/s373: zero soldiers trained post-rout).
+	// Retrain at the proven pre-city cadence (cost floors, small batches)
+	// until the army stands again — below 40 the offense gates (rams 40,
+	// purge 60, raid 75) are all closed anyway, so nothing is given up by
+	// putting soldiers first.
+	const broken = this.bot.armyManager.armyBroken();
+	// War surge: outnumbered during the war stage, the 300/400 floors stall
+	// the muster exactly when replacements matter (s356: 11.2k food banked
+	// but wood 272 < 400, army 58 vs 155; the probe army oscillated 39-61
+	// against 80-200 enemies and the first raid landed at t=39-43). Same
+	// fix as the pre-city surge: cost floors and small batches while behind.
+	// Exit only once clearly ahead (n >= 4/3 x enemy) so near-parity wobble
+	// does not flap the floors every block.
+	const n = this.bot.armyManager.armyCount();
+	const enemy = this.bot.armyManager.enemyArmy || 0;
+	let behind = false;
+	if (!broken && boom)
+		behind = this.behindWar ? enemy * 4 > n * 3 : enemy > n;
+	if (behind !== this.behindWar)
+	{
+		this.behindWar = behind;
+		print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m war surge ${behind ? "on" : "off"}: muster ${behind ? "at cost floors" : "back to the war chest"} (army=${this.bot.armyManager.armyCount()} enemy=${this.bot.armyManager.enemyArmy || 0})\n`);
+	}
+	const pressed = broken || behind || surging;
+	const milBatch = pressed ? this.bot.arbiterParams.surge.batch :
+		boom ? this.bot.arbiterParams.warChest.musterBatch : this.bot.arbiterParams.foodSplit.musterBatch;
+	const floorF = pressed || !boom ? this.bot.arbiterParams.foodSplit.musterFloor.food : this.bot.arbiterParams.warChest.musterFood;
+	const floorW = pressed || !boom ? this.bot.arbiterParams.foodSplit.musterFloor.wood :
+		(this.bot.arbiter.declared("defenseGap") ? this.bot.arbiterParams.warChest.musterWoodGap : this.bot.arbiterParams.warChest.musterWood);
 	// Sword cavalry, first-class like the rams: the contingent trains BEFORE
 	// the infantry loop and holds its own reserve — smoke s42 showed the
 	// alternative: gated behind the infantry floors and the Will-to-Fight
@@ -441,6 +474,7 @@ BuildupManager.prototype.manageDefenseTraining = function()
 	// The shared balance is the allocator: re-check the floors before every
 	// trainer instead of issuing the whole round on one entry check — orders
 	// the balance cannot cover are denied here, not failed at the engine.
+	const floorsBlocked = missing > 0 && (res.food < floorF || res.wood < floorW);
 	if (missing > 0)
 		for (const ent of trainers)
 		{
@@ -500,6 +534,21 @@ BuildupManager.prototype.manageDefenseTraining = function()
 			ent.train(gameState.getPlayerCiv(), gameState.applyCiv("units/{civ}/champion_fanatic"), 5, {});
 			this.bot.arbiter.spend(res, "defenseTraining", { "food": 600, "wood": 500 }, "fanatics x5");
 		}
+	// Muster-starvation alarm: the four seed losses sat 12-22 min with the
+	// army short and the floors unmet, and no log line said so — the blackout
+	// was only visible in stats after the fact. Warn once the block has held
+	// ~2 min, re-warn every ~10 min while it lasts.
+	if (floorsBlocked && boom && (trainers.length || stables.length))
+	{
+		this.starvedSince = this.starvedSince ?? this.bot.turn;
+		if (this.bot.turn - this.starvedSince >= 600 && this.bot.turn >= (this.starveWarnTurn || 0))
+		{
+			this.starveWarnTurn = this.bot.turn + 3000;
+			print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m muster starved: ${missing} soldiers short, floors ${floorF}/${floorW} unmet for ${((this.bot.turn - this.starvedSince) / 300).toFixed(1)}min (army=${this.bot.armyManager.armyCount()} enemy=${this.bot.armyManager.enemyArmy || 0} stock ${Math.floor(res.food)}/${Math.floor(res.wood)})\n`);
+		}
+	}
+	else
+		this.starvedSince = undefined;
 	// The Assembly of Princes: Vercingetorix rides with the raid — his aura is
 	// +20% damage and +1 capture for soldiers AND siege, i.e. a straight kill
 	//-clock multiplier — and heroes cost no population. Carnyxes debuff enemy

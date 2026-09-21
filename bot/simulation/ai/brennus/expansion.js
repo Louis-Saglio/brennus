@@ -1068,9 +1068,26 @@ ExpansionManager.prototype.manageBarter = function()
 			return;
 		}
 	}
-	else if (this.expansionOn())
+	else if (!this.expansionOn())
 	{
-
+		// Emergency wood: between city and the expansion program (pop < 300)
+		// the war machine has no barter path at all — camped games bank a
+		// 5-11k food mountain while wood sits < 300 and every military gate
+		// stalls (s356/s373: the 5k-gap leveling rule only fired at t=38-41,
+		// minutes after the wood economy had already collapsed).
+		if (res.wood < 250 && res.food >= 1500 && this.bot.turn % 15 === 0)
+		{
+			const prices = gameState.getBarterPrices();
+			if (prices.sell.food / prices.buy.wood >= 0.5)
+			{
+				market.barter("wood", "food", 500);
+				this.bot.arbiter.spendSell("barter", "food", 500, `barter food->wood`);
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m barter 500 food -> wood (emergency)\n`);
+			}
+		}
+	}
+	else
+	{
 		if (!this.manageExpansionBarter(market))
 		{
 			// Strategic buying: the war machine's big one-time spends — Will
