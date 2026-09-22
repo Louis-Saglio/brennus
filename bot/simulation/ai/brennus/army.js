@@ -236,16 +236,16 @@ ArmyManager.prototype.ejectArmyGarrisons = function(gameState)
 			}
 		}
 	if (!hiding)
-		return 0;
-	let n = 0;
+		return [];
+	const ejected = [];
 	for (const ent of gameState.getOwnStructures().values())
 		for (const gid of ent.garrisoned() || [])
 			if (this.army[gid] || this.healers[gid])
 			{
 				ent.unload(gid);
-				n++;
+				ejected.push(gid);
 			}
-	return n;
+	return ejected;
 };
 
 /**

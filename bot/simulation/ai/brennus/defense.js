@@ -28,6 +28,12 @@ export function DefenseManager(bot)
 	this.waveDist = undefined;
 	this.waveClosing = 0;
 	this.waveRecallUntil = 0;
+	// Telemetry latches: engage/garrison decision log, battle exchange, camp
+	// standoff warning (see manageDefense).
+	this.threatDecLog = undefined;
+	this.threatDecBranch = undefined;
+	this.battleStart = undefined;
+	this.standoffLog = undefined;
 }
 
 DefenseManager.prototype.manageDefense = function()
@@ -128,8 +134,8 @@ DefenseManager.prototype.manageDefense = function()
 		if (this.bot.turn - this.lastSeriousTurn > 30)
 		{
 			const ejected = this.bot.armyManager.ejectArmyGarrisons(gameState);
-			if (ejected)
-				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m ejecting ${ejected} garrisoned soldiers (threat over)\n`);
+			if (ejected.length)
+				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m ejecting ${ejected.length} garrisoned soldiers (threat over)\n`);
 		}
 	}
 
@@ -290,6 +296,10 @@ DefenseManager.prototype.manageDefense = function()
 				if (ent.hasClass("Cavalry"))
 					cavN++;
 			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m engaging ${threat.n} enemies (siege=${threat.siegeN}) near CC ${threat.x.toFixed(0)},${threat.z.toFixed(0)} (army=${armyEnts.length}${cavN ? `, cav=${cavN}` : ""})\n`);
+			// Battle-exchange telemetry: army/enemy at first contact, printed
+			// when the wave ends — per-wave exchange ratios are otherwise only
+			// visible in end-game stats.
+			this.battleStart = { "army": this.bot.armyManager.armyCount(), "enemy": this.bot.armyManager.enemyArmy || 0, "turn": this.bot.turn };
 		}
 		if (this.bot.turn >= this.armyCmdTurn)
 		{
@@ -311,7 +321,10 @@ DefenseManager.prototype.manageDefense = function()
 			// (default 4, GarrisonArrowMultiplier 1, GarrisonArrowClasses
 			// Infantry) — five full towers shelter 25 soldiers behind ~45
 			// extra arrows; the CC alone could not hold the army (agg10 s3:
-			// the 39-man overflow stood outside and was slaughtered).
+			// the 39-man overflow stood outside and was slaughtered). Sending
+			// the overflow to far shelters was tried and reverted: sitting
+			// out the fight far away kept them alive but they missed the
+			// engage, and previously-won seeds regressed (val 2026-09-22).
 			const shelters = [];
 			{
 				const ccEnt0 = gameState.getEntityById(threat.ccId);
@@ -324,7 +337,27 @@ DefenseManager.prototype.manageDefense = function()
 						SquareDistance(ent.position(), [threat.ccx, threat.ccz]) < 120 * 120)
 						shelters.push(ent);
 			}
-			if ((split ? responders.length : this.bot.armyManager.armyCount()) >= nearThreat)
+			// Engage only from clear superiority, and never into a bulk bigger
+			// than the whole army. Parity was a churn machine: nearThreat
+			// oscillates by several units per round as the wave floods the
+			// ring, and each garrison->engage flip ejected the hidden army
+			// into a piecemeal fight (s152: 4 flips in 30 s at 46v46 then
+			// 44v45; s170: 6 flips in 80 s, army 62->37->22). The 15% band
+			// absorbs the oscillation; the wave check stops a 97-man charge
+			// into a 98-strong wave that grew to 161 by contact (s162).
+			// (A two-sided hysteresis band and far-away overflow shelters
+			// were tried and reverted: both regressed previously-won seeds —
+			// val 2026-09-22: 70/320/340/352/356/373 capped — by delaying
+			// soldier returns and holding fights too long.)
+			const armyN = split ? responders.length : this.bot.armyManager.armyCount();
+			const engage = armyN >= nearThreat * 1.15 && waveSize <= armyN;
+			if (engage !== this.threatDecBranch || this.bot.turn >= (this.threatDecLog || 0))
+			{
+				this.threatDecBranch = engage;
+				this.threatDecLog = this.bot.turn + 300;
+				print(`[THREATDEC] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m ${engage ? "engage" : "garrison"}: army=${armyN} responders=${responders.length} nearThreat=${nearThreat} wave=${waveSize} ring=${threat.n}+${threat.siegeN}siege dist=${homePos ? Math.hypot(threat.x - homePos[0], threat.z - homePos[1]).toFixed(0) : "?"}m\n`);
+			}
+			if (engage)
 				// Local superiority: meet them at the muster, gathered and in
 				// formation — never a scattered charge at the centroid.
 				this.musterEngage(gameState, threat.x, threat.z, threat.ccx, threat.ccz,
@@ -341,7 +374,7 @@ DefenseManager.prototype.manageDefense = function()
 				if (!this.garrisonLogged)
 				{
 					this.garrisonLogged = true;
-					print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m garrisoning ${responders.length} soldiers, outnumbered ${split ? responders.length : this.bot.armyManager.armyCount()} vs ${nearThreat} near CC ${threat.ccx.toFixed(0)},${threat.ccz.toFixed(0)}\n`);
+					print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m garrisoning ${responders.length} soldiers, outnumbered ${armyN} vs ${nearThreat} near CC ${threat.ccx.toFixed(0)},${threat.ccz.toFixed(0)}\n`);
 				}
 				const frees = shelters.map(s => Math.max(0, (+s.garrisonMax() || 0) - s.garrisonedSlots()));
 				const garrisonIn = ent =>
@@ -568,7 +601,29 @@ DefenseManager.prototype.manageDefense = function()
 			}
 		}
 	}
+	const prevHadThreat = this.hadThreat;
 	this.hadThreat = !!serious;
+	// Battle-exchange telemetry: the wave is over — print the ledger.
+	if (!serious && prevHadThreat && this.battleStart)
+	{
+		const a0 = this.battleStart.army, e0 = this.battleStart.enemy;
+		const a1 = this.bot.armyManager.armyCount(), e1 = this.bot.armyManager.enemyArmy || 0;
+		print(`[BATTLE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wave over after ${((this.bot.turn - this.battleStart.turn) / 300).toFixed(1)}min: army ${a0}→${a1} (${a1 - a0 >= 0 ? "+" : ""}${a1 - a0}), enemy ${e0}→${e1} (${e1 - e0 >= 0 ? "+" : ""}${e1 - e0})\n`);
+		this.battleStart = undefined;
+	}
+	// Siege-camp standoff telemetry: 15+ enemies loitering within 250 m of
+	// home without breaching the 120 m ring strangles the outer economy for
+	// minutes and leaves no other trace. Warn every 2 min while it lasts.
+	if (!serious && !threat && waveSize >= 15 && homePos)
+	{
+		if (this.bot.turn >= (this.standoffLog || 0))
+		{
+			this.standoffLog = this.bot.turn + 600;
+			print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m siege-camp standoff: camp=${waveSize} at ${Math.hypot(nearX / nearHome - homePos[0], nearZ / nearHome - homePos[1]).toFixed(0)}m from home, army=${this.bot.armyManager.armyCount()}, enemy=${this.bot.armyManager.enemyArmy || 0}, pop=${gameState.getPopulation()}/${gameState.getPopulationLimit()}\n`);
+		}
+	}
+	else
+		this.standoffLog = 0;
 
 	// Shelter: workers garrison the nearest holder with room when enemies are
 	// close (60 m); holders eject once no enemy has been within 100 m for 20 turns.
@@ -719,7 +774,12 @@ DefenseManager.prototype.musterEngage = function(gameState, tx, tz, ccx, ccz, re
 	for (const ent of responders)
 		if (SquareDistance(ent.position(), mp) < 30 * 30)
 			atMp++;
-	if (!allowEngage || (foe2 >= 70 * 70 && (atMp * 3 < responders.length * 2 || foe2 >= 110 * 110)))
+	// Charge only gathered (2/3 at the muster) with the enemy inside 110 m,
+	// or in emergency when the enemy is already on top of the muster (<40 m —
+	// the line is in contact; attack-moving the scattered ones in beats
+	// watching them die piecemeal at the muster). The old 70 m no-gather
+	// charge fed 3-of-61 gathered armies into the wave (s170 autopsy).
+	if (!allowEngage || (foe2 >= 40 * 40 && (atMp * 3 < responders.length * 2 || foe2 >= 110 * 110)))
 	{
 		// Hold: walk everyone not yet there; soldiers already fighting
 		// (auto-engaged at the line) fight on.
@@ -737,8 +797,24 @@ DefenseManager.prototype.musterEngage = function(gameState, tx, tz, ccx, ccz, re
 		return false;
 	}
 	// Eject the garrisons (wherever they are — the fight may have moved CCs
-	// since they hid): the balance says fight, so everyone fights.
-	this.bot.armyManager.ejectArmyGarrisons(gameState);
+	// since they hid): the balance says fight, so everyone fights. The
+	// freshly ejected had no position when `responders` was assembled (the
+	// garrison branch hides soldiers the army list still owns) — merge them
+	// in, or the charge leaves the hidden half standing at the shelters
+	// (s152: attack-moved with responders=3 while 43 hid in the CC).
+	const ejected = this.bot.armyManager.ejectArmyGarrisons(gameState);
+	for (const gid of ejected)
+	{
+		const ent = gameState.getEntityById(gid);
+		// unload can silently fail (no spawn position): the unit stays
+		// garrisoned and would crash position reads below.
+		if (!ent || !ent.position())
+			continue;
+		if (this.bot.armyManager.healers[gid])
+			healerEnts.push(ent);
+		else
+			responders.push(ent);
+	}
 	// Back line 30 m behind the centroid, toward the muster (at the muster
 	// itself when the enemy is on top of it).
 	const bx = d > 30 ? tx - dx / d * 30 : mp[0];

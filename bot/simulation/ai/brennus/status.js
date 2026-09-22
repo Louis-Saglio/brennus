@@ -15,7 +15,7 @@ BrennusBot.prototype.logStatus = function()
 		else if (this.economyManager.assignments[ent.id()])
 			counts[this.economyManager.assignments[ent.id()]]++;
 	}
-	let houses = 0, fields = 0, town = 0;
+	let houses = 0, fields = 0, town = 0, civQ = 0, milQ = 0;
 	const houseType = gameState.applyCiv("structures/{civ}/house");
 	const fieldType = gameState.applyCiv("structures/{civ}/field");
 	for (const ent of gameState.getOwnStructures().values())
@@ -28,6 +28,15 @@ BrennusBot.prototype.logStatus = function()
 			fields++;
 		else if (ent.hasClass("Town"))
 			town++;
+		for (const item of ent.trainingQueue() || [])
+		{
+			if (!item.unitTemplate)
+				continue;
+			if (item.unitTemplate.indexOf("/support_civilian") !== -1)
+				civQ += item.count;
+			else
+				milQ += item.count;
+		}
 	}
 	const techs = this.boomTechs.filter(t => gameState.isResearched(t)).length;
 	const res = this.arbiter.mirror();
@@ -66,11 +75,24 @@ BrennusBot.prototype.logStatus = function()
 		`foodmix ${foodmix} ` +
 		`dist wood=${dropsiteDist.wood}m grain=${dropsiteDist.grain}m fruit=${dropsiteDist.fruit}m ` +
 		`founds=${gameState.getOwnFoundations().toEntityArray().length} failedSpots=${(this.placementManager.failedSpots || []).length} ` +
+		`q civ=${civQ} mil=${milQ} ` +
 		`fruitStock=${Math.round(this.economyManager.fruitStock)} ` +
 		`enemyArmy=${this.armyManager.enemyArmy || 0} siege=${this.armyManager.enemySiege || 0} enemyNear=${(this.armyManager.enemyNearestHome || 0).toFixed(0)}m ` +
 		`army=${this.armyManager.armyCount ? this.armyManager.armyCount() : 0} gar=${gar} demob=${demob} ` +
 		`terr=${terr ? terr.pct + "%(" + terr.own + "/" + terr.total + ")" : "-"} ` +
 		`stock ${Math.floor(res.food)}/${Math.floor(res.wood)}/${Math.floor(res.stone)}/${Math.floor(res.metal)}\n`);
+
+	// Economy-stall diagnosis: pop well under the limit means the boom is not
+	// converting food into workers — say why once per episode (food eaten by
+	// the retraining queue vs nothing queued vs idle hands), clear at gap<=10.
+	const popGap = gameState.getPopulationLimit() - gameState.getPopulation();
+	if (popGap > 30 && !this.stallWarned)
+	{
+		this.stallWarned = true;
+		print(`[WARNING] t=${Math.round(gameState.getTimeElapsed() / 60000)}m economy stalled: pop ${gameState.getPopulation()}/${gameState.getPopulationLimit()} (gap ${popGap}), queued civ=${civQ} mil=${milQ}, idle=${idle}, stock ${Math.floor(res.food)}/${Math.floor(res.wood)}, army=${this.armyManager.armyCount()} enemy=${this.armyManager.enemyArmy || 0}\n`);
+	}
+	else if (popGap <= 10)
+		this.stallWarned = false;
 
 	// Storehouse-coverage alarm: wood walk distance is the biggest single
 	// gatherer-efficiency factor, and a storehouse costs wood — a stalling

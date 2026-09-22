@@ -1461,3 +1461,70 @@ unchanged.
   seed, resumable via jobs.tsv) handles 374 jobs fine — recmust3's
   "submission cut short at seed 361" was a session limit, not a server
   cap.
+
+## 2026-09-22 (timeout autopsy, s400 sweep: position at the 45-min cap)
+
+- Judging a capped game: the kiln harness marks player 1 `won` at the cap
+  regardless of position, and a defeated player's metadata/stats are
+  zeroed — neither says anything about who was ahead. The real evidence is
+  the `[HARNESS]` status trajectory (`army=`/`enemyArmy=`/`enemyNear=`),
+  the `[DEFENSE]` `raid/purge` lines (a CC `raid` with rams battering at
+  the cap = win minutes away), and stats.json `enemyBuildingsDestroyed/
+  buildingsCaptured.CivCentre` vs Petra's `buildingsConstructed.CivCentre`
+  (+1 starting CC) for CCs left.
+- Of the 17 timeouts: 5 were wins in progress (263/356 last CC grinding
+  with 0 defenders, 373/76/140 a CC under active ram siege), 11 were bad
+  positions (Petra's army >= Brennus's, Petra peak control 41-74% vs 17-24%,
+  several with Petra at Brennus's CC at the cap; 267 direst at 17 vs 131
+  +9 siege), and seed 2 was dominant but STALLED: enemyArmy=1 from t=30m,
+  Brennus army=124, yet no raid after 34m — the bot went back to booming
+  (storehouses, CC orders, techs) and never launched the killing attack.
+  A pure offense-stall bug, not a position problem.
+
+## 2026-09-22 (bad-seed churn autopsy and the engage/garrison fix)
+
+- Root cause of the 11 bad-position timeouts was NOT the standoff or the
+  first-wave exchange ratio (won seeds lose the first wave ~evenly too):
+  it was the serious-branch engage/garrison check evaluating at parity
+  (`army >= nearThreat`) every 10 turns. `nearThreat` oscillates by
+  several units per round as the wave floods the 120 m ring, and every
+  garrison->engage flip ejected the hidden army into a piecemeal fight
+  (s152: 4 flips in 30 s at 46v46 then 44v45; s170: 6 flips in 80 s,
+  army 62->37->22). Each cycle donated 20-70 soldiers, the retraining
+  queue ate the whole food flow (pop gap 50-100 all mid-game), and
+  Petra's army grew 79->100->120 while ours stalled at ~51.
+- Garrisoned soldiers have no position, so they were excluded from
+  `responders` — the engage charge attack-moved the UNgarrisoned few
+  while the garrisoned majority stood at the shelters (s152: charged
+  with responders=3 while 43 hid). Fix: `ejectArmyGarrisons` returns the
+  ejected ids and `musterEngage` merges them into responders. Caveat:
+  `unload` can silently fail (no spawn position) — the unit stays
+  garrisoned, so merge only entities with a position, or the cavalry
+  target pick crashes on `SquareDistance(undefined)` (rare, non-fatal,
+  aborts that round's orders).
+- Shipped fix (val 2026-09-22-fix1 + val1): engage only at
+  `army >= nearThreat * 1.15` AND `waveSize <= army` (the 250 m bulk —
+  stops charging a 97-army into a 98-wave that grew to 161 by contact,
+  s162); `musterEngage` charges only gathered (2/3 at the muster) or in
+  emergency at <40 m (was: any time <70 m — fed 3-of-61 gathered armies
+  into the wave); eject-merge. Telemetry: `[THREATDEC]` per decision,
+  `[BATTLE]` per-wave exchange ledger, standoff + eco-stall warnings.
+- Result: 7 of the 11 bad seeds flip to wins (66 162 172 230 267 285
+  316); 21-won-seed regression sample 18/21 (52/70/320 cap — 70/320 cap
+  under every variant, they were always 44m+ wins); canary timeouts
+  4/6 flip to wins (2 263 356 373); zero JS errors. 41/170/215 stay
+  capped: 41 twice ended seconds from winning (rams on Petra's CC at the
+  cap), 170 lost a mistimed raid into Petra's main army, 215 is a
+  structural economy deficit (Petra 201 vs 94 pop at the cap).
+- Reverted after validation (fix2): a two-sided hysteresis band (stay
+  engaged unless army < 0.9x nearThreat or wave > 1.15x army) and
+  far-away overflow shelters (other CCs/towers take the garrison
+  overflow; capacity is CC 20 + tower 5, and the overflow standing
+  outside the CC was a real massacre, s152 79->26 in one wave). Both
+  regressed previously-won seeds (70/320/340/352/356/373 capped):
+  far-sheltered soldiers missed the engage that ejects them, and the
+  hysteresis held losing fights too long. The band-only rule is better
+  even though it still flip-flops occasionally at the wave-veto
+  boundary (s170 41.6-41.9m: -55 in one engagement).
+- Telemetry cost: `[THREATDEC]` prints only on decision flips or 1/min,
+  `[BATTLE]` once per wave — no measurable turn-rate impact; keep it.
