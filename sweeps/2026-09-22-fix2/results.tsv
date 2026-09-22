@@ -1,0 +1,13 @@
+seed	result	game_min	js_errors	kind
+1	win	35.8	0	won-control
+140	win	34.9	0	canary
+152	win	36.8	0	remaining
+162	timeout	45.0	0	fix1-winner
+170	timeout	45.0	0	remaining
+215	timeout	45.0	0	remaining
+25	win	22.0	0	won-control
+267	timeout	45.0	0	fix1-winner
+3	win	26.0	0	won-control
+41	timeout	45.0	0	remaining
+66	win	36.4	0	fix1-winner
+76	timeout	45.0	0	canary
