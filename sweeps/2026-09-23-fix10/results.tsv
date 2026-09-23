@@ -1,0 +1,7 @@
+seed	result	game_min	js_errors	kind
+162	win	35.5	0	regress-probe
+356	win	36.6	0	regress-probe
+372	win	30.4	0	regress-probe
+170	timeout	45	0	regress-probe
+140	timeout	45	0	control
+215	timeout	45	0	control

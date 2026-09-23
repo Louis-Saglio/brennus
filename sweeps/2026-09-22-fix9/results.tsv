@@ -1,0 +1,9 @@
+seed	result	game_min	js_errors	kind
+140	win	24.5	0	target
+215	win	35	0	target
+263	win	31.6	0	borderline
+230	win	31.3	0	regress-check
+373	win	43.4	0	regress-check
+316	win	39.4	0	regress-check
+66	win	35.9	0	won
+152	win	26.3	0	won

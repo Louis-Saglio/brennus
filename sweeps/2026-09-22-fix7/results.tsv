@@ -1,0 +1,13 @@
+seed	result	game_min	js_errors	kind
+140	win	25.4	0	target
+215	timeout	45	0	target
+230	win	37.1	0	regress-check
+316	timeout	45	0	regress-check
+373	win	35.3	0	regress-check
+66	win	32	0	won
+152	win	26.3	0	won
+170	timeout	45	0	borderline
+263	defeat	25.7	0	borderline
+70	timeout	45	0	borderline
+52	win	38.1	0	borderline
+320	defeat	34.6	0	borderline

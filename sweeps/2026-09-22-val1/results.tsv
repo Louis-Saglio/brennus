@@ -13,7 +13,7 @@ seed	result	game_min	js_errors	kind
 307	win	23.5	0	won-mid
 320	timeout	45.0	0	won-slow
 340	win	41.9	0	won-race
-352	win	39.8	0	won-race
+352	defeat	39.8	0	won-race
 372	win	30.4	0	won-slow
 387	win	31.3	0	won-slow
 43	win	20.9	0	won-fast

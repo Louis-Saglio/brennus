@@ -1,0 +1,9 @@
+seed	result	game_min	js_errors	kind
+41	win	31.7	0	chk-win
+162	win	41.2	0	chk-win
+230	timeout	45	0	chk-win
+267	win	43.5	0	chk-win
+285	win	31.7	0	chk-win
+316	timeout	45	0	chk-win
+356	win	35.9	0	chk-win
+373	timeout	45	0	chk-win

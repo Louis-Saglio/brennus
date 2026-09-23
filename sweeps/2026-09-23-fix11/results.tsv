@@ -1,0 +1,9 @@
+seed	result	game_min	js_errors	kind
+140	timeout	45	0	target
+215	timeout	45	0	target
+162	defeat	40.8	0	regress-probe
+356	timeout	45	0	regress-probe
+372	win	39.2	0	regress-probe
+230	timeout	45	0	boom-control
+373	win	42.4	0	boom-control
+263	timeout	45	0	borderline
