@@ -3,6 +3,40 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-23 (wood storehouse: pattern-selected strategy, no storehouses on stragglers)
+
+- Louis's diagnosis of house2's 3 non-wins (259/320/70), confirmed by
+  dumping every wood supply at init and clustering it: temperate mainland
+  is dense forests + stragglers (93% of wood in clumps of >=10 trees at a
+  25 m link distance, 17-20 clumps on every measured seed), and the
+  demand path placed wood storehouses on 1-4-tree straggler clumps —
+  10 of them across the 3 seeds (~1000 wood plus rush-build churn). The
+  payback gate let them through because value scales with walk distance
+  (a·ΣW·gain): far stragglers pass however thin the clump.
+- Fix: the wood strategy is selected at CustomInit by the observed
+  distribution (observeWoodPattern — the engine exposes no map/biome
+  name, the supplies themselves are the deterministic selection key).
+  The dense-forest variant adds a site filter to the payback scan: the
+  site must hold >=8 trees within 40 m (measured split: straggler sites
+  1-4, forest sites 14-48). The opening storehouse is EXEMPT — the thin
+  home grove is load-bearing from the first minute (2026-09-05 lesson;
+  both measured openings sit at 6 trees/40 m, between the populations).
+- Engine gotcha: passing `this._siteFilter` as a callback value into
+  `_scan` loses the receiver — `this is undefined` inside the filter
+  (thousands of JS errors, every scan, starting at the first improving
+  candidate). Call it as `siteFilter.call(this, ...)` from the scan;
+  `this` there is the strategy instance.
+- Validation (34 seeds, standard spec, zero JS errors): 31W/1D/2T.
+  val1 set 18W/2D/1T -> 18W/1D/2T (259/320 defeats -> timeouts, 70
+  timeout -> win, 340 win -> defeat: a military rout after a STRONGER
+  boom — chaotic military-chain flip with the gate verifiably correct
+  in the log, kept per the rebalancing rule). val2 timeout set: 9/9
+  wins. Golden timelines 1-5 rebaselined.
+- A straggler demand that finds no forest site is gated like a payback
+  failure (5-min blacklist); the pull-back walks its choppers to served
+  forest. The [WARNING] wood-distance alarm can fire more often early —
+  walking is the intended trade, not a coverage bug.
+
 ## 2026-09-23 (house system rewrite: districts, spill signal, demand projection)
 
 - House placement rewritten from first principles: a house's pop bonus is

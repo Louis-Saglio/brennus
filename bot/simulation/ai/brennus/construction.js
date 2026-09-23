@@ -16,7 +16,10 @@ export function ConstructionManager(bot)
 	// Self-contained per-resource policies with their own gates: swap one here
 	// to change placement for a map/biome. Instances are recreated fresh on
 	// deserialization, like the other transient dropsite state they hold.
-	this.woodStrategy = Object.create(WoodStorehouseStrategy);
+	// The wood strategy is selected by the observed tree-distribution
+	// pattern (see observeWoodPattern): the dense-forest pattern gets the
+	// straggler-gated variant, anything else the plain payback model.
+	this.woodStrategy = Object.create(selectWoodStrategy(bot.gameState));
 	this.mineStrategy = Object.create(MineStorehouseStrategy);
 	this.farmsteadStrategy = Object.create(FarmsteadStrategy);
 	this.dropsiteStrategies = [this.woodStrategy, this.mineStrategy, this.farmsteadStrategy];
@@ -422,7 +425,106 @@ ConstructionManager.prototype.hasStructureOrFoundation = function(type, foundati
  * in priority order (wood, mine, farmstead), one dropsite order per block.
  * Strategy state (gated spots, cooldowns) lives on the strategy instance and
  * is transient, like the bot fields it replaces.
+ *
+ * The wood strategy is additionally selected by the observed tree
+ * distribution (observeWoodPattern below): the dense-forest pattern gets
+ * ForestWoodStorehouseStrategy, anything else the plain payback model.
+ *
+ * The observed tree-distribution pattern comes from the wood supplies fixed
+ * at map load — deterministic, and the engine exposes no map/biome name to
+ * the AI realm, so the distribution itself is the selection key.
+ * "denseForest" marks the temperate mainland pattern: nearly all wood in big
+ * contiguous forest clumps, the rest stragglers (measured: 93% of wood in
+ * clumps of >=10 trees at a 25 m link distance, on every temperate mainland
+ * seed). The threshold sits far below that so a partially chopped load-time
+ * map still classifies, and far above any straggler-dominated layout, which
+ * keeps the plain strategy (a density gate there would block every
+ * storehouse).
  */
+function observeWoodPattern(gameState)
+{
+	const supplies = [];
+	for (const s of gameState.getResourceSupplies("wood").values())
+	{
+		const pos = s.position();
+		const wood = s.resourceSupplyAmount();
+		if (pos && wood >= 30 && s.resourceSupplyType()?.specific === "tree")
+			supplies.push({ "pos": pos, "wood": wood });
+	}
+	// Union-find clumps at link distance: a forest is a contiguous canopy,
+	// stragglers are singles/pairs that never chain into one.
+	const link = 25;
+	const parent = supplies.map((_, i) => i);
+	const find = i => {
+		let root = i;
+		while (parent[root] !== root)
+			root = parent[root];
+		while (parent[i] !== root)
+		{
+			const next = parent[i];
+			parent[i] = root;
+			i = next;
+		}
+		return root;
+	};
+	const grid = new Map();
+	supplies.forEach((s, i) => {
+		const key = `${Math.floor(s.pos[0] / link)},${Math.floor(s.pos[1] / link)}`;
+		const cell = grid.get(key);
+		if (cell)
+			cell.push(i);
+		else
+			grid.set(key, [i]);
+	});
+	supplies.forEach((s, i) => {
+		const cx = Math.floor(s.pos[0] / link), cz = Math.floor(s.pos[1] / link);
+		for (let dx = -1; dx <= 1; ++dx)
+			for (let dz = -1; dz <= 1; ++dz)
+				for (const j of grid.get(`${cx + dx},${cz + dz}`) || [])
+				{
+					if (j <= i)
+						continue;
+					const ddx = supplies[j].pos[0] - s.pos[0], ddz = supplies[j].pos[1] - s.pos[1];
+					if (ddx * ddx + ddz * ddz <= link * link)
+					{
+						const ri = find(i), rj = find(j);
+						if (ri !== rj)
+							parent[ri] = rj;
+					}
+				}
+	});
+	const clumps = new Map();
+	let totalWood = 0;
+	supplies.forEach((s, i) => {
+		totalWood += s.wood;
+		const root = find(i);
+		const clump = clumps.get(root);
+		if (clump)
+		{
+			clump.trees++;
+			clump.wood += s.wood;
+		}
+		else
+			clumps.set(root, { "trees": 1, "wood": s.wood });
+	});
+	let forestWood = 0, forestClumps = 0;
+	for (const clump of clumps.values())
+		if (clump.trees >= 10)
+		{
+			forestWood += clump.wood;
+			forestClumps++;
+		}
+	const denseForest = totalWood > 0 && forestWood >= 0.6 * totalWood;
+	print(`[HARNESS] wood pattern: ${denseForest ? "dense-forest" : "scattered"}, ${totalWood ? Math.round(100 * forestWood / totalWood) : 0}% of ${totalWood} wood in ${forestClumps} clumps of >=10 trees\n`);
+	return { "denseForest": denseForest };
+}
+
+/** The wood storehouse strategy for the observed pattern: dense-forest maps get the straggler-gated variant, anything else the plain payback model. */
+function selectWoodStrategy(gameState)
+{
+	return observeWoodPattern(gameState).denseForest ? ForestWoodStorehouseStrategy : WoodStorehouseStrategy;
+}
+
 /**
  * Wood storehouse placement, derived from the gather cycle rather than from
  * heuristics. A wood gatherer's round trip is capacity/rate seconds of
@@ -559,10 +661,13 @@ export const WoodStorehouseStrategy = {
 	 * over the tree set. Candidates ring the unserved mass's wood-weighted
 	 * centroid; the engine's own placement prefilter (passability, territory,
 	 * failed spots, enemy proximity, land region) vets each one, and existing
-	 * dropsites keep their separation. Returns the winner with its total and
-	 * unserved-only savings in wood-equivalent.
+	 * dropsites keep their separation. siteFilter, when given, vets the
+	 * winners additionally (the forest-density gate; checked only on
+	 * improvement, so the scan returns the best site that passes it).
+	 * Returns the winner with its total and unserved-only savings in
+	 * wood-equivalent.
 	 */
-	"_scan": function(bot, storeType, region, sites, trees)
+	"_scan": function(bot, storeType, region, sites, trees, siteFilter)
 	{
 		const gameState = bot.gameState;
 		const econ = this._economics(bot);
@@ -612,7 +717,7 @@ export const WoodStorehouseStrategy = {
 				if (t.unserved)
 					unserved += t.wood * gain;
 			}
-			if (total > bestTotal)
+			if (total > bestTotal && (!siteFilter || siteFilter.call(this, bot, x, z, trees)))
 			{
 				bestTotal = total;
 				bestUnserved = unserved;
@@ -706,7 +811,7 @@ export const WoodStorehouseStrategy = {
 				}
 			if (count < this.minUnservedTrees || mass < this.minUnservedMass)
 				continue;
-			const scan = this._scan(bot, ctx.storeType, region, ctx.woodSites, trees);
+			const scan = this._scan(bot, ctx.storeType, region, ctx.woodSites, trees, this._siteFilter);
 			if (!this._pays(bot, trees, scan))
 			{
 				// The unserved mass only depletes, so a center that failed the
@@ -716,7 +821,7 @@ export const WoodStorehouseStrategy = {
 				{
 					this.gateLog = this.gateLog || {};
 					this.gateLog[key] = bot.turn;
-					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wood storehouse gated at ${center[0].toFixed(0)},${center[1].toFixed(0)} (${count} unserved trees, ${mass} wood, value ${scan ? Math.round(scan.unserved) : 0} < ${Math.round(this._economics(bot).minValue)})\n`);
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wood storehouse gated at ${center[0].toFixed(0)},${center[1].toFixed(0)} (${count} unserved trees, ${mass} wood, ${scan ? `value ${Math.round(scan.unserved)} < ${Math.round(this._economics(bot).minValue)}` : `no buildable${this._siteFilter ? " forest" : ""} site`})\n`);
 				}
 				continue;
 			}
@@ -735,6 +840,40 @@ export const WoodStorehouseStrategy = {
 		print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${best.scan.pos[0].toFixed(0)},${best.scan.pos[1].toFixed(0)} for wood ${best.center[0].toFixed(0)},${best.center[1].toFixed(0)} (value ${Math.round(best.scan.total)}, unserved ${Math.round(best.scan.unserved)} of cost ${Math.round(this._economics(bot).minValue)})\n`);
 		return true;
 	}
+};
+
+/**
+ * The dense-forest variant of the wood storehouse strategy (temperate
+ * mainland pattern): same payback model, but a storehouse must stand IN a
+ * forest — at least minForestTrees trees within forestRadius of the site.
+ * Measured on temperate mainland: straggler-clump sites hold 1-4 trees at
+ * 40 m, forest sites 14-48, so the gate splits them with margin on both
+ * sides. A straggler-only demand then finds no site, never spends, and the
+ * pull-back walks its choppers to the served forest instead. The opening
+ * storehouse is exempt (placeOpening passes no siteFilter): the thin home
+ * grove is load-bearing from the first minute (2026-09-05 lesson), and both
+ * measured openings (6 trees at 40 m) sit between the two populations.
+ */
+export const ForestWoodStorehouseStrategy = Object.create(WoodStorehouseStrategy);
+
+/** Trees within forestRadius of the site required to call it a forest. Measured: straggler sites <=4, forest sites >=14 at 40 m. */
+ForestWoodStorehouseStrategy.minForestTrees = 8;
+
+/** Radius (m) of the forest-density test around the site. */
+ForestWoodStorehouseStrategy.forestRadius = 40;
+
+/** The forest-density gate: the site must have minForestTrees trees within forestRadius. */
+ForestWoodStorehouseStrategy._siteFilter = function(bot, x, z, trees)
+{
+	const r2 = this.forestRadius * this.forestRadius;
+	let n = 0;
+	for (const t of trees)
+	{
+		const dx = t.pos[0] - x, dz = t.pos[1] - z;
+		if (dx * dx + dz * dz <= r2 && ++n >= this.minForestTrees)
+			return true;
+	}
+	return false;
 };
 
 export const MineStorehouseStrategy = {
