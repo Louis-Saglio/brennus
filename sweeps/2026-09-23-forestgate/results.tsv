@@ -1,0 +1,35 @@
+seed	result	game_min	js_errors	kind
+259	timeout	45	0	probe
+320	timeout	45	0	probe
+70	win	37.2	0	probe
+250	win	24.2	0	probe-control
+43	win	26.4	0	probe-control
+2	win	29	0	
+41	win	33.6	0	
+76	win	29.4	0	
+162	win	31.8	0	
+170	win	27.9	0	
+172	win	28.2	0	
+267	win	37.7	0	
+285	win	31.2	0	
+356	win	36.3	0	
+27	win	21.4	0	
+52	win	42.5	0	
+63	win	25.9	0	
+131	win	24.3	0	
+174	win	25.6	0	
+225	win	37.3	0	
+249	win	28.4	0	
+268	win	28	0	
+284	win	24.4	0	
+293	win	28.9	0	
+297	win	21.6	0	
+307	win	25.5	0	
+340	defeat	37.5	0	
+352	win	25.6	0	
+372	win	30.3	0	
+387	win	35.3	0	
+1	win	31.1	0	
+3	win	26.2	0	
+4	win	26.9	0	
+5	win	22.2	0	
