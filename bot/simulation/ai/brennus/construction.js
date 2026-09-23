@@ -214,7 +214,6 @@ ConstructionManager.prototype.manageConstruction = function()
 	if (this.bot.arbiter.held("banking"))
 		return;
 
-	const fieldType = gameState.applyCiv("structures/{civ}/field");
 	const reserve = this.bot.arbiter.reservedAll();
 
 	// Bootstrap: the opener spends on the two dropsites before anything else
@@ -284,25 +283,10 @@ ConstructionManager.prototype.manageConstruction = function()
 	if (this.bot.arbiter.held("constructionDefense"))
 		return;
 
-	// Field demand is computed fresh every block.
-	let foodGatherers = 0;
-	for (const res of Object.values(this.bot.economyManager.assignments))
-		if (res === "food")
-			foodGatherers++;
-	const fieldCap = this.bot.expansionManager.expansionOn() ? 60 : (gameState.currentPhase() === 1 ? 4 : 30);
-	// Fields open at t=1:30 or when served fruit runs low: they must stand before the fruit runs out.
-	const desiredFields = this.bot.economyManager.fruitStock < 4000 || gameState.getTimeElapsed() > 90000 ?
-		Math.min(fieldCap, Math.max(2, Math.ceil(foodGatherers / 3) + 1)) : 0;
-	let fields = 0;
-	for (const ent of gameState.getOwnStructures().values())
-		if (ent.templateName() === fieldType)
-			fields++;
-	const fieldFoundations = foundations.filter(f =>
-		gameState.getBuiltTemplate(f.templateName()).templateName() === fieldType).length;
-
-	// Bootstrap only: the first 2 fields get wood priority while served fruit is nearly out.
-	this.bot.arbiter.declare("field", (fields + fieldFoundations) < Math.min(2, desiredFields) &&
-		this.bot.economyManager.fruitStock < 800 ? { "wood": 100 } : null);
+	// Field demand is computed fresh every block (the FieldManager owns the
+	// demand model and the grain-slot placement; it declares the bootstrap
+	// wood demand the house gate below reads).
+	this.bot.fieldManager.demandFields();
 
 	this.bot.arbiter.declare("techWood", null);
 	for (const tech of ["gather_farming_plows", "gather_farming_training",
@@ -366,41 +350,9 @@ ConstructionManager.prototype.manageConstruction = function()
 	else
 		this.bot.arbiter.declare("house", null);
 
-	const cc = this.bot.getCivicCentre();
-	if (!cc)
-		return;
-	const ccPos = cc.position();
-
-	if (fields < desiredFields && fieldFoundations < 2 &&
-		resources.wood >= 100 + this.bot.arbiter.declaredAmount("house", "wood"))
-	{
-
-		const farmType = gameState.applyCiv("structures/{civ}/farmstead");
-		const farms = gameState.getOwnStructures().toEntityArray()
-			.filter(ent => ent.templateName() === farmType &&
-				ent.foundationProgress() === undefined && ent.position())
-			.map(farm => {
-				let near = 0;
-				for (const other of gameState.getOwnStructures().values())
-					if (other.templateName() === fieldType && other.position() &&
-						SquareDistance(other.position(), farm.position()) < 30 * 30)
-						near++;
-				return [near, farm.position()];
-			})
-			.sort((a, b) => a[0] - b[0]);
-		const region = this.bot.accessibility.getAccessValue(ccPos);
-		for (const farm of farms)
-		{
-			const spot = this.bot.placementManager.findBuildingPosition(fieldType, farm[1], 16, 36, true, region);
-			if (spot && this.bot.placementManager.placeOrder(fieldType, spot))
-				return;
-		}
-		this.bot.placementManager.tryConstruct(fieldType, "field");
-		return;
-	}
-
-	if (this.bot.arbiter.declared("fert"))
-		return;
+	// One field order per block, after the house: the FieldManager owns the
+	// placement (grain slots packed tight around the nearest food dropsite).
+	this.bot.fieldManager.orderField();
 };
 
 ConstructionManager.prototype.hasStructureOrFoundation = function(type, foundations)

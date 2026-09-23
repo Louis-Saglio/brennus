@@ -1673,3 +1673,42 @@ unchanged.
   wood walks at 8-36 m all game: war-path chaos, not placement.
 - Gated refusals log value vs cost (s53: 13 refusals of a 561-wood clump
   that saves only ~14 m per tree — the old code built there and bled).
+
+## 2026-09-23 (field system rewritten from the gather cycle)
+
+- The old code (fixed field lattice at 58-96 m from the CC in
+  placement.js, phase/expansion-capped demand in construction.js) is
+  replaced by fields.js FieldManager. A field is a grain-slot factory:
+  output is location-independent except the field→dropsite walk, so
+  placement has exactly one objective — minimize edge distance to the
+  nearest food dropsite. Gather cycle = capacity/rate gathering + 2d/v
+  walking: ~95% efficiency at d=5 m, 75% at 30 m, 60% at 60 m.
+- Demand from diminishing returns (dr=0.9, 5 slots: per-gatherer
+  100/95/90/86/82% at 1-5): target occupancy 3, desired =
+  max(2, ceil(foodGatherers/3)), recomputed every block so fields lead
+  the fruit-to-grain migration. Program starts when served fruit < 4000
+  or t > 90 s (fruit exhaustion is the norm on the standard map).
+  Bootstrap wood declaration only while fruitStock < 800 and < 2 fields
+  stand; routine orders queue behind the house declaration, max 3
+  foundations in flight.
+- Placement: rings around every food dropsite (CC + farmsteads +
+  foundations, nearest-home first) from axis-adjacent to halfDiag+110 m
+  (CC, its 140 m territory bubble covers it) / +60 m (farmstead — beyond
+  that the dropsite demand path attracts a farmstead instead), 32 angles
+  x 2 m step; cheap filters (failedSpots, land region, rotated-box
+  overlap vs own structures+foundations+pendingBuilds in a 48 m spatial
+  hash) then score by nearest-dropsite edge, validate best-first
+  (nearEnemy, placementOK). The explicit box check matters: fields are
+  walkable (BlockMovement=false) and may not rasterize into the
+  building-land passability map — verified empirically: zero field
+  construct FAILED across the 21-seed sweep with the check in place.
+- Validation (kiln, standard settings, 21 val1 seeds): 19W/1D(259)/1T(70),
+  zero JS errors — baseline house2 (b5d1934) was 18W/2D(259 320)/1T(70),
+  so 320 flips defeat to win; mean win time 28.7m vs 27.9m (within
+  inter-sweep jitter). Mean player-1 food gathered 39.8k vs 35.7k
+  (+11.4%), 14 seeds up / 7 down. Placement over 734 field orders:
+  median edge 16 m, p90 41 m, 72% at <=30 m.
+- Fields destroyed in contested border areas are re-ordered on the same
+  spot once freed (s340: 4 orders at one spot across 27.7-33.8m, zero
+  construct failures, failedSpots flat) — correct rebuild behavior, not
+  a placement bug.

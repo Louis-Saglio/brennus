@@ -13,6 +13,7 @@ import { BoomManager } from "simulation/ai/brennus/boom.js";
 import { BuildupManager } from "simulation/ai/brennus/buildup.js";
 import { DefenseManager } from "simulation/ai/brennus/defense.js";
 import { EconomyManager } from "simulation/ai/brennus/economy.js";
+import { FieldManager } from "simulation/ai/brennus/fields.js";
 import { OffenseManager } from "simulation/ai/brennus/offense.js";
 import { ConstructionManager } from "simulation/ai/brennus/construction.js";
 import "simulation/ai/brennus/config.js";
@@ -47,6 +48,8 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	// Gathering assignment, herding, mine pinning and gather-rate telemetry.
 	this.economyManager = new EconomyManager(this);
 	this.economyManager.deserialize(this.savedState?.economy);
+	// Field demand + grain-slot placement (transient state only).
+	this.fieldManager = new FieldManager(this);
 	this.boomManager = new BoomManager(this);
 
 	// Expansion program (CC lattice, relief expansion, wonder/trade/barter)
