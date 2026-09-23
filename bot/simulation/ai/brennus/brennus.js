@@ -106,6 +106,14 @@ BrennusBot.prototype.OnUpdate = function()
 		this.pop300Logged = true;
 		print(`[HARNESS] t=${(this.gameState.getTimeElapsed() / 60000).toFixed(1)}m population=300\n`);
 	}
+	// One-shot early-economy snapshot: wood gathered by the 10-min mark is the
+	// headline number for wood-system changes (end-of-game stats only give totals).
+	if (!this.wood10Logged && this.gameState.getTimeElapsed() >= 600000)
+	{
+		this.wood10Logged = true;
+		const gathered = this.gameState.playerData.statistics?.resourcesGathered || {};
+		print(`[HARNESS] t=10.0m gathered wood=${Math.round(gathered.wood || 0)} food=${Math.round(gathered.food || 0)} stone=${Math.round(gathered.stone || 0)} metal=${Math.round(gathered.metal || 0)} meanWoodDropsiteDist=${this.meanDropsiteDistances().wood}m\n`);
+	}
 	if (this.turn % 750 === 0)
 		this.logStatus();
 	this.turn++;

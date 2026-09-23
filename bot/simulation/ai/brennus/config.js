@@ -156,9 +156,6 @@ BrennusBot.prototype.mineDistWarn = 40;
 /** Mine-to-dropsite edge distance (m) within which a mine counts as served: equals the underserved threshold manageDropSites reacts to, so the drift pull-back below corrects miners long before the mineDistWarn alarm could observe them, and warning / pull-back / storehouse demand all read one metric. */
 BrennusBot.prototype.mineGatherServeDist = 18;
 
-/** Max gatherers on a tree before it counts as full ("slot"): past this, diminishing returns make another chopper pay less than the walk to a freer tree. Tune against the `rates wood=` telemetry. */
-BrennusBot.prototype.treeMaxGatherers = 4;
-
 /** Free pop slots (limit − population − queued) below which a house outranks a missing muster building: the defense accumulation hold releases so the pop race is never choked (s90 sat at 40/40 for 5 min under an ungated hold). */
 BrennusBot.prototype.defenseHoldMinPopMargin = 8;
 

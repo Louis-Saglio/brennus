@@ -43,6 +43,9 @@ export function EconomyManager(bot)
 	this.starvedUnits = undefined;
 	// Dropsite-served mine ids, written fresh by the expansion shares.
 	this.servedMineIds = undefined;
+	// Per-block wood coverage snapshot (trees, serve status, slots) shared by
+	// the chopper assignment, the re-home pass and the storehouse strategy.
+	this.woodCoverage = undefined;
 }
 
 EconomyManager.prototype.serialize = function()
@@ -94,8 +97,139 @@ EconomyManager.prototype.deserialize = function(data)
 };
 
 // ---------------------------------------------------------------- gathering
+/**
+ * Wood coverage snapshot: every live tree with its dropsite-serve status and
+ * engine gatherer slots, plus the aggregates the storehouse strategy's demand
+ * trigger reads (free served slots, served mass, chopper count, pool centroid).
+ * Refreshed every 10 turns (2 s): the aggregates move on depletion timescales,
+ * and the full scan every block measurably slowed the simulation. Shared by
+ * the re-home pass, the wood entry assignment and the strategy.
+ */
+EconomyManager.prototype.updateWoodCoverage = function()
+{
+	if (this.bot.turn < (this.woodCoverageTurn || 0))
+		return;
+	this.woodCoverageTurn = this.bot.turn + 10;
+	const gameState = this.bot.gameState;
+	const sites = this.dropsiteEdgeList();
+	let freeServedSlots = 0, servedMass = 0, choppers = 0;
+	const trees = [];
+	const byId = new Map();
+	for (const s of gameState.getResourceSupplies("wood").values())
+	{
+		const pos = s.position();
+		const amount = s.resourceSupplyAmount();
+		if (!pos || !amount)
+			continue;
+		const d0 = Math.max(0, this.edgeDistToSites(pos, sites));
+		const served = d0 <= this.bot.woodServeDist;
+		const max = s.maxGatherers() || 1;
+		const slots = s.resourceSupplyNumGatherers() || 0;
+		const t = { "ent": s, "pos": pos, "amount": amount, "slots": slots, "max": max, "served": served, "d0": d0, "specific": s.resourceSupplyType()?.specific };
+		trees.push(t);
+		byId.set(s.id(), t);
+		if (served)
+		{
+			servedMass += amount;
+			freeServedSlots += Math.max(0, max - slots);
+		}
+	}
+	// The chopper pool's centroid: the woodline's leading edge, and the anchor
+	// the storehouse cluster ordering advances from (the CC sits behind it).
+	let px = 0, pz = 0, pn = 0;
+	for (const ent of gameState.getOwnUnits().values())
+		if (this.assignments[ent.id()] === "wood" && ent.isGatherer() && !ent.isIdle() && ent.position())
+		{
+			choppers++;
+			const p = ent.position();
+			px += p[0];
+			pz += p[1];
+			pn++;
+		}
+	const pool = pn ? [px / pn, pz / pn] : this.bot.getCivicCentre()?.position();
+	this.woodCoverage = { "trees": trees, "byId": byId, "freeServedSlots": freeServedSlots, "servedMass": servedMass, "choppers": choppers, "pool": pool,
+		"servedTrees": trees.filter(t => t.served) };
+};
+
+/** Per-wood person-seconds of dropsite-edge distance: K = 2/(v·capacity), the round-trip walk amortized over one carry. */
+EconomyManager.prototype.woodCostK = function()
+{
+	if (this._woodK === undefined)
+	{
+		const gameState = this.bot.gameState;
+		const unit = gameState.getTemplate(gameState.applyCiv("units/{civ}/support_civilian"));
+		const speed = +unit?.get("UnitMotion/WalkSpeed") || 9;
+		const capacity = +unit?.get("ResourceGatherer/Capacities/wood") || 10;
+		this._woodK = 2 / (speed * capacity);
+	}
+	return this._woodK;
+};
+
+/**
+ * The tree a chopper should work, from the gather-cycle cost model: draining
+ * a tree of W wood at dropsite-edge distance d from unit position U costs
+ * |U−T|/W + K·d person-seconds per wood (the walk amortized over the tree's
+ * mass, the round trips over the carry). Served trees win on K·d, so the
+ * model keeps choppers near dropsites without a hard serve gate; the walk
+ * term stops long detours to a marginally better tree. Candidates: the
+ * nearest trees overall plus the nearest served ones (a served tree behind
+ * a straggler field must stay reachable). servedOnly restricts to served
+ * trees (the re-home pass).
+ */
+EconomyManager.prototype.bestWoodTree = function(unit, servedOnly)
+{
+	const cov = this.woodCoverage;
+	const upos = unit.position();
+	if (!cov || !upos)
+		return undefined;
+	const region = this.bot.accessibility.getAccessValue(upos);
+	const K = this.woodCostK();
+	// Nearest served trees by unit distance: one pass over the precomputed
+	// served list (small), a small sort.
+	const servedNear = [];
+	for (const t of cov.servedTrees)
+		if (SquareDistance(upos, t.pos) < 200 * 200)
+			servedNear.push(t);
+	servedNear.sort((a, b) => SquareDistance(upos, a.pos) - SquareDistance(upos, b.pos));
+	let pool = servedOnly ? servedNear.slice(0, 24) : servedNear.slice(0, 12);
+	if (!servedOnly)
+		for (const ent of this.bot.gameState.getResourceSupplies("wood").filterNearest(upos, 24).toEntityArray())
+		{
+			const t = cov.byId.get(ent.id());
+			if (t)
+				pool.push(t);
+		}
+	let best, bestCost = Infinity;
+	for (const respectSlots of [true, false])
+	{
+		for (const t of pool)
+		{
+			if (!t.pos || !t.amount)
+				continue;
+			if (respectSlots && t.slots >= t.max)
+				continue;
+			if (this.bot.accessibility.getAccessValue(t.pos) !== region)
+				continue;
+			if (this.bot.armyManager.nearEnemy(t.pos, 100, 60))
+				continue;
+			if (!this.canGatherSupply(unit, t.ent))
+				continue;
+			const cost = Math.hypot(upos[0] - t.pos[0], upos[1] - t.pos[1]) / t.amount + K * t.d0;
+			if (cost < bestCost)
+			{
+				bestCost = cost;
+				best = t.ent;
+			}
+		}
+		if (best)
+			return best;
+	}
+	return undefined;
+};
+
 EconomyManager.prototype.assignGatherers = function()
 {
+	this.updateWoodCoverage();
 	const counts = { "food": 0, "wood": 0, "stone": 0, "metal": 0 };
 	const idle = [];
 
@@ -136,67 +270,33 @@ EconomyManager.prototype.assignGatherers = function()
 	}
 
 	{
-		// The engine's gather autocontinue drifts choppers past their dropsite's
-		// reach: pull empty-handed lumberjacks on an unserved tree back to a
-		// served tree with a free slot. Those with nowhere to go stay on the
-		// frontier; the wood storehouse strategy reads the drift directly.
-		const sites = this.woodDropsitePositions();
-		const r2 = this.bot.woodServeDist * this.bot.woodServeDist;
-		let served; // scanned once per block, only if some chopper drifted
-		const slots = new Map();
-		for (const ent of this.bot.gameState.getOwnUnits().values())
-		{
-			if (this.assignments[ent.id()] !== "wood" || !ent.isGatherer() ||
-				ent.isIdle() || !ent.position())
-				continue;
-			if (ent.unitAIState()?.split(".")[1] !== "GATHER")
-				continue;
-			if ((ent.resourceCarrying() || []).some(c => c.amount > 0))
-				continue;
-			const tgt = this.gatherTarget[ent.id()];
-			if (tgt?.generic !== "wood")
-				continue;
-			const tree = this.bot.gameState.getEntityById(tgt.supplyId);
-			const anchor = tree?.position();
-			if (!anchor || sites.some(d => SquareDistance(anchor, d) < r2))
-				continue;
-			if (served === undefined)
+		// Re-home choppers whose tree is unserved to the best served tree with
+		// a free slot (same cost model as the entry assignment; carriers keep
+		// their load and drop at the nearer dropsite). Whoever has nowhere to
+		// go is stranded: recorded on the coverage snapshot — the wood
+		// storehouse strategy reads it as demand.
+		const byId = this.woodCoverage?.byId;
+		const stranded = this.woodCoverage ? this.woodCoverage.stranded = [] : undefined;
+		if (this.woodCoverage?.freeServedSlots > 0)
+			for (const ent of this.bot.gameState.getOwnUnits().values())
 			{
-				served = [];
-				for (const s of this.bot.gameState.getResourceSupplies("wood").values())
-				{
-					const sp = s.position();
-					if (!sp || !s.resourceSupplyAmount() || s.isFull())
-						continue;
-					if (!sites.some(d => SquareDistance(sp, d) < r2))
-						continue;
-					served.push(s);
-					slots.set(s.id(), s.resourceSupplyNumGatherers() || 0);
-				}
-			}
-			const region = this.bot.accessibility.getAccessValue(ent.position());
-			let best, bestD = Infinity;
-			for (const s of served)
-			{
-				if ((slots.get(s.id()) || 0) >= this.bot.treeMaxGatherers)
+				if (this.assignments[ent.id()] !== "wood" || !ent.isGatherer() ||
+					ent.isIdle() || !ent.position())
 					continue;
-				if (this.bot.accessibility.getAccessValue(s.position()) !== region)
+				if (ent.unitAIState()?.split(".")[1] !== "GATHER")
 					continue;
-				if (!this.canGatherSupply(ent, s))
+				const tgt = this.gatherTarget[ent.id()];
+				if (tgt?.generic !== "wood")
 					continue;
-				const d = SquareDistance(ent.position(), s.position());
-				if (d < bestD)
-				{
-					bestD = d;
-					best = s;
-				}
+				const tree = byId?.get(tgt.supplyId);
+				if (!tree || tree.served)
+					continue;
+				const best = this.bestWoodTree(ent, true);
+				if (best)
+					ent.gather(best);
+				else
+					stranded?.push(ent);
 			}
-			if (best)
-			{
-				slots.set(best.id(), (slots.get(best.id()) || 0) + 1);
-				ent.gather(best);
-			}
-		}
 	}
 
 	{
@@ -444,48 +544,11 @@ EconomyManager.prototype.findSupply = function(unit, resource)
 	const pos = unit.position();
 	const region = this.bot.accessibility.getAccessValue(pos);
 
-	// Wood: the tree minimizing the full walk cycle (unit -> tree + tree ->
-	// nearest dropsite). Trees at slot capacity are skipped — past
-	// treeMaxGatherers the diminishing returns cost more than the walk to a
-	// freer tree — unless every candidate is full.
+	// Wood: the gather-cycle cost model (bestWoodTree) — the tree minimizing
+	// walk-amortized person-seconds per wood, served trees winning on the
+	// dropsite-distance term.
 	if (resource === "wood")
-	{
-		const drops = this.woodDropsitePositions();
-		const candidates = this.bot.gameState.getResourceSupplies("wood").filterNearest(pos, 20).toEntityArray();
-		for (const respectSlots of [true, false])
-		{
-			let best, bestD = Infinity;
-			for (const supply of candidates)
-			{
-				const supplyPos = supply.position();
-				if (!supplyPos || this.bot.accessibility.getAccessValue(supplyPos) !== region)
-					continue;
-				if (this.bot.armyManager.nearEnemy(supplyPos, 100, 60))
-					continue;
-				if (!supply.resourceSupplyAmount() || supply.isFull())
-					continue;
-				if (!this.canGatherSupply(unit, supply))
-					continue;
-				if (respectSlots && (supply.resourceSupplyNumGatherers() || 0) >= this.bot.treeMaxGatherers)
-					continue;
-				let dd = Infinity;
-				for (const dp of drops)
-				{
-					const d2 = SquareDistance(supplyPos, dp);
-					if (d2 < dd)
-						dd = d2;
-				}
-				const d = Math.hypot(pos[0] - supplyPos[0], pos[1] - supplyPos[1]) + Math.sqrt(dd);
-				if (d < bestD)
-				{
-					bestD = d;
-					best = supply;
-				}
-			}
-			if (best)
-				return best;
-		}
-	}
+		return this.bestWoodTree(unit, false);
 
 	// Food: served fruit and dead in-territory animals are one pool; fields fall through to the generic path below.
 	if (resource === "food")
@@ -604,26 +667,6 @@ EconomyManager.prototype.findSupply = function(unit, resource)
 	return firstAny;
 };
 
-EconomyManager.prototype.woodDropsitePositions = function()
-{
-	const gameState = this.bot.gameState;
-	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
-	const sites = [];
-	for (const ent of gameState.getOwnStructures().values())
-		if (ent.position() && (ent.templateName() === storeType || ent.hasClass("CivCentre")))
-			sites.push(ent.position());
-	// Storehouse foundations count: an in-flight storehouse already serves its
-	// trees, and ignoring it orders a duplicate on the next block.
-	for (const f of gameState.getOwnFoundations().values())
-	{
-		if (!f.position())
-			continue;
-		if (gameState.getBuiltTemplate(f.templateName()).templateName() === storeType)
-			sites.push(f.position());
-	}
-	return sites;
-};
-
 EconomyManager.prototype.obstructionHalfDiag = function(ent)
 {
 	const o = ent.get("Obstruction/Static");
@@ -641,7 +684,7 @@ EconomyManager.prototype.centroid = function(points)
 	return [sx / points.length, sz / points.length];
 };
 
-/** Storehouse/CC positions with obstruction half-diagonals (storehouse foundations included): edge distance to this list is the serve metric every mine-coverage consumer shares (pull-back, storehouse demand, warning). */
+/** Storehouse/CC positions with obstruction half-diagonals (storehouse foundations included): edge distance to this list is the serve metric every coverage consumer shares (wood snapshot, mine pull-back, storehouse demand, warning). */
 EconomyManager.prototype.dropsiteEdgeList = function()
 {
 	const gameState = this.bot.gameState;

@@ -104,7 +104,8 @@ BrennusBot.prototype.logStatus = function()
 		if (!this.woodDistWarned)
 		{
 			this.woodDistWarned = true;
-			print(`[WARNING] t=${Math.round(gameState.getTimeElapsed() / 60000)}m lumberjacks work at mean ${wd}m from the nearest dropsite (>${this.woodDistWarn}m) — wood storehouse coverage is failing\n`);
+			const cov = this.economyManager.woodCoverage;
+			print(`[WARNING] t=${Math.round(gameState.getTimeElapsed() / 60000)}m lumberjacks work at mean ${wd}m from the nearest dropsite (>${this.woodDistWarn}m) — wood storehouse coverage is failing (freeSlots=${cov?.freeServedSlots} servedMass=${cov?.servedMass} choppers=${cov?.choppers} stranded=${cov?.stranded?.length || 0})\n`);
 		}
 	}
 	else if (wd === "-" || wd < this.woodDistWarnClear)

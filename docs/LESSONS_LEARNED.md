@@ -3,6 +3,67 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-23 (wood storehouse + chopper assignment rewritten from the gather cycle)
+
+- Louis's diagnosis (seed 70): choppers ended up working straggler trees, no
+  storehouse was placed, wood rate collapsed. Confirmed by treedump + log:
+  s70's home grove is 5 trees, then a straggler field, first forest at 124 m.
+  The forest-density gate (>=8 trees/40 m, added 2026-09-23 morning) vetoed
+  every storehouse site near the straggler field; the drift-census demand
+  then had nowhere valid to build, and the pull-back (cap 4) could not
+  rehome everyone. 4833 wood @10min, 22457 total, timeout.
+- Chopper assignment rewritten from the gather cycle: draining a tree of W
+  wood at dropsite-edge distance d from unit U costs |U-T|/W + K*d
+  person-seconds per wood (K = 2/(v*capacity) = 0.0222, round-trip walk
+  amortized over the carry). bestWoodTree picks the min-cost tree; served
+  trees win on K*d without a hard serve gate. Engine slots (MaxGatherers 8,
+  NO diminishing returns on trees) replace the artificial treeMaxGatherers 4
+  (the old "diminishing returns" comment was wrong for trees — it applies to
+  fields). Re-home pass: any wood chopper (carriers included — they keep
+  the load and drop at the nearer dropsite) whose target tree is unserved
+  re-homes to the best served tree with a free slot; whoever has nowhere to
+  go is recorded as stranded (the strategy's per-chopper demand signal).
+- Wood storehouse placement rewritten: demand is the woodline, not chopper
+  drift. Trigger: free served slots < pool, OR served mass < pool*rate*180 s
+  (the storehouse needs ~90 s to stand and the pool keeps growing — 60 s
+  fired too late and stranded the pool for the whole build), OR >=3 stranded
+  choppers (region-locked / beyond the re-home window — demand the global
+  aggregates hide). Districts are unserved in-territory tree clusters
+  (union-find at 25 m, same land region, >=600 g = 3 trees — stragglers are
+  walked to, not built for), ordered by closest approach to the chopper
+  pool's centroid plus the 2 nearest any stranded chopper, capped 5. The
+  block's order goes to the cluster maximizing scan.unserved (payback,
+  unchanged) MINUS the pool's relocation walk (walk * choppers * rate/speed)
+  — a far forest can out-pay a near one on tree mass alone and still strand
+  the pool mid-walk. Opening storehouse unchanged (payback gate, no cluster
+  floor — the thin home grove is load-bearing).
+- observeWoodPattern/selectWoodStrategy/ForestWoodStorehouseStrategy and the
+  drift-census demand are deleted; the density gate's failure mode (no valid
+  site on straggler-field maps) is handled by the cluster floor instead.
+- Telemetry: one-shot `t=10.0m gathered wood=...` line (the 10-min wood
+  number Louis asked for); the wood-distance warning now carries the
+  coverage aggregates (freeSlots/servedMass/choppers/stranded).
+- Perf: the coverage snapshot (every tree's serve status/slots/d0 + pool
+  centroid) runs every 10 turns (2 s), not every block — the per-block full
+  scan measurably slowed the sim (-66% t/s on s70). _trees and the served
+  list read the snapshot instead of re-querying supplies. Throttle validated
+  behavior-neutral (s1 wood@10min identical 5148, verdicts unchanged) and
+  restoring the turn rate (s1 74.8 -> 86.5 t/s, baseline 113).
+- Validation (20 seeds, standard settings, 0 JS errors): 18W/2T/0L.
+  s70/s90/s373 timeout -> win (the s400 sweep's verdicts as baseline);
+  s1/s52 win -> timeout (near-cap chaos: enemy army 90-100 or kill-clock
+  expiry, wood metrics healthy on both). wood@10min mean 5689, median 5803,
+  min 4051 (s70's drift-luck dip), max 6704.
+- Full sweep seeds 0-400 (sweeps/2026-09-23-wood400, 401 games): **385 win /
+  14 timeout / 2 loss (96.0%), 0 JS errors, 0 failed-AI**. Win durations
+  min 20.9 / avg 28.2 / max 44.9. wood@10min mean 5627 / median 5620 /
+  p10 4989 / min 3727 / max 6912; wood total mean 36477 / median 34575.
+  Vs the s400 baseline (383W/17T/0L on seeds 1-400): +15 baseline timeouts
+  -> wins, -12 baseline wins -> timeouts, -2 -> losses. The 12 w2t
+  timeouts and both losses (7, 134) have healthy wood metrics (wood10
+  4827-6173, late rates 41-74%) — near-cap / offense / military chaos, not
+  wood failures; the wood economy is never the losing factor on them.
+
 ## 2026-09-23 (wood storehouse: pattern-selected strategy, no storehouses on stragglers)
 
 - Louis's diagnosis of house2's 3 non-wins (259/320/70), confirmed by
