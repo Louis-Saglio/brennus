@@ -1528,3 +1528,44 @@ unchanged.
   boundary (s170 41.6-41.9m: -55 in one engagement).
 - Telemetry cost: `[THREATDEC]` prints only on decision flips or 1/min,
   `[BATTLE]` once per wave — no measurable turn-rate impact; keep it.
+
+## 2026-09-23 (s140/s215 flip attempts: the demobilize-gate conflict; Fix B shipped)
+
+- Fix B shipped (defense.js farRinged): when the threat is >120 m out with
+  the ring already down and the wave under 1.5x, take the engage branch
+  instead of the garrison-march — a garrison-march only shelters an army
+  that reaches the buildings ahead of the ring, else it feeds the ring
+  piecemeal (s140 t=28m: 76 garrisoned ~200 m out donated -52 for -3).
+  Full 38-seed validation (sweeps/2026-09-23-bonly + fix10): zero
+  regressions, 5 bonus flips (2/66/76/152/172 timeout -> win).
+- The demobilize gate (keep the army standing while `enemyArmy >
+  armyCount`) FLIPS 140/215/263 — the army fights the first wave gathered
+  (67v63 won) instead of being recalled piecemeal (57 -> 11) — but
+  REGRESSES 162/356/372 to capped: there the recall was never lethal and
+  the idle standing army (0-1 demobs all game vs 29-66 with demob)
+  starves the boom. No army-size threshold separates the sets (140 needs
+  standing at 67, 356 needs demob at 62). The gate helps exactly where
+  demobilize+recall is lethal, hurts where it is benign. NOT shipped.
+- Fix F (demobilized soldiers walk home before gathering): bust — no
+  flips, and 162 defeat / 356/230 capped. The massacre soldiers really
+  were 113 m out (assignGatherers assigns the supply nearest to wherever
+  the battle left them), but the walk home does not keep them home:
+  reassignment drifts them back out, and far fields still pull. NOT
+  shipped.
+- Fix A (scale the war armyTarget to the enemy army, cap 190, lower
+  dismissal floor while behind): regressed 316 to capped. NOT shipped.
+- 140/215 stay capped: no mechanism found flips them without regressing
+  162/356/372. The remaining ideas (engage-commitment anti-oscillation,
+  time-capped gate) were judged overfitting; the honest state is Fix B.
+- Classification gotchas (burned twice): `playerState:"won"` at the 45-min
+  cap is a lie — always verify with `time limit reached`=0 AND Petra
+  CCs destroyed (`enemyBuildingsDestroyed.CivCentre` OR Petra
+  `playerState:"defeated"` / `buildingsLost.CivCentre`). The
+  `enemyBuildingsDestroyed` counter can also miss the credited kill
+  (fix7-s140: 0 recorded, Petra defeated anyway). val1's results.tsv had
+  352 as "win" — actually a defeat (player 1 pop 0); re-audited all 21
+  val1 games strictly, only 352 was wrong.
+- Process: sweep watch.sh had an off-by-one (`wc -l` counted the header,
+  so the all-results exit condition was unreachable — watchers hung until
+  manual kill); fixed, and the watcher now prints `n/total` progress on
+  every change so a legitimate wait is distinguishable from a hang.
