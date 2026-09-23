@@ -16,11 +16,11 @@ BoomManager.prototype.managePhaseUp = function()
 	const gameState = this.bot.gameState;
 	const tech = this.nextPhaseTech();
 	// War fund: while the early-muster buildings (barracks, temple)
-	// are still missing, hold 150 wood out of the boom's reach — the house
-	// stream spends wood at cost level every block, so the 300-wood barracks
-	// gate almost never fires on its own before ~14 min (agg4: barracks at
-	// 9.1/9.5m, then starved). 300 strangled the house stream (agg5 s1: pop
-	// cap stalled at 120); 150 is one barracks at a time. Must be set before
+	// are still missing, hold 150 wood out of the boom's reach so the
+	// 300-wood barracks gate is not perpetually starved by the boom's
+	// cost-level spending (agg4: barracks at 9.1/9.5m, then starved).
+	// 300 strangled the pop stream (agg5 s1: pop cap stalled at 120);
+	// 150 is one barracks at a time. Must be set before
 	// the early returns below so the money accumulates through every hold.
 	if (!this.bot.expansionManager.warOn() && this.bot.arbiter.declared("defenseGap"))
 		this.bot.arbiter.reserve("phaseBank", { "wood": this.bot.arbiterParams.warChest.fundWood });

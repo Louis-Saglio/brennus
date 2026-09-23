@@ -3,6 +3,43 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-09-23 (house system rewrite: districts, spill signal, demand projection)
+
+- House placement rewritten from first principles: a house's pop bonus is
+  location-independent, so it takes land no location-valued building can
+  use well — a dense district per CC in the safe core (24-56 m annulus,
+  nearest-first), excluding farmstead discs (30 m) and CC-to-dropsite
+  corridors (8 m half-width). Spill levels when a district fills: 0 =
+  any CC's district, 1 = field lattice (58-96 m), 2 = wild ring
+  (98-150 m). Sustained spilling is a relief-expansion signal, per
+  Louis: pop growth must never stall, but spilling means space is rare.
+- Demand model: popMargin − spawnRate·40 s + houseBonus·inFlight < 2
+  fires a house order. spawnRate is exact from the training queues
+  (Σ count/(timeRemaining/1000) over started, unpaused items); queued
+  (progress ≤ 0) items are already subtracted from the margin because
+  the engine counts started batches in getPopulation() but not queued
+  ones. Deadlock (margin < 0) bypasses tech/field/reserve wood but never
+  dropsite declarations (dropsites are the wood producers, Louis).
+- Geometry facts verified in the pinned data: the field lattice's nearest
+  plots sit at 67.9 m ((±48,±48) grid points — the 53.7 m points are
+  filtered by the 58 m rule), so a 56 m district edge never collides
+  with field land. Fields ONLY use the lattice — there is no
+  farmstead-surround field placement, so a 40 m farmstead disc defends
+  land no field will ever use (30 m is enough to keep houses off the
+  farmstead itself).
+- Measured (house1/house2 sweeps, 21 val1 seeds each): an exclusion-gutted
+  district (~15-20 spots at 50 m outer / 40 m disc) fills by ~10 min and
+  forces permanent spill into the enemy's roam path — s340 lost 22
+  houses in rebuild churn and capped at 45m. Widened to 56 m / 30 m,
+  the same seed won at 30.5m with ZERO houses lost. Across both batches,
+  18 of 21 seeds lose zero houses; losses concentrate exactly in
+  contested games where the enemy stands in the base (pop never nears
+  the cap there — placement can't fix those, don't tune for them).
+- val1 comparison: the old fixed 18-70 m grid held more safe-core plots
+  than the first-cut exclusion-gutted district — when a from-scratch
+  design loses to the old one on one seed, measure capacity (spots per
+  district) before touching the mechanism.
+
 ## 2026-09-14 (capture: verified mechanics + Brennus capture policy)
 
 - Verified against the pinned 0.28.0 source: ownership flips the moment the

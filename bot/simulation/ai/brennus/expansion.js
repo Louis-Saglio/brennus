@@ -400,8 +400,8 @@ ExpansionManager.prototype.computeExpansionPlan = function()
 /**
  * Relief expansion: found a CC before the pop-300 milestone when the base is
  * demonstrably stuck — the FIRST market or arsenal unplaceable for a long
- * continuous stretch, houses unplaceable while pop is pinned at the limit
- * (tracked at record time in tryConstruct), or a resource the dropsites once
+ * continuous stretch, houses unplaceable or repeatedly spilling out of the
+ * districts (space getting rare), or a resource the dropsites once
  * served is exhausted (had it, lost it — a map that never had served stone
  * is not a reason to expand). Only true capability deadlocks count: capacity
  * wishes for a 2nd+ building and capped fields ride themselves out in
@@ -446,7 +446,17 @@ ExpansionManager.prototype.checkReliefExpansion = function()
 	const houseType = gameState.applyCiv("structures/{civ}/house");
 	if (stuck(houseType, 750))
 	{
-		this.reliefFire(`no room: houses unplaceable at the pop cap for ${((this.bot.turn - this.bot.placementManager.placeFailSince[houseType]) / 300).toFixed(1)}m`);
+		this.reliefFire(`no room: houses unplaceable for ${((this.bot.turn - this.bot.placementManager.placeFailSince[houseType]) / 300).toFixed(1)}m`);
+		return;
+	}
+	// Space pressure: house orders keep leaving the districts. Sustained only —
+	// the streak breaks on a clean district placement, and a house stream that
+	// stopped ordering (margin healthy) is not pressure.
+	const spill = this.bot.placementManager.houseSpill;
+	if (spill.since !== undefined && this.bot.turn - spill.since >= 750 &&
+		this.bot.turn - (spill.lastOrder ?? 0) <= 900)
+	{
+		this.reliefFire(`no room: houses spilling out of the districts for ${((this.bot.turn - spill.since) / 300).toFixed(1)}m`);
 		return;
 	}
 	if (this.bot.turn - (this.reliefResourceCheck || 0) < 150)

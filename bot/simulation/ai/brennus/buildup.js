@@ -80,10 +80,10 @@ BuildupManager.prototype.manageDefenseBuildings = function()
 			// accumulates (s21: three barracks landed 7 min after town
 			// phase). Hold construction while unaffordable: the trickle
 			// accumulates and the building fires at cost the moment it can.
-			// The hold binds houses/fields only — dropsites are the wood
+			// The hold binds the field race only — dropsites are the wood
 			// producers and must keep firing (s90's woodline collapsed under
 			// a full construction hold) — and it releases when the boom is
-			// pop-choked: a house outranks a barracks when nothing can train
+			// pop-choked: housing outranks a barracks when nothing can train
 			// anyway (s90 sat at 40/40 for 5 min under the hold).
 			if (!boom)
 			{

@@ -130,10 +130,6 @@ BrennusBot.prototype.phaseUpCost = {
 	"phase_city_generic": { "stone": 750, "metal": 750 }
 };
 
-BrennusBot.prototype.houseMargin = 16;
-
-BrennusBot.prototype.maxHouseFoundations = 4;
-
 /** Furthest animal the herder targets from the CC (m). */
 BrennusBot.prototype.herdMax = 200;
 

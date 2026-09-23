@@ -1,5 +1,14 @@
 import { SquareDistance } from "simulation/ai/brennus/helpers.js";
 
+function distToSegment(x, z, ax, az, bx, bz)
+{
+	const dx = bx - ax, dz = bz - az;
+	const len2 = dx * dx + dz * dz;
+	let t = len2 ? ((x - ax) * dx + (z - az) * dz) / len2 : 0;
+	t = Math.max(0, Math.min(1, t));
+	return Math.hypot(x - (ax + t * dx), z - (az + t * dz));
+}
+
 export function PlacementManager(bot)
 {
 	this.bot = bot;
@@ -10,10 +19,13 @@ export function PlacementManager(bot)
 	// relief-expansion check reads.
 	this.failedSpots = [];
 	this.placeFailSince = {};
+	// House space-pressure latch: streak of consecutive house orders that had
+	// to leave the home/expansion districts (level >= 1), when the streak
+	// started, and the last house order turn. Read by checkReliefExpansion.
+	this.houseSpill = { "streak": 0, "since": undefined, "lastOrder": undefined };
 	// Transient scan caches and log throttles, lazily init'd (reset on load).
 	this.placeRetryAfter = undefined;
 	this.placeFailLog = undefined;
-	this._housePlots = undefined;
 	this._fieldPlots = undefined;
 }
 
@@ -21,7 +33,8 @@ PlacementManager.prototype.serialize = function()
 {
 	return {
 		"failedSpots": this.failedSpots,
-		"placeFailSince": this.placeFailSince
+		"placeFailSince": this.placeFailSince,
+		"houseSpill": this.houseSpill
 	};
 };
 
@@ -29,6 +42,7 @@ PlacementManager.prototype.deserialize = function(data)
 {
 	this.failedSpots = data?.failedSpots || [];
 	this.placeFailSince = data?.placeFailSince || {};
+	this.houseSpill = data?.houseSpill || { "streak": 0, "since": undefined, "lastOrder": undefined };
 };
 
 // ---------------------------------------------------------------- placement
@@ -94,9 +108,14 @@ PlacementManager.prototype.tryConstruct = function(templateType, kind, center, r
 
 	const region = this.bot.accessibility.getAccessValue(ccPos);
 	// Only place in the CC's land region: a spot across a cliff or river sits unbuilt forever.
-	let pos;
+	let pos, houseSpot;
 	if (kind === "house")
-		pos = this.findGridSpot(templateType, this.housePlots(ccPos), region);
+	{
+		// Houses carry their own search (districts + spill levels); the generic
+		// ring fallbacks below would bypass it.
+		houseSpot = this.findHouseSpot(templateType);
+		pos = houseSpot?.pos;
+	}
 	else if (kind === "field")
 		pos = this.findGridSpot(templateType, this.fieldPlots(ccPos), region);
 	else if (kind === "dropsite")
@@ -110,14 +129,14 @@ PlacementManager.prototype.tryConstruct = function(templateType, kind, center, r
 		// stable placement failures on 4 of 10 seeds, and no stable at all on
 		// one. Scan out to 200 m for them.
 		pos = this.findBuildingPosition(templateType, center || ccPos, 10, kind === "military" ? 200 : 130, true, region);
-	if (!pos && kind !== "dropsite")
+	if (!pos && kind !== "dropsite" && kind !== "house")
 
 		pos = this.findBuildingPosition(templateType, ccPos, 12, 120, true, region);
 	// Big footprints (arsenal 29x29) find no hole in the crowded home ring and
 	// otherwise retry silently forever — 43 of 56 timeouts in the 3af2b27
 	// sweep never placed an arsenal, so no rams, so no raids. Fall back to the
 	// expansion rings: an exposed arsenal beats a nonexistent one.
-	if (!pos && kind !== "dropsite" && !center)
+	if (!pos && kind !== "dropsite" && kind !== "house" && !center)
 		for (const exp of this.expansionCivicCentres())
 		{
 			const ep = exp.position();
@@ -132,11 +151,9 @@ PlacementManager.prototype.tryConstruct = function(templateType, kind, center, r
 			this.placeRetryAfter[templateType] = this.bot.turn + 25;
 			// Relief-expansion signal: a field failing to place is routine
 			// (capped at 30 pre-expansion, rings simply full of fields — the
-			// relief1 goldens all false-fired on it), and a house failing only
-			// matters when the population is pinned at the limit and can never
-			// grow. Anything else failing continuously is a stuck base.
-			if (kind !== "field" &&
-				(kind !== "house" || this.bot.gameState.getPopulation() >= this.bot.gameState.getPopulationLimit()))
+			// relief1 goldens all false-fired on it). Anything else failing
+			// continuously is a stuck base.
+			if (kind !== "field")
 				this.placeFailSince[templateType] = this.placeFailSince[templateType] || this.bot.turn;
 			else
 				delete this.placeFailSince[templateType];
@@ -152,6 +169,8 @@ PlacementManager.prototype.tryConstruct = function(templateType, kind, center, r
 	if (this.placeOrder(templateType, pos, rush))
 	{
 		delete this.placeFailSince[templateType];
+		if (kind === "house")
+			this.recordHouseSpill(houseSpot.level);
 		return pos;
 	}
 	return false;
@@ -202,28 +221,125 @@ PlacementManager.prototype.getPlacementAngle = function()
 	return this.ccAngle;
 };
 
-PlacementManager.prototype.housePlots = function(ccPos)
+/** House district inner radius (m): just outside the CC's 30 m obstruction; the passability gate polices the exact edge. */
+PlacementManager.prototype.houseInnerR = 24;
+/** House district outer radius (m): the field lattice's nearest plots sit at 67.9 m (48,48 grid points), so district houses never sit on field land. */
+PlacementManager.prototype.houseOuterR = 56;
+/** Field lattice outer edge (m): houses may spill into the 58-96 m annulus when the districts are full, at the price of field land. */
+PlacementManager.prototype.houseLatticeR = 96;
+/** Last-resort outer bound (m): past the lattice, only to keep pop growth from stalling, with a loud warning. */
+PlacementManager.prototype.houseWildR = 150;
+/** Farmstead exclusion disc radius (m): keeps houses off the farmstead and its doorstep; fields use the lattice, not the farmstead's surroundings. */
+PlacementManager.prototype.houseFarmDiscR = 30;
+/** Half-width (m) of the corridor from a CC to each dropsite: the district never seals base egress. */
+PlacementManager.prototype.houseCorridorW = 8;
+
+/**
+ * House placement. A house's population bonus is location-independent, so it
+ * takes the land no location-valued building can use well: a dense district
+ * per CC in the safe core, nearest-first (depth is safety — a lost house eats
+ * pop margin — and distance is pure cost: builder walk). Farmstead discs and
+ * the CC-to-dropsite corridors are excluded. Spill levels when a district
+ * fills: 0 = any CC's district annulus, 1 = the field lattice annulus,
+ * 2 = the outer ring (last resort). Level >= 1 means space is getting rare:
+ * recorded in houseSpill for the relief-expansion check.
+ */
+PlacementManager.prototype.findHouseSpot = function(templateType)
 {
-	if (this._housePlots)
-		return this._housePlots;
+	const gameState = this.bot.gameState;
+	const template = gameState.getTemplate(templateType);
+	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
+	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
 	const angle = this.getPlacementAngle();
-	const cosa = Math.cos(angle), sina = Math.sin(angle);
-	const plots = [];
-	for (let gx = -5; gx <= 5; ++gx)
-		for (let gz = -5; gz <= 5; ++gz)
+	const pass = gameState.getPassabilityMap();
+	const mask = gameState.getPassabilityClassMask("building-land");
+	const terr = this.bot.territoryMap;
+
+	const home = this.bot.getCivicCentre();
+	if (!home)
+		return undefined;
+	const farmType = gameState.applyCiv("structures/{civ}/farmstead");
+	const storeType = gameState.applyCiv("structures/{civ}/storehouse");
+	const farmDiscs = [];
+	const dropsites = [];
+	for (const ent of gameState.getOwnStructures().values())
+		if (ent.position())
 		{
-			const dx = gx * 14, dz = gz * 14;
-			const dist2 = dx * dx + dz * dz;
-			if (dist2 < 18 * 18 || dist2 > 70 * 70)
-				continue;
-			plots.push([
-				ccPos[0] + dx * cosa - dz * sina,
-				ccPos[1] + dx * sina + dz * cosa,
-				dist2]);
+			if (ent.templateName() === farmType)
+			{
+				farmDiscs.push(ent.position());
+				dropsites.push(ent.position());
+			}
+			else if (ent.templateName() === storeType)
+				dropsites.push(ent.position());
 		}
-	plots.sort((a, b) => a[2] - b[2]);
-	this._housePlots = plots;
-	return plots;
+	for (const f of gameState.getOwnFoundations().values())
+		if (f.position())
+		{
+			const built = gameState.getBuiltTemplate(f.templateName()).templateName();
+			if (built === farmType)
+			{
+				farmDiscs.push(f.position());
+				dropsites.push(f.position());
+			}
+			else if (built === storeType)
+				dropsites.push(f.position());
+		}
+
+	const anchors = [home, ...this.expansionCivicCentres()];
+	const rings = [
+		[this.houseInnerR, this.houseOuterR, 0],
+		[this.houseOuterR + 2, this.houseLatticeR, 1],
+		[this.houseLatticeR + 2, this.houseWildR, 2]];
+	for (const [r0, r1, level] of rings)
+		for (const anchor of anchors)
+		{
+			const apos = anchor.position();
+			const region = this.bot.accessibility.getAccessValue(apos);
+			for (let r = r0; r <= r1; r += 2)
+				for (let a = 0; a < 64; ++a)
+				{
+					const ang = a * 2 * Math.PI / 64;
+					const x = apos[0] + r * Math.cos(ang);
+					const z = apos[1] + r * Math.sin(ang);
+					if (this.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
+						continue;
+					if (this.bot.armyManager.nearEnemy([x, z], 100, 60))
+						continue;
+					if (this.bot.accessibility.getAccessValue([x, z]) !== region)
+						continue;
+					if (farmDiscs.some(fp => Math.hypot(x - fp[0], z - fp[1]) < this.houseFarmDiscR))
+						continue;
+					if (dropsites.some(dp => distToSegment(x, z, apos[0], apos[1], dp[0], dp[1]) < this.houseCorridorW))
+						continue;
+					if (this.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
+						return { "pos": [x, z], "level": level };
+				}
+		}
+	return undefined;
+};
+
+/** Record where the latest house order landed: level >= 1 starts/extends the space-pressure streak, level 0 breaks it. */
+PlacementManager.prototype.recordHouseSpill = function(level)
+{
+	const spill = this.houseSpill;
+	spill.lastOrder = this.bot.turn;
+	if (level >= 1)
+	{
+		spill.streak++;
+		if (spill.since === undefined)
+			spill.since = this.bot.turn;
+		if (!this.houseSpillLog || this.bot.turn - this.houseSpillLog >= 300)
+		{
+			this.houseSpillLog = this.bot.turn;
+			print(`[HARNESS] t=${(this.bot.gameState.getTimeElapsed() / 60000).toFixed(1)}m house spill level ${level} — districts are full, space is getting rare\n`);
+		}
+	}
+	else
+	{
+		spill.streak = 0;
+		spill.since = undefined;
+	}
 };
 
 PlacementManager.prototype.fieldPlots = function(ccPos)

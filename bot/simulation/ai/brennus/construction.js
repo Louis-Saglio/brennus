@@ -70,7 +70,18 @@ ConstructionManager.prototype.manageConstruction = function()
 	const resources = this.bot.arbiter.books("construction");
 	const foundations = gameState.getOwnFoundations().toEntityArray();
 
-	// Sticky, non-overlapping builders per foundation (dropsites 4, houses 2-3, fields 2, CC 10, wonder 16); the herder is excluded.
+	// Free pop now: the limit minus used (started batches included by the
+	// engine) minus the pop of not-yet-started queue items. Drives the house
+	// demand below and the house builder count here (a deadlocked pipeline
+	// gets 3 builders, a routine house 2).
+	let queuedPop = 0;
+	for (const ent of gameState.getOwnStructures().values())
+		for (const item of ent.trainingQueue() || [])
+			if (item.unitTemplate && item.progress <= 0)
+				queuedPop += item.count;
+	const popMargin = gameState.getPopulationLimit() - gameState.getPopulation() - queuedPop;
+
+	// Sticky, non-overlapping builders per foundation (dropsites 4, fields 2, houses 2-3, CC 10, wonder 16); the herder is excluded.
 	const assigned = this.builderAssignments;
 	for (const fId in assigned)
 	{
@@ -96,7 +107,7 @@ ConstructionManager.prototype.manageConstruction = function()
 
 		const rush = this.rushBuilds.some(r => Math.abs(r.x - fpos[0]) < 6 && Math.abs(r.z - fpos[1]) < 6);
 
-		const target = (isField ? 2 : isHouse ? (this.bot.gameState.currentPhase() === 1 ? 2 : 3) :
+		const target = (isField ? 2 : isHouse ? (popMargin < 0 ? 3 : 2) :
 			isCC ? 10 : isWonder ? 16 : rush ? 8 : 4);
 		let cur = assigned[foundation.id()];
 		if (!cur)
@@ -200,27 +211,8 @@ ConstructionManager.prototype.manageConstruction = function()
 	if (this.bot.arbiter.held("banking"))
 		return;
 
-	const houseType = gameState.applyCiv("structures/{civ}/house");
 	const fieldType = gameState.applyCiv("structures/{civ}/field");
 	const reserve = this.bot.arbiter.reservedAll();
-
-	let queuedPop = 0;
-	for (const ent of gameState.getOwnStructures().values())
-		for (const item of ent.trainingQueue() || [])
-			if (item.unitTemplate)
-				queuedPop += item.count;
-	const margin = gameState.getPopulationLimit() - gameState.getPopulation() - queuedPop;
-	const houseFoundations = foundations.filter(f =>
-		gameState.getBuiltTemplate(f.templateName()).templateName() === houseType).length;
-	const houseCost = 75;
-	const tryHouse = () => {
-		if (this.bot.placementManager.tryConstruct(houseType, "house"))
-			this.bot.arbiter.spend(resources, "construction", { "wood": houseCost }, "house");
-		else if (this.bot.turn % 750 === 0)
-			print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m house placement FAILED (margin=${margin})\n`);
-		return true;
-
-	};
 
 	// Bootstrap: the opener spends on the two dropsites before anything else
 	// so the opening economy never walks — farmstead at the richest fruit
@@ -284,14 +276,12 @@ ConstructionManager.prototype.manageConstruction = function()
 		return;
 
 	// The defense accumulation hold (manageDefenseBuildings) pauses the
-	// house/field race while a muster building's 300 wood accumulates —
+	// field race while a muster building's 300 wood accumulates —
 	// dropsites and one-time civic buildings above keep firing.
 	if (this.bot.arbiter.held("constructionDefense"))
 		return;
 
-	// Field demand is computed fresh every block, BEFORE both house gates
-	// read it (until step C the early gate below read the previous block's
-	// declaration — an accident of statement order, not a policy).
+	// Field demand is computed fresh every block.
 	let foodGatherers = 0;
 	for (const res of Object.values(this.bot.economyManager.assignments))
 		if (res === "food")
@@ -307,14 +297,9 @@ ConstructionManager.prototype.manageConstruction = function()
 	const fieldFoundations = foundations.filter(f =>
 		gameState.getBuiltTemplate(f.templateName()).templateName() === fieldType).length;
 
-	// Bootstrap only: the first 2 fields outrank the house stream while served fruit is nearly out.
+	// Bootstrap only: the first 2 fields get wood priority while served fruit is nearly out.
 	this.bot.arbiter.declare("field", (fields + fieldFoundations) < Math.min(2, desiredFields) &&
 		this.bot.economyManager.fruitStock < 800 ? { "wood": 100 } : null);
-
-	if (margin < 2 && houseFoundations < this.bot.maxHouseFoundations &&
-		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
-		resources.wood >= houseCost + this.bot.arbiter.declaredAmount("field", "wood"))
-		return tryHouse();
 
 	this.bot.arbiter.declare("techWood", null);
 	for (const tech of ["gather_farming_plows", "gather_farming_training",
@@ -329,13 +314,62 @@ ConstructionManager.prototype.manageConstruction = function()
 		break;
 	}
 
+	// House demand: keep the training pipeline fed just-in-time. The
+	// projection discounts the free margin by the spawn rate of started
+	// batches (count / timeRemaining, exact) over the build latency and
+	// credits in-flight houses, so the in-flight count self-regulates:
+	// rate·latency/bonus at peak, one or two early, a burst in a crunch.
+	// Deadlock (margin < 0: a batch is pop-blocked) outranks techs, fields
+	// and reserves — but never dropsites, the wood producers. Bootstrap
+	// fields (fruit nearly out) outrank a routine house, not a deadlock one.
+	const houseType = gameState.applyCiv("structures/{civ}/house");
+	const houseCost = gameState.getTemplate(houseType).cost().wood || 75;
+	let spawnRate = 0;
+	for (const ent of gameState.getOwnStructures().values())
+		for (const item of ent.trainingQueue() || [])
+			if (item.unitTemplate && item.progress > 0 && !item.paused && item.timeRemaining > 500)
+				spawnRate += item.count / (item.timeRemaining / 1000);
+	let houseInFlight = 0;
+	for (const f of foundations)
+		if (gameState.getBuiltTemplate(f.templateName()).templateName() === houseType)
+			houseInFlight++;
+	const houseBonus = Math.round((+gameState.getTemplate(houseType).get("Population/Bonus") || 5) *
+		(gameState.isResearched("pop_house_01") ? 1.2 : 1) *
+		(gameState.isResearched("pop_house_02") ? 1.2 : 1));
+	const houseLatency = 40; // s: 30 s build + walk
+	const houseProjection = popMargin - spawnRate * houseLatency + houseBonus * houseInFlight;
+	const houseDeadlock = popMargin < 0;
+	if (gameState.getPopulationLimit() < gameState.getPopulationMax() && houseProjection < 2 &&
+		(houseDeadlock || !this.bot.arbiter.declared("field")))
+	{
+		this.bot.arbiter.declare("house", { "wood": houseCost });
+		const houseGate = houseDeadlock ?
+			resources.wood >= this.bot.arbiter.declaredAmount("dropsite", "wood") + houseCost :
+			!this.bot.arbiter.declared("techWood") &&
+			resources.wood >= (reserve.wood || 0) + this.nextTrioWood() +
+				this.bot.arbiter.declaredAmount("dropsite", "wood") +
+				this.bot.arbiter.declaredAmount("field", "wood") + houseCost;
+		if (houseGate)
+		{
+			const pos = this.bot.placementManager.tryConstruct(houseType, "house");
+			if (pos)
+			{
+				this.bot.arbiter.spend(resources, "construction", { "wood": houseCost }, "house");
+				print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m house at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} (margin=${popMargin}, rate=${spawnRate.toFixed(2)}/s, inFlight=${houseInFlight})\n`);
+				return;
+			}
+		}
+	}
+	else
+		this.bot.arbiter.declare("house", null);
+
 	const cc = this.bot.getCivicCentre();
 	if (!cc)
 		return;
 	const ccPos = cc.position();
 
 	if (fields < desiredFields && fieldFoundations < 2 &&
-		resources.wood >= 100)
+		resources.wood >= 100 + this.bot.arbiter.declaredAmount("house", "wood"))
 	{
 
 		const farmType = gameState.applyCiv("structures/{civ}/farmstead");
@@ -364,14 +398,6 @@ ConstructionManager.prototype.manageConstruction = function()
 
 	if (this.bot.arbiter.declared("fert"))
 		return;
-
-	const sprintCap = gameState.getTimeElapsed() > 600000 &&
-		gameState.getPopulationLimit() < gameState.getPopulationMax();
-	if ((margin < this.bot.houseMargin || sprintCap) && houseFoundations < this.bot.maxHouseFoundations &&
-		!this.bot.arbiter.declared("techWood") &&
-		gameState.getPopulationLimit() < gameState.getPopulationMax() &&
-		resources.wood >= (reserve.wood || 0) + this.nextTrioWood() + this.bot.arbiter.declaredAmount("dropsite", "wood") + this.bot.arbiter.declaredAmount("field", "wood") + houseCost)
-		return tryHouse();
 };
 
 ConstructionManager.prototype.hasStructureOrFoundation = function(type, foundations)
