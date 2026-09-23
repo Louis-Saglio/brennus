@@ -350,7 +350,18 @@ DefenseManager.prototype.manageDefense = function()
 			// val 2026-09-22: 70/320/340/352/356/373 capped — by delaying
 			// soldier returns and holding fights too long.)
 			const armyN = split ? responders.length : this.bot.armyManager.armyCount();
-			const engage = armyN >= nearThreat * 1.15 && waveSize <= armyN;
+			// Garrisoning only shelters an army that reaches the buildings ahead
+			// of the ring: a force still far out walks into the ring piecemeal
+			// (s140 t=28m: 76 garrisoned ~200 m out fed a 50-ring, -52 for -3).
+			// Far from the CC with the ring already down and the wave not
+			// overwhelming, a gathered field fight is the least-bad option —
+			// take the engage branch even without superiority.
+			let respDist = 0;
+			for (const ent of responders)
+				respDist += Math.sqrt(SquareDistance(ent.position(), [threat.ccx, threat.ccz]));
+			respDist = responders.length ? respDist / responders.length : 0;
+			const farRinged = respDist > 120 && threat.n >= armyN * 0.5 && nearThreat <= armyN * 1.5;
+			const engage = farRinged || (armyN >= nearThreat * 1.15 && waveSize <= armyN);
 			if (engage !== this.threatDecBranch || this.bot.turn >= (this.threatDecLog || 0))
 			{
 				this.threatDecBranch = engage;
