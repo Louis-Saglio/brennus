@@ -1569,3 +1569,36 @@ unchanged.
   so the all-results exit condition was unreachable — watchers hung until
   manual kill); fixed, and the watcher now prints `n/total` progress on
   every change so a legitimate wait is distinguishable from a hang.
+
+## 2026-09-23 (wood storehouse placement rewritten from the gather cycle)
+
+- The old heuristic placement (minTreeWood/minWoodMass/gateRadius mass
+  gates, the underserved/frontier demand census, the expansion-stage
+  special case) is replaced by a payback model. A gather round trip is
+  capacity/rate of gathering plus 2d/v of walking, so draining a tree of
+  W wood at dropsite-edge distance d costs (W/rate)(1 + a·d)
+  person-seconds whatever the gatherer count; a new dropsite saves
+  W·a·(d − d') per tree, a = 2·rate/(v·capacity). rate/capacity/speed and
+  cost/buildTime come from the civ's own templates at runtime — the gaul
+  celt_structures bonus makes storehouse buildTime 32, not 40, and the
+  model picks that up for free.
+- Demand is read from live state: wood gatherers (carriers included)
+  working trees past woodServeDist, grid-hashed per 40 m cell, densest
+  first. woodUnderserved/woodFrontier/woodFreeSlots and woodSlotMargin
+  are deleted; the drift pull-back stays untouched.
+- Gate: the UNSERVED mass alone must clear the full cost
+  (100 stock + 4×buildTime×rate)×1.5 ≈ 284 wood-equivalent, with ≥2
+  unserved trees and ≥400 unserved wood so one straggler never passes.
+  Placement maximizes total savings over the trees within 80 m of the
+  demand point (own territory, same land region, no enemy); the opening
+  storehouse is the same evaluator with the CC as the only dropsite, so a
+  wood-poor map keeps its 100 wood and walks.
+- Validation (kiln, standard settings, 6 seeds): 0 JS errors, 5 genuine
+  wins + s63 timeout. Wood efficiency 62-72% everywhere. A/B on current
+  main, s2: 39.3k wood gathered (+24%), 70.5% efficiency (+6pp), 14 wood
+  storehouses (was 28), both win. s90 (historic wood-deadlock seed, 5.6k
+  wood all game): 32.1k @ 72%, win at 23.1m. The s63 timeout is a
+  t=18-20 battle-loss cascade (army 83 → 15, enemy grows to 131) with
+  wood walks at 8-36 m all game: war-path chaos, not placement.
+- Gated refusals log value vs cost (s53: 13 refusals of a 561-wood clump
+  that saves only ~14 m per tree — the old code built there and bled).

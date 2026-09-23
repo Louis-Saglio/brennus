@@ -224,8 +224,8 @@ ConstructionManager.prototype.manageConstruction = function()
 
 	// Bootstrap: the opener spends on the two dropsites before anything else
 	// so the opening economy never walks — farmstead at the richest fruit
-	// cluster, storehouse at the in-territory clump with the most wood within
-	// 30m. The demand trigger in manageDropSites covers everything past these.
+	// cluster, storehouse at the home grove's payback maximum. The demand
+	// trigger in manageDropSites covers everything past these.
 	{
 		const type = gameState.applyCiv("structures/{civ}/farmstead");
 		if (!this.hasStructureOrFoundation(type, foundations) &&
@@ -397,129 +397,317 @@ ConstructionManager.prototype.hasStructureOrFoundation = function(type, foundati
  * Strategy state (gated spots, cooldowns) lives on the strategy instance and
  * is transient, like the bot fields it replaces.
  */
+/**
+ * Wood storehouse placement, derived from the gather cycle rather than from
+ * heuristics. A wood gatherer's round trip is capacity/rate seconds of
+ * gathering plus 2d/v seconds of walking (d = one-way tree-to-dropsite edge
+ * distance, v = walk speed), so draining a tree holding W wood costs
+ * (W/rate)·(1 + a·d) person-seconds whatever the gatherer count, with
+ * a = 2·rate/(v·capacity). A new dropsite at d' therefore saves
+ * W·a·(d − d') wood-equivalent per tree, valued at the gatherer's
+ * alternative wood income (≈ base rate): the saved person-seconds go back
+ * into gathering. The strategy builds when the savings on the wood that is
+ * NOT currently served clear the building's full cost (stock + the builders'
+ * lost gathering), and places the building at the spot maximizing total
+ * savings over the wood mass it will amortize over.
+ */
 export const WoodStorehouseStrategy = {
 
-	/** A far tree must still hold this much wood to trigger a storehouse: a straggler finishing a nearly-dead tree must not spend 100 wood on a building that outlives its forest. */
-	"minTreeWood": 100,
+	/** Grid hash cell (m) clustering far gatherers into one demand point. */
+	"clusterCell": 40,
 
-	/** Total wood within gateRadius of a storehouse spot below which the building cannot pay its 100 wood back: lone stragglers and pairs top out at 400 (200/tree on temperate), the home groves that must stay covered start at ~700 — 500 sits between the two measured clusters (s21/s70/s81 bled their economy on straggler storehouses; gating at 1000 delayed the home grove on s2/s45 and cost both games). */
-	"minWoodMass": 500,
+	/** Radius (m) around a demand point whose tree mass one storehouse amortizes over — beyond it the woodline needs >10 min to arrive and the payback estimate is fiction. */
+	"evalRadius": 80,
 
-	/** Radius (m) around a storehouse-demand clump whose wood mass counts toward the gate — wider than woodServeDist because a storehouse planted between sparse patches serves all of them: s53 gated five 133-203-mass clumps sitting within 45 m of each other (925 combined) while their choppers walked 230-285 m each way. Pairs 45 m apart still gate out (400 < 500); three trees spanning the radius pass (600), and 600 wood served pays the 100 wood back. */
-	"gateRadius": 45,
+	/** The unserved mass alone must pay for the building: at least this many trees... */
+	"minUnservedTrees": 2,
 
-	/** The opening storehouse goes where it pays its 100 wood back fastest: centered on the in-territory tree with the most wood within 30m, rush-built by the choppers like a demand storehouse. */
+	/** ...holding at least this much wood (2 temperate trees). One straggler never passes, however long the walk — the old mass-gate lesson, here the floor of a plausible payback clump. */
+	"minUnservedMass": 400,
+
+	/** A new storehouse must sit at least this far (m, center-to-center) from every existing dropsite: closer, it cannibalizes coverage instead of extending it. */
+	"separation": 20,
+
+	/** Payback multiplier over the computed cost: covers path-vs-straight-line error, supply amounts stale through fog, and raids interrupting the served wood. */
+	"safety": 1.5,
+
+	/** Builders a rush storehouse pulls off the woodline, for the cost estimate. */
+	"rushBuilders": 4,
+
+	/** Per-instance cache of the derived constants (recomputed after a load, like the rest of the strategy state). */
+	"_economics": function(bot)
+	{
+		if (this._econ)
+			return this._econ;
+		const gameState = bot.gameState;
+		const unit = gameState.getTemplate(gameState.applyCiv("units/{civ}/support_civilian"));
+		const store = gameState.getTemplate(gameState.applyCiv("structures/{civ}/storehouse"));
+		const rate = +unit?.get("ResourceGatherer/Rates/wood.tree") || 0.7;
+		const capacity = +unit?.get("ResourceGatherer/Capacities/wood") || 10;
+		const speed = +unit?.get("UnitMotion/WalkSpeed") || 9;
+		const cost = store?.cost().wood || 100;
+		const buildTime = store?.buildTime() || 40;
+		this._econ = {
+			"a": 2 * rate / (speed * capacity),
+			"minValue": (cost + buildTime * this.rushBuilders * rate) * this.safety
+		};
+		return this._econ;
+	},
+
+	/**
+	 * The tree set one storehouse would amortize over: every live tree within
+	 * evalRadius of the demand point that is in own territory (a storehouse
+	 * cannot be ordered elsewhere, so trees across the border contribute no
+	 * payback), in the same land region, and not under the enemy. d0 is the
+	 * edge distance to the existing dropsites; a tree is "unserved" past the
+	 * bot's serve distance — the same discipline the drift pull-back enforces.
+	 */
+	"_trees": function(bot, center, region, sites)
+	{
+		const gameState = bot.gameState;
+		const r2 = this.evalRadius * this.evalRadius;
+		const trees = [];
+		for (const s of gameState.getResourceSupplies("wood").values())
+		{
+			if (s.resourceSupplyType()?.specific !== "tree")
+				continue;
+			const pos = s.position();
+			const wood = s.resourceSupplyAmount();
+			if (!pos || !wood || wood < 30)
+				continue;
+			if (SquareDistance(pos, center) > r2)
+				continue;
+			if (!bot.inOwnTerritory(pos[0], pos[1]))
+				continue;
+			if (bot.accessibility.getAccessValue(pos) !== region)
+				continue;
+			if (bot.armyManager.nearEnemy(pos, 100, 60))
+				continue;
+			const d0 = Math.max(0, bot.economyManager.edgeDistToSites(pos, sites));
+			trees.push({ "pos": pos, "wood": wood, "d0": d0, "unserved": d0 > bot.woodServeDist });
+		}
+		return trees;
+	},
+
+	/**
+	 * Demand: wood gatherers actually working a tree beyond every dropsite's
+	 * serve distance (carriers included — a full chopper on a far tree is
+	 * coverage demand the pull-back will only correct next trip). Grid-hashed
+	 * per tree, densest cells first, capped: one order per block goes to the
+	 * best cluster anyway.
+	 */
+	"_clusters": function(bot, ctx)
+	{
+		const gameState = bot.gameState;
+		const cells = new Map();
+		for (const ent of gameState.getOwnUnits().values())
+		{
+			if (!ent.isGatherer() || ent.isIdle() || !ent.position())
+				continue;
+			if (bot.economyManager.assignments[ent.id()] !== "wood")
+				continue;
+			const tgt = bot.economyManager.gatherTarget[ent.id()];
+			if (tgt?.generic !== "wood" || tgt?.specific !== "tree")
+				continue;
+			const tree = gameState.getEntityById(tgt.supplyId);
+			const pos = tree?.position();
+			if (!pos || !tree.resourceSupplyAmount())
+				continue;
+			if (Math.max(0, bot.economyManager.edgeDistToSites(pos, ctx.woodSites)) <= bot.woodServeDist)
+				continue;
+			const key = `${Math.floor(pos[0] / this.clusterCell)},${Math.floor(pos[1] / this.clusterCell)}`;
+			const cell = cells.get(key);
+			if (cell)
+				cell.push(pos);
+			else
+				cells.set(key, [pos]);
+		}
+		return [...cells.values()]
+			.sort((a, b) => b.length - a.length)
+			.slice(0, 4)
+			.map(positions => bot.economyManager.centroid(positions));
+	},
+
+	/**
+	 * Pick the buildable spot maximizing total savings, a·Σ W·max(0, d0 − dNew),
+	 * over the tree set. Candidates ring the unserved mass's wood-weighted
+	 * centroid; the engine's own placement prefilter (passability, territory,
+	 * failed spots, enemy proximity, land region) vets each one, and existing
+	 * dropsites keep their separation. Returns the winner with its total and
+	 * unserved-only savings in wood-equivalent.
+	 */
+	"_scan": function(bot, storeType, region, sites, trees)
+	{
+		const gameState = bot.gameState;
+		const econ = this._economics(bot);
+		const template = gameState.getTemplate(storeType);
+		const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
+		const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
+		const halfDiag = Math.hypot(+template.get("Obstruction/Static/@width"), +template.get("Obstruction/Static/@depth")) / 2;
+		const angle = bot.placementManager.getPlacementAngle();
+		const pass = gameState.getPassabilityMap();
+		const mask = gameState.getPassabilityClassMask("building-land");
+		const terr = bot.territoryMap;
+		const placement = bot.placementManager;
+
+		let sw = 0, cx = 0, cz = 0;
+		for (const t of trees)
+		{
+			if (!t.unserved)
+				continue;
+			sw += t.wood;
+			cx += t.pos[0] * t.wood;
+			cz += t.pos[1] * t.wood;
+		}
+		if (sw <= 0)
+			return undefined;
+		cx /= sw;
+		cz /= sw;
+
+		let best, bestTotal = 0, bestUnserved = 0;
+		const consider = (x, z) => {
+			if (placement.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
+				return;
+			if (bot.armyManager.nearEnemy([x, z], 100, 60))
+				return;
+			if (bot.accessibility.getAccessValue([x, z]) !== region)
+				return;
+			if (sites.some(s => Math.hypot(x - s.pos[0], z - s.pos[1]) < this.separation))
+				return;
+			if (!placement.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
+				return;
+			let total = 0, unserved = 0;
+			for (const t of trees)
+			{
+				const gain = t.d0 - Math.max(0, Math.hypot(x - t.pos[0], z - t.pos[1]) - halfDiag);
+				if (gain <= 0)
+					continue;
+				total += t.wood * gain;
+				if (t.unserved)
+					unserved += t.wood * gain;
+			}
+			if (total > bestTotal)
+			{
+				bestTotal = total;
+				bestUnserved = unserved;
+				best = [x, z];
+			}
+		};
+		consider(cx, cz);
+		for (let r = 6; r <= 42; r += 6)
+			for (let k = 0; k < 16; ++k)
+			{
+				const ang = k * Math.PI / 8;
+				consider(cx + r * Math.cos(ang), cz + r * Math.sin(ang));
+			}
+		if (!best)
+			return undefined;
+		return { "pos": best, "total": bestTotal * econ.a, "unserved": bestUnserved * econ.a };
+	},
+
+	/** Gates shared by the opening and the demand path: the unserved mass alone must pay the building back. */
+	"_pays": function(bot, trees, scan)
+	{
+		let mass = 0, count = 0;
+		for (const t of trees)
+			if (t.unserved)
+			{
+				mass += t.wood;
+				count++;
+			}
+		return count >= this.minUnservedTrees && mass >= this.minUnservedMass &&
+			scan && scan.unserved >= this._economics(bot).minValue;
+	},
+
+	/**
+	 * The opening storehouse: same evaluator with the civic centre as the
+	 * only dropsite. It lands at the payback maximum of the home grove, and
+	 * on a wood-poor map the gate simply keeps the 100 wood — choppers walk
+	 * to the CC instead of funding a building that never pays back.
+	 */
 	"placeOpening": function(bot, type)
 	{
+		if (bot.turn < (this.openingRetryAfter || 0))
+			return false;
 		const gameState = bot.gameState;
 		const cc = bot.getCivicCentre();
 		if (!cc)
 			return false;
 		const region = bot.accessibility.getAccessValue(cc.position());
-		const trees = gameState.getResourceSupplies("wood").toEntityArray()
-			.filter(s => s.position() && s.resourceSupplyAmount() > 30 &&
-				!bot.armyManager.nearEnemy(s.position(), 100, 60) &&
-				bot.accessibility.getAccessValue(s.position()) === region);
-		const scored = trees.filter(t => bot.inOwnTerritory(t.position()[0], t.position()[1]))
-			.map(t => {
-				let mass = 0;
-				for (const o of trees)
-					if (SquareDistance(t.position(), o.position()) < 30 * 30)
-						mass += o.resourceSupplyAmount();
-				return [mass, t.position()];
-			}).sort((a, b) => b[0] - a[0]);
-		const tried = [];
-		for (const cand of scored)
+		const ccSite = [{ "pos": cc.position(), "half": bot.economyManager.obstructionHalfDiag(cc) }];
+		const trees = this._trees(bot, cc.position(), region, ccSite);
+		const scan = this._scan(bot, type, region, ccSite, trees);
+		if (!this._pays(bot, trees, scan))
 		{
-			if (tried.some(p => SquareDistance(p, cand[1]) < 30 * 30))
-				continue;
-			tried.push(cand[1]);
-			const pos = bot.placementManager.tryConstruct(type, "dropsite", cand[1], true);
-			if (pos)
-				return pos;
-			if (tried.length >= 5)
-				break;
+			this.openingRetryAfter = bot.turn + 150;
+			return false;
 		}
-		return false;
+		if (!bot.placementManager.placeOrder(type, scan.pos, true))
+			return false;
+		return scan.pos;
 	},
 
 	/**
-	 * Wood storehouse demand has two signals. Stranded choppers (the pull-back
-	 * in assignGatherers found no served tree with a free slot) need coverage
-	 * where they work. And before anyone strands: when free slots on served
-	 * trees run below woodSlotMargin, the unserved trees choppers drifted onto
-	 * this block mark the frontier to cover. Two gates keep a bad spend out:
-	 * a nearly-dead tree never justifies a 100-wood building (per-tree wood),
-	 * and a clump whose whole neighborhood is stragglers cannot pay the
-	 * building back either (mass gate in the placement loop below).
-	 * No reserve is held against a wood storehouse: it is the investment that
-	 * produces wood — reserving wood against it deadlocks the economy once
-	 * income has collapsed (s90 never passed the 250-wood effective floor).
+	 * Demand path: for each cluster of far gatherers, evaluate the wood mass
+	 * around it and order the block's storehouse at the best-payback spot —
+	 * one order per block, the richest cluster first. No reserve is held
+	 * against a wood storehouse: it is the investment that produces wood —
+	 * reserving wood against it deadlocks the economy once income has
+	 * collapsed (s90 never passed the 250-wood effective floor).
 	 */
 	"run": function(bot, ctx)
 	{
 		const gameState = bot.gameState;
 		const resources = ctx.resources;
+		if (ctx.storeCount >= (bot.expansionManager.expansionOn() ? 40 : 18) || resources.wood < 100)
+			return false;
 
-		const underserved = (bot.economyManager.woodUnderserved || []).filter(u => u.wood >= this.minTreeWood);
-		const frontier = (bot.economyManager.woodFrontier || []).filter(u => u.wood >= this.minTreeWood);
-		let demand = underserved;
-		if (!demand.length && (bot.economyManager.woodFreeSlots ?? Infinity) < bot.woodSlotMargin)
-			demand = frontier;
-		if (demand.length && ctx.storeCount < (bot.expansionManager.expansionOn() ? 40 : 18) &&
-			resources.wood >= 100)
+		this.gateRetry = this.gateRetry || {};
+		let best;
+		for (const center of this._clusters(bot, ctx))
 		{
-			// The richest-looking clump is not always worth serving: gate each
-			// candidate on the wood mass within serve reach of its center and walk
-			// down the distance ranking until one pays for itself.
-			const massNear = center => {
-				let mass = 0;
-				const r2 = this.gateRadius * this.gateRadius;
-				for (const s of gameState.getResourceSupplies("wood").values())
+			const key = `${Math.round(center[0] / 20)},${Math.round(center[1] / 20)}`;
+			if (bot.turn < (this.gateRetry[key] || 0))
+				continue;
+			const region = bot.accessibility.getAccessValue(center);
+			const trees = this._trees(bot, center, region, ctx.woodSites);
+			let mass = 0, count = 0;
+			for (const t of trees)
+				if (t.unserved)
 				{
-					const sp = s.position();
-					if (sp && s.resourceSupplyAmount() && SquareDistance(sp, center) < r2)
-						mass += s.resourceSupplyAmount();
+					mass += t.wood;
+					count++;
 				}
-				return mass;
-			};
-			const ranked = demand.map(u => [bot.economyManager.edgeDistToSites(u.pos, ctx.woodSites), u.pos])
-				.sort((a, b) => b[0] - a[0]);
-			const tried = [];
-			for (const [, pos] of ranked)
+			if (count < this.minUnservedTrees || mass < this.minUnservedMass)
+				continue;
+			const scan = this._scan(bot, ctx.storeType, region, ctx.woodSites, trees);
+			if (!this._pays(bot, trees, scan))
 			{
-				if (tried.some(p => SquareDistance(p, pos) < 25 * 25))
-					continue;
-				const center = bot.economyManager.centroid(demand.filter(u => Math.hypot(u.pos[0] - pos[0], u.pos[1] - pos[1]) < 25)
-					.map(u => u.pos));
-				tried.push(center);
-				const mass = massNear(center);
-				if (mass < this.minWoodMass)
+				// The unserved mass only depletes, so a center that failed the
+				// payback gate cannot pass later: blacklist it for 5 min.
+				this.gateRetry[key] = bot.turn + 300;
+				if (!this.gateLog || bot.turn - (this.gateLog[key] || -1000) >= 300)
 				{
-					if (!(this.gatedWoodSpots || []).some(p => SquareDistance(p, center) < 30 * 30))
-					{
-						(this.gatedWoodSpots = this.gatedWoodSpots || []).push(center);
-						const ccp = ctx.cc.position();
-						print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wood storehouse gated at ${center[0].toFixed(0)},${center[1].toFixed(0)} (mass ${mass}, ccDist ${Math.hypot(center[0] - ccp[0], center[1] - ccp[1]).toFixed(0)}m)\n`);
-					}
-					continue;
+					this.gateLog = this.gateLog || {};
+					this.gateLog[key] = bot.turn;
+					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wood storehouse gated at ${center[0].toFixed(0)},${center[1].toFixed(0)} (${count} unserved trees, ${mass} wood, value ${scan ? Math.round(scan.unserved) : 0} < ${Math.round(this._economics(bot).minValue)})\n`);
 				}
-				if (ctx.storePending(center))
-					continue;
-				bot.arbiter.declare("dropsite", { "wood": 100 });
-				const placed = bot.expansionManager.expansionOn() ?
-					bot.expansionManager.findExpansionWoodStorehouse(ctx.storeType, center) :
-					bot.placementManager.tryConstruct(ctx.storeType, "dropsite", center, true);
-				if (placed)
-				{
-					bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/wood");
-					print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${placed[0].toFixed(0)},${placed[1].toFixed(0)} for wood ${center[0].toFixed(0)},${center[1].toFixed(0)} (${underserved.length} underserved + ${frontier.length} frontier, mass ${mass})\n`);
-					return true;
-				}
-				break;
+				continue;
 			}
+			if (!best || scan.unserved > best.scan.unserved)
+				best = { center, scan };
 		}
-		return false;
+		if (!best)
+			return false;
+		if (ctx.storePending(best.scan.pos) ||
+			ctx.storeFoundations.some(p => Math.hypot(p[0] - best.scan.pos[0], p[1] - best.scan.pos[1]) < 30))
+			return false;
+		bot.arbiter.declare("dropsite", { "wood": 100 });
+		if (!bot.placementManager.placeOrder(ctx.storeType, best.scan.pos, true))
+			return false;
+		bot.arbiter.spend(resources, "dropsites", { "wood": 100 }, "storehouse/wood");
+		print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m storehouse at ${best.scan.pos[0].toFixed(0)},${best.scan.pos[1].toFixed(0)} for wood ${best.center[0].toFixed(0)},${best.center[1].toFixed(0)} (value ${Math.round(best.scan.total)}, unserved ${Math.round(best.scan.unserved)} of cost ${Math.round(this._economics(bot).minValue)})\n`);
+		return true;
 	}
 };
 

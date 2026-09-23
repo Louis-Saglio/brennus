@@ -163,9 +163,6 @@ BrennusBot.prototype.mineGatherServeDist = 18;
 /** Max gatherers on a tree before it counts as full ("slot"): past this, diminishing returns make another chopper pay less than the walk to a freer tree. Tune against the `rates wood=` telemetry. */
 BrennusBot.prototype.treeMaxGatherers = 4;
 
-/** Free slots on served trees below which the woodline counts as saturating: the next storehouse is ordered at the drift frontier before choppers actually strand — stranding-first ordering starves the wood flow for the whole build time (loss review: second storehouses landed at 5:18-9:18). */
-BrennusBot.prototype.woodSlotMargin = 4;
-
 /** Free pop slots (limit − population − queued) below which a house outranks a missing muster building: the defense accumulation hold releases so the pop race is never choked (s90 sat at 40/40 for 5 min under an ungated hold). */
 BrennusBot.prototype.defenseHoldMinPopMargin = 8;
 

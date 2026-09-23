@@ -35,12 +35,9 @@ export function EconomyManager(bot)
 	// Served-fruit stock, refreshed every 25 turns by updateResourceScan.
 	this.fruitStock = 0;
 	this.resourceScanRefresh = undefined;
-	// Per-block drift census read by the dropsite strategies, and other
-	// transient gather bookkeeping (reset on load, as before).
+	// Per-block drift bookkeeping and other transient gather bookkeeping
+	// (reset on load, as before).
 	this.minersFreed = undefined;
-	this.woodUnderserved = undefined;
-	this.woodFrontier = undefined;
-	this.woodFreeSlots = undefined;
 	this.minePullLog = undefined;
 	this.gatherCounts = undefined;
 	this.starvedUnits = undefined;
@@ -141,15 +138,10 @@ EconomyManager.prototype.assignGatherers = function()
 	{
 		// The engine's gather autocontinue drifts choppers past their dropsite's
 		// reach: pull empty-handed lumberjacks on an unserved tree back to a
-		// served tree with a free slot. Those with nowhere to go are underserved
-		// — manageDropSites builds their storehouse. Every drift (pulled back or
-		// not) is also recorded in woodFrontier with the block's remaining free
-		// slots, so manageDropSites can extend coverage BEFORE the woodline
-		// saturates instead of waiting for the first stranded chopper.
+		// served tree with a free slot. Those with nowhere to go stay on the
+		// frontier; the wood storehouse strategy reads the drift directly.
 		const sites = this.woodDropsitePositions();
 		const r2 = this.bot.woodServeDist * this.bot.woodServeDist;
-		this.woodUnderserved = [];
-		this.woodFrontier = [];
 		let served; // scanned once per block, only if some chopper drifted
 		const slots = new Map();
 		for (const ent of this.bot.gameState.getOwnUnits().values())
@@ -199,24 +191,11 @@ EconomyManager.prototype.assignGatherers = function()
 					best = s;
 				}
 			}
-			const demand = { "pos": anchor, "wood": tree.resourceSupplyAmount() || 0 };
 			if (best)
 			{
 				slots.set(best.id(), (slots.get(best.id()) || 0) + 1);
 				ent.gather(best);
 			}
-			else
-				this.woodUnderserved.push(demand);
-			this.woodFrontier.push(demand);
-		}
-		// Meaningful only when a drift happened this block: Infinity reads as
-		// "no pressure information" and never triggers the frontier storehouse.
-		this.woodFreeSlots = Infinity;
-		if (served !== undefined)
-		{
-			this.woodFreeSlots = 0;
-			for (const s of served)
-				this.woodFreeSlots += Math.max(0, this.bot.treeMaxGatherers - (slots.get(s.id()) || 0));
 		}
 	}
 

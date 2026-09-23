@@ -412,6 +412,11 @@ ExpansionManager.prototype.computeExpansionPlan = function()
  * still waits for pop 300. (c8e6d31 sweep: s55/s87/s47/s20 deadlocked
  * here — no room, pop stalled under 300, expansion never on, timeout.)
  */
+/** Relief wood trigger: wood within this radius (m) of a dropsite... */
+ExpansionManager.prototype.reliefWoodRadius = 45;
+/** ...that falls under one storehouse's payback mass after peaking above it means the local woodline is dead — expand instead of walking. */
+ExpansionManager.prototype.reliefWoodMass = 500;
+
 ExpansionManager.prototype.checkReliefExpansion = function()
 {
 	if (!this.bot.gameState.isResearched("phase_town_generic"))
@@ -466,11 +471,11 @@ ExpansionManager.prototype.checkReliefExpansion = function()
 	let wood = 0;
 	for (const s of gameState.getResourceSupplies("wood").values())
 		if (s.position() && s.resourceSupplyAmount() &&
-			this.bot.economyManager.edgeDistToSites(s.position(), sites) <= this.bot.constructionManager.woodStrategy.gateRadius)
+			this.bot.economyManager.edgeDistToSites(s.position(), sites) <= this.reliefWoodRadius)
 			wood += s.resourceSupplyAmount();
 	if (wood > (this.reliefServedPeak.wood || 0))
 		this.reliefServedPeak.wood = wood;
-	if (wood < this.bot.constructionManager.woodStrategy.minWoodMass && this.reliefServedPeak.wood >= this.bot.constructionManager.woodStrategy.minWoodMass)
+	if (wood < this.reliefWoodMass && this.reliefServedPeak.wood >= this.reliefWoodMass)
 		this.reliefFire(`wood near dropsites exhausted (${wood} of peak ${this.reliefServedPeak.wood} left)`);
 };
 
@@ -1154,12 +1159,6 @@ ExpansionManager.prototype.manageBarter = function()
 			}
 		}
 	}
-};
-
-ExpansionManager.prototype.findExpansionWoodStorehouse = function(storeType, center)
-{
-	const pos = this.bot.placementManager.findBuildingPosition(storeType, center, 10, 90, true, this.expansionRegion);
-	return pos && this.bot.placementManager.placeOrder(storeType, pos, false) ? pos : false;
 };
 
 ExpansionManager.prototype.findWonderSpot = function(wonderType)
