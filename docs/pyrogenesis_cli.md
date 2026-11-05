@@ -3,21 +3,27 @@
 ## Source basis
 
 This documents `pyrogenesis` **0.28.0** (the 0 A.D. engine executable), grounded in the
-pinned reference source tree at `/home/ubuntu/0ad-reference/` (engine version confirmed via
-`source/source/lib/build_version.h:34-36`) and cross-checked against the installed Debian
-binary `/usr/games/pyrogenesis` (0ad 0.28.0-3, 0ad-data 0.28.0-1) on this machine.
+pinned reference source tree (engine version confirmed via
+`source/source/lib/build_version.h:34-36`) and cross-checked against the installed binary
+(0ad 0.28.0-3, 0ad-data 0.28.0-1). It was written on a former headless Ubuntu VPS
+(reference tree `/home/ubuntu/0ad-reference/`, binary `/usr/games/pyrogenesis`);
+development now runs on boobynator (Arch, same package versions, binary
+`/usr/bin/pyrogenesis`, reference = the 0 A.D. git clone `~/Work/0ad` at tag `v0.28.0`).
 
 Flags are marked:
 
-- **[run]** — verified by actually executing `/usr/games/pyrogenesis` on this machine (headless).
+- **[run]** — verified by actually executing `pyrogenesis` headless (on the former VPS
+  unless stated otherwise).
 - **[src]** — read from the source only; not execution-verified here.
 
-Inline citations are relative to `/home/ubuntu/0ad-reference/`, e.g.
-`source/source/ps/GameSetup/GameSetup.cpp:568`.
+Inline citations are relative to the former reference tree, e.g.
+`source/source/ps/GameSetup/GameSetup.cpp:568`. In the clone, drop the leading `source/`
+(`~/Work/0ad/source/ps/GameSetup/GameSetup.cpp:568`) and read `public/<path>` as
+`binaries/data/mods/public/<path>`.
 
-### Headless gotcha (verified)
+### Headless gotcha (verified on the former VPS)
 
-This machine has no display/GL. Any invocation that reaches video init aborts:
+A machine without display/GL aborts any invocation that reaches video init:
 
 ```
 WARNING: Failed to set the video mode ... ("Could not load EGL library"), falling back to windowed mode
@@ -195,7 +201,7 @@ with `-editor` dumps Atlas schemas. No other Atlas CLI flags exist in 0.28.0. **
 ```bash
 mkdir -p tmp/smoke-home/.local/share/0ad/mods
 cp -r bot tmp/smoke-home/.local/share/0ad/mods/brennus
-HOME=$PWD/tmp/smoke-home timeout 150 /usr/games/pyrogenesis \
+HOME=$PWD/tmp/smoke-home timeout 150 pyrogenesis \
     -autostart=random/mainland -autostart-seed=1 \
     -autostart-biome=generic/temperate -autostart-placement=circle \
     -autostart-nonvisual -autostart-players=2 -autostart-size=192 \
@@ -205,17 +211,21 @@ HOME=$PWD/tmp/smoke-home timeout 150 /usr/games/pyrogenesis \
     -unique-logs -nosound -mod=public -mod=brennus
 ```
 
-- This exact command was run to completion on this machine: 7,047 turns, exit 0,
+- This exact command was run to completion on the former VPS: 7,047 turns, exit 0,
   per-player statistics JSON on stdout, replay + `metadata.json` written, zero `ERROR`
-  lines in the interesting log. It is the project smoke test (see `AGENTS.md`).
-- **Never use `HOME=/tmp/...` for real matches**: `/tmp` is a small tmpfs here; use a
-  persistent directory (e.g. `tmp/` in the repo). The earlier minimal probe
+  lines in the interesting log. The standard match (`AGENTS.md`) adds
+  `-autostart-aiseed`, `-autostart-aidiff`/`-autostart-aibehavior` for both players and
+  `-autostart-team`; `tools/run.sh` runs it (one isolated HOME per match, under the
+  batch's output directory).
+- **Keep match HOMEs on disk for real matches** (e.g. `tmp/` in the repo): `/tmp` was a
+  small tmpfs on the former VPS. The earlier minimal probe
   (`-autostart=skirmishes/acropolis_bay_2p`, petra vs petra, `HOME=/tmp/0ad-run1/home`)
   also verified the mechanism but is not the recommended working directory.
 
 - Map names are VFS paths minus `maps/` and extension; list available ones with
-  `unzip -l /usr/share/games/0ad/mods/public/public.zip | grep 'maps/skirmishes/.*\.xml$'`
-  (loose copies: `/home/ubuntu/0ad-reference/source/binaries/data/mods/public/maps/`).
+  `unzip -l /usr/share/0ad/data/mods/public/public.zip | grep 'maps/skirmishes/.*\.xml$'`
+  (Arch path; `/usr/share/games/0ad/mods/public/public.zip` on Debian/Ubuntu; loose
+  copies: `~/Work/0ad/binaries/data/mods/public/maps/`).
 - `-autostart-player=-1` = observer (all players AI-driven).
 - `-autostart-nonvisual` **alone is rejected**: `ERROR: -autostart-nonvisual can't be used
   alone. A map with -autostart="TYPEDIR/MAPNAME" is needed.` (`main.cpp:572-576`) **[run]**.
@@ -228,7 +238,9 @@ HOME=$PWD/tmp/smoke-home timeout 150 /usr/games/pyrogenesis \
   (`main.cpp:493-511`: `Update(DEFAULT_TURN_LENGTH, 1)` with a constant 200 ms step,
   `DEFAULT_TURN_LENGTH` at `source/source/simulation2/system/TurnManager.h:62`). The observed rate depends heavily on the opponent — ~113 turns/s against a
   sandbox, but only ~32 turns/s against a medium-difficulty Petra (a real opponent
-  runs its own AI every turn), i.e. ~22× real time in the sandbox case. `-autostart-speed`
+  runs its own AI every turn), i.e. ~22× real time in the sandbox case (former VPS
+  figures). On boobynator the standard match runs ~85-105 turns/s per match with 4 in
+  parallel and ~40-50 with 12 (each engine also runs worker threads). `-autostart-speed`
   has **no effect** here; size long batches around the *opponent* rate, not the sandbox rate.
 - Turns are logged to stdout: `Turn <n> (200)...` **[run]**.
 - **Exit behavior:** the process exits by itself with `EXIT_SUCCESS` only when the game is
@@ -254,7 +266,8 @@ HOME=$PWD/tmp/smoke-home timeout 150 /usr/games/pyrogenesis \
 - Cache: `$HOME/.cache/0ad/`.
 
 Per-run isolation: set `HOME=<persistent-dir>/<run>/home` (verified — all engine state,
-mods dir included, lands under it). Do **not** use `/tmp` (small tmpfs on this machine).
+mods dir included, lands under it). Do **not** use `/tmp` for long batches on a host
+whose `/tmp` is a small tmpfs (the former VPS).
 Alternatively `-writableRoot` on a writable dev checkout **[src]**.
 
 ## 4. Determinism and replays
@@ -283,8 +296,8 @@ Alternatively `-writableRoot` on a writable dev checkout **[src]**.
   writes `profile.txt` / `crashlog.txt` / `profile2.jsonp` *relative to the process CWD*
   (the replay branch creates the VFS and mounts `cache/` directly). A non-writable CWD
   (e.g. `/` under systemd) aborts the replay with EACCES before it prints
-  `# Final state:`. Always spawn replays with a writable CWD (kiln sets `current_dir`
-  to the job HOME). **[run]**
+  `# Final state:`. Always spawn replays with a writable CWD (e.g. the match
+  directory). **[run]**
 - **OOS debugging:** `-replay ... -ooslog` (per-turn state dumps under
   `<logs>/oos_logs/`), `-serializationtest`, `-rejointest=N`, `-hashtest-quick=true`
   (`main.cpp:647-655`). In live multiplayer, OOS errors auto-dump `oos_dump.txt`/`.dat`
@@ -297,7 +310,8 @@ Alternatively `-writableRoot` on a writable dev checkout **[src]**.
 
 - Discovery (`source/source/ps/Mod.cpp:248-292`): mods are directories (or `.zip`/`.pyromod`) with a
   `mod.json` (must contain at least `name`, `version`, `dependencies`) under
-  `<install>/mods/` (here `/usr/share/games/0ad/mods/`) or the user dir
+  `<install>/mods/` (`/usr/share/0ad/data/mods/` on Arch, `/usr/share/games/0ad/mods/`
+  on Debian/Ubuntu) or the user dir
   `~/.local/share/0ad/mods/`. A mod present in both places is taken from the install dir
   (`GameSetup.cpp:181-184`).
 - Enablement (`source/source/ps/Mod.cpp:157-178`):

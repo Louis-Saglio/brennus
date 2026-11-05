@@ -3,6 +3,48 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-11-05 (development moved to boobynator, kiln retired)
+
+- Matches now run locally with `tools/run.sh` (12 slots on boobynator,
+  `-H thinkpad:4` for 4 more); kiln is no longer used. Both machines run
+  0ad 0.28.0-3 / 0ad-data 0.28.0-1 (Arch), like the old kiln runners.
+- Determinism across hosts verified bit-for-bit (same statistics hashes):
+  the wood400 sweep's own bundle (kiln bundle 1bfab2c3, uploaded
+  2026-09-23 21:39 UTC), rerun locally, reproduces its seeds 1/2/7/134
+  exactly — s134 had run on the Ubuntu `vps` runner, the others on the
+  old `pc` runner. A local rerun and the thinkpad reproduce local games
+  exactly (s2, s134). The bot's own NonVisualTrigger.js and the kiln
+  harness copy give identical games; only the time-limit line's tag
+  differs (`[HARNESS]` vs `[KILN]`). Older archived kiln results stay
+  directly comparable.
+- **The wood400 records (385W/14T/2L) are not a baseline of f484f8f.**
+  The sweep ran bundle 1bfab2c3; the commit adds a post-sweep change in
+  construction.js/economy.js (the storehouse evaluator reads the wood
+  coverage snapshot instead of scanning supplies), identical to the
+  23:07 UTC bundle df3270af. f484f8f wins all of 1/2/7/134 (timeout,
+  win 31.5, loss, loss under 1bfab2c3); seeds 1-15 + 134: 16/16 wins.
+  Re-sweep f484f8f before using it as an A/B baseline.
+- `game_min` from `tools/analyze.py` is turns / 300 (exact). The sweep
+  records' game_min was the last `t=…m` telemetry print, up to ~0.7 min
+  earlier (s7: 41.2 vs 41.9).
+- Load: an engine process runs worker threads besides the simulation —
+  12 parallel matches put boobynator's load average at ~32 (16 threads)
+  and run at 39-51 turns/s per match (178-234 s wall for 23-40 min
+  games); RSS ≤ 381 MB per match, 4.1 GB for 12. With 4 in parallel:
+  84-103 turns/s. Thinkpad (i7-8665U, 8 threads): 4 matches at 24-29
+  turns/s, 1.7 GB, 60 °C; per-match remote /tmp use < 1 MB.
+- Reference: `~/Work/0ad`, a blobless clone of
+  gitea.wildfiregames.com/0ad/0ad at tag `v0.28.0`, LFS assets left as
+  pointer files (git-lfs not installed). Identical to the installed
+  public.zip for all 2931 text files of simulation/, maps/scripts,
+  maps/random and globalscripts, and to the former ~/0ad-reference for
+  source/ (1690 files) and the public text files — except
+  gui/credits/texts/translators.json (release-generated, not in git) and
+  gui/gamesetup/.../Dropdowns/WorldPopulationCap.js (in git, absent from
+  the release data). verify-docs.py: 149 footprint lines, 0 mismatches.
+- Node 26 dropped `--experimental-default-type`; syntax-check the ES
+  modules with `node --input-type=module --check < file.js`.
+
 ## 2026-09-23 (wood storehouse + chopper assignment rewritten from the gather cycle)
 
 - Louis's diagnosis (seed 70): choppers ended up working straggler trees, no
