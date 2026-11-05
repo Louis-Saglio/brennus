@@ -11,7 +11,8 @@ import sys
 from templates import find, fmt, load, resolve
 
 templates = load()
-DOCS = os.environ.get("ZEROAD_DOCS", "/home/ubuntu/brennus/docs/game_description")
+DOCS = os.environ.get("ZEROAD_DOCS", os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "docs", "game_description"))
 
 
 def shape_of(block):

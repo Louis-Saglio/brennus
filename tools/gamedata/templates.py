@@ -1,13 +1,15 @@
 """Load 0 A.D. 0.28.0 entity templates (XML) and resolve Footprint /
 Obstruction blocks through the parent chain.
 
-Shared by the gamedata tools. The data root defaults to the pinned
-0ad-reference checkout; override with the ZEROAD_REF environment variable.
+Shared by the gamedata tools. The data root defaults to the templates of
+the pinned 0 A.D. clone (~/Work/0ad at tag v0.28.0); override with the
+ZEROAD_REF environment variable.
 """
 import os
 import re
 
-DEFAULT_ROOT = "/home/ubuntu/0ad-reference/public/simulation/templates"
+DEFAULT_ROOT = os.path.expanduser(
+    "~/Work/0ad/binaries/data/mods/public/simulation/templates")
 
 
 def load(root=None):

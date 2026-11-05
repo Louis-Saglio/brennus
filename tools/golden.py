@@ -3,17 +3,15 @@
 
 A golden file is the canonical event timeline of one validation seed:
 every tagged bot/harness line ([HARNESS], [DEFENSE], [HUNT], [THREAT],
-[HERDDONE], [KILN]) in order, any ERROR lines, and a sha256 of each
+[HERDDONE], [WARNING]) in order, any ERROR lines, and a sha256 of each
 player's raw end-of-game statistics JSON block. A behavior-preserving
 change must reproduce the golden file bit-for-bit.
 
-Matches run on kiln only (never locally — docs/kiln.md). Workflow:
+Workflow:
 
-  # 1. submit one batch per seed with the spec in tools/README.md
-  #    (validation seeds 1-5) via the kiln MCP
-  # 2. fetch artifacts once the jobs land:
-  tools/golden.py fetch <seed> <batch_id> <job_id>     # -> tmp/golden/seed<N>/
-  # 3. create (baseline only!) or check the golden:
+  # 1. run the validation seeds (standard match) into tmp/golden/seed<N>/:
+  tools/run.sh tmp/golden 1 2 3 4 5
+  # 2. create (baseline only!) or check the golden:
   tools/golden.py update <seed>                        # writes tools/golden/seed<N>.timeline
   tools/golden.py check  <seed>                        # diffs fresh vs golden, exit 1 on diff
   tools/golden.py check  1 2 3 4 5                     # several seeds at once
@@ -26,15 +24,13 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GOLDEN_DIR = os.path.join(REPO, "tools", "golden")
 RUNS_DIR = os.path.join(REPO, "tmp", "golden")
-RESULTS = "/var/lib/kiln/results/kimi-agent"
 
-TAGGED = re.compile(r"^\[(HARNESS|DEFENSE|HUNT|THREAT|HERDDONE|KILN|WARNING)\]")
+TAGGED = re.compile(r"^\[(HARNESS|DEFENSE|HUNT|THREAT|HERDDONE|WARNING)\]")
 ERROR = re.compile(r"^ERROR")
 
 
@@ -76,15 +72,6 @@ def run_stdout(seed):
     return os.path.join(RUNS_DIR, f"seed{seed}", "stdout.log")
 
 
-def cmd_fetch(seed, batch, job):
-    dest = os.path.join(RUNS_DIR, f"seed{seed}")
-    os.makedirs(dest, exist_ok=True)
-    src = os.path.join(RESULTS, batch, job, "artifacts.tar.gz")
-    subprocess.run(["sudo", "tar", "xzf", src, "-C", dest], check=True)
-    subprocess.run(["sudo", "chown", "-R", str(os.getuid()), dest], check=True)
-    print(f"fetched {batch}/{job} -> {dest}")
-
-
 def cmd_update(seeds):
     os.makedirs(GOLDEN_DIR, exist_ok=True)
     for seed in seeds:
@@ -116,9 +103,7 @@ def main():
         print(__doc__)
         sys.exit(2)
     cmd, args = sys.argv[1], sys.argv[2:]
-    if cmd == "fetch":
-        cmd_fetch(args[0], args[1], args[2])
-    elif cmd == "extract":
+    if cmd == "extract":
         print("\n".join(extract(args[0])))
     elif cmd == "update":
         cmd_update(args)
