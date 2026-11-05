@@ -3,10 +3,9 @@
  *
  * Loaded by the engine in every -autostart-nonvisual game (the autostart
  * code adds "scripts/NonVisualTrigger.js" as a custom trigger script; the
- * brennus mod is mounted after public, so this copy wins over public's in
- * local runs — under kiln, the kiln harness mod is mounted last and its
- * copy wins instead, see maps/scripts/ConquestCivicCentres.js for the
- * telemetry that must survive both).
+ * brennus mod is mounted after public, so this copy wins over public's).
+ * Bot telemetry lives in maps/scripts/ConquestCivicCentres.js instead, so
+ * a harness that replaces this file keeps it.
  *
  * Two jobs:
  * 1. Print per-player statistics JSON at game end (same as public).

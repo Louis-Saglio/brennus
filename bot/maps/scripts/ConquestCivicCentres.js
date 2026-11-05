@@ -2,13 +2,11 @@
  * Brennus override of the public ConquestCivicCentres.js (kept intact
  * below the divider) plus worker-efficiency telemetry.
  *
- * Why this file: the brennus mod cannot put game-end hooks in
- * NonVisualTrigger.js — kiln mounts its harness mod LAST (-mod=kiln), so
- * its own NonVisualTrigger.js always shadows ours. This file is also part
- * of the autostart trigger set (scripts/ConquestCivicCentres.js), the
- * kiln harness mod does not ship a copy, and the victory condition is
- * fixed at conquest_civic_centers — so the telemetry runs in every match,
- * kiln or local.
+ * Why this file: game-end hooks stay out of NonVisualTrigger.js, the
+ * file a test harness replaces (the former kiln farm mounted its own copy
+ * last). This file is also part of the autostart trigger set
+ * (scripts/ConquestCivicCentres.js) and the victory condition is fixed at
+ * conquest_civic_centers — so the telemetry runs in every match.
  *
  * Worker-efficiency telemetry:
  * every 200 ms of simulation time, player 1's gather-capable units are
@@ -28,7 +26,8 @@
  * buckets.
  *
  * Mechanics this relies on (verified against the 0.28.0 source and
- * validated on kiln against the statistics tracker's own pick-up counts):
+ * validated in headless matches against the statistics tracker's own
+ * pick-up counts):
  * - carrying changes only on gather ticks (+1, ≥ 870 ms apart for rates
  *   ≤ 1.15) and on full drop-offs, so a 200 ms window contains at most
  *   one tick per worker: every pick-up is visible as a positive carry
