@@ -42,7 +42,10 @@ Cleared 2026-08-29. Reference knowledge was migrated into
   skewing measurements — check `pgrep -a pyrogenesis` before timing
   anything.
 - Behavior preservation: the snapshot telemetry leaves the game untouched —
-  same statistics hash (`84f1dfb6319d`) with and without it on seed 1.
+  same statistics hash (`84f1dfb6319d`) with and without it on seed 1. The
+  `-s 20` recording flag is behaviour-neutral too: seed 1 gives the same hash
+  with `-s 20` (96 s, 99 s, 88 s wall) and without it (95 s, 90 s), so a viz
+  copy is the same game as the batch run it comes from.
 
 ## 2026-11-05 (development moved to boobynator, kiln retired)
 
