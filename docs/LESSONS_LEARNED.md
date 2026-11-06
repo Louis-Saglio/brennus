@@ -18,12 +18,21 @@ Cleared 2026-08-29. Reference knowledge was migrated into
   differs (`[HARNESS]` vs `[KILN]`). Older archived kiln results stay
   directly comparable.
 - **The wood400 records (385W/14T/2L) are not a baseline of f484f8f.**
-  The sweep ran bundle 1bfab2c3; the commit adds a post-sweep change in
-  construction.js/economy.js (the storehouse evaluator reads the wood
-  coverage snapshot instead of scanning supplies), identical to the
-  23:07 UTC bundle df3270af. f484f8f wins all of 1/2/7/134 (timeout,
-  win 31.5, loss, loss under 1bfab2c3); seeds 1-15 + 134: 16/16 wins.
-  Re-sweep f484f8f before using it as an A/B baseline.
+  The sweep ran bundle 1bfab2c3 (21:39 UTC); f484f8f = bundle df3270af
+  (23:07 UTC) adds the coverage-snapshot throttle (rebuilt every 10
+  turns instead of every block; `_trees` and the served-tree list read
+  it). It is not behavior-neutral, contrary to the 2026-09-23 entry:
+  decisions read a snapshot up to 2 s old, games diverge from t=2-12 min
+  (first in the storehouse lines' pool centroid/score: s7 t=2.2, s1 2.6,
+  s134 9.8, s2 12.3) and verdicts change — s1 timeout -> win (Kimi's own
+  tmp/wood9 probe of the final code is bit-identical to the local game),
+  s7/s134 loss -> win, s2 win at 29.7 instead of 31.5 min. The 2-seed
+  check compared s1's wood@10min only (identical, 5148); s7/s134 already
+  differ at 10 min. Seeds 1-15 + 134 under f484f8f: 16/16 wins vs
+  13W/1T/2L in the sweep — not evidence the throttle helps: 3 of those
+  seeds were picked as the sweep's failures, and at a 96% win rate any
+  perturbation flips most failures to wins. Re-sweep f484f8f before using
+  it as an A/B baseline.
 - `game_min` from `tools/analyze.py` is turns / 300 (exact). The sweep
   records' game_min was the last `t=…m` telemetry print, up to ~0.7 min
   earlier (s7: 41.2 vs 41.9).
@@ -91,6 +100,8 @@ Cleared 2026-08-29. Reference knowledge was migrated into
   list read the snapshot instead of re-querying supplies. Throttle validated
   behavior-neutral (s1 wood@10min identical 5148, verdicts unchanged) and
   restoring the turn rate (s1 74.8 -> 86.5 t/s, baseline 113).
+  **Corrected 2026-11-05: not behavior-neutral** — games diverge from
+  t≈2 min and verdicts change (s1 timeout -> win); see that entry.
 - Validation (20 seeds, standard settings, 0 JS errors): 18W/2T/0L.
   s70/s90/s373 timeout -> win (the s400 sweep's verdicts as baseline);
   s1/s52 win -> timeout (near-cap chaos: enemy army 90-100 or kill-clock
