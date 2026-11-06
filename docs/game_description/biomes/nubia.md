@@ -3,7 +3,7 @@
 > "Nubia, a dry climate in which only the hardy Baobab trees thrive. Solitary
 > gazelles graze the sparse grass, while herds of zebras, wildebeest, giraffes
 > or elephants roam the wild in search of food."
-> (`public/maps/random/rmbiome/generic/nubia.json:2-5`)
+> (`binaries/data/mods/public/maps/random/rmbiome/generic/nubia.json:2-5`)
 
 Command line: `-autostart-biome=generic/nubia`. Supported by every map with
 `SupportedBiomes: "generic/"`.

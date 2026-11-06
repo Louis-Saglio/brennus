@@ -2,8 +2,8 @@
 Obstruction blocks through the parent chain.
 
 Shared by the gamedata tools. The data root defaults to the templates of
-the pinned 0 A.D. clone (~/Work/0ad at tag v0.28.0); override with the
-ZEROAD_REF environment variable.
+the 0 A.D. source reference (see AGENTS.md), by default ~/Work/0ad;
+override with the ZEROAD_REF environment variable.
 """
 import os
 import re

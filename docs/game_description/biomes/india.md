@@ -3,7 +3,7 @@
 > "Explore the mysterious tropics. An extremely green, but also extremely humid
 > environment awaits. The tall Toona trees look on disapprovingly at this
 > invasion of their privacy and ferocious tigers are determined to defend their
-> territory at all costs." (`public/maps/random/rmbiome/generic/india.json:2-5`)
+> territory at all costs." (`binaries/data/mods/public/maps/random/rmbiome/generic/india.json:2-5`)
 
 Command line: `-autostart-biome=generic/india`. Supported by every map with
 `SupportedBiomes: "generic/"`. No JS file → fully static.

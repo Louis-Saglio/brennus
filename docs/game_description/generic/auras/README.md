@@ -2,7 +2,7 @@
 
 One file per **generic aura**: an aura attached to entities that **2+ civilisations** can own (their trainable units, buildable structures and their player template). Auras carried only by one civilisation's entities are documented in the per-civ folders (`gaul/auras/`, `rome/auras/`, `cart/auras/`).
 
-All data was extracted from the game files, not from memory: `/home/ubuntu/0ad-reference/public/simulation/data/auras/` and `/home/ubuntu/0ad-reference/public/simulation/templates/` (0 A.D. 0.28.0, the version the harness runs).
+All data was extracted from the game files, not from memory: `binaries/data/mods/public/simulation/data/auras/` and `binaries/data/mods/public/simulation/templates/` in the 0 A.D. source reference (0 A.D. 0.28.0, the version the harness runs; see `AGENTS.md`).
 
 ## Method
 

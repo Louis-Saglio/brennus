@@ -2,7 +2,7 @@
 
 > "An arid, hostile land. The blistering heat has baked the ground to a sickly
 > brown and the remaining trees struggle for survival."
-> (`public/maps/random/rmbiome/persian_highlands/summer.json:2-5`)
+> (`binaries/data/mods/public/maps/random/rmbiome/persian_highlands/summer.json:2-5`)
 
 Only usable on `random/persian_highlands`. JSON-only; loaded over
 `defaultbiome.json`. Same non-standard key set as `persian_highlands/spring`
@@ -27,7 +27,7 @@ lakebeds are rockier. Purely visual difference for gameplay purposes.
 
 ## What it sets
 
-`public/maps/random/rmbiome/persian_highlands/summer.json`:
+`binaries/data/mods/public/maps/random/rmbiome/persian_highlands/summer.json`:
 
 - **Environment**: same low golden sun as spring (elevation 0.524, rotation
   -1.865); warmer ambient; same warm fog and HDR postproc (contrast 1.25).

@@ -1,6 +1,6 @@
 # Unit training and the production queue (0 A.D. 0.28.0)
 
-Grounded in `public/simulation/components/ProductionQueue.js`, `Trainer.js`, `Researcher.js`, `RallyPoint.js`, `Cost.js`, `TrainingRestrictions.js`, `EntityLimits.js`, `Player.js`, `TechnologyManager.js`, `public/simulation/helpers/Commands.js`, `public/simulation/helpers/RallyPointCommands.js`, `public/simulation/helpers/Transform.js` and `source/simulation2/components/CCmpFootprint.cpp` (all paths relative to `/home/ubuntu/0ad-reference`). Template examples from `public/simulation/templates/`.
+Grounded in `binaries/data/mods/public/simulation/components/ProductionQueue.js`, `Trainer.js`, `Researcher.js`, `RallyPoint.js`, `Cost.js`, `TrainingRestrictions.js`, `EntityLimits.js`, `Player.js`, `TechnologyManager.js`, `binaries/data/mods/public/simulation/helpers/Commands.js`, `binaries/data/mods/public/simulation/helpers/RallyPointCommands.js`, `binaries/data/mods/public/simulation/helpers/Transform.js` and `source/simulation2/components/CCmpFootprint.cpp` (all paths relative to the root of the 0 A.D. source reference, see `AGENTS.md`). Template examples from `binaries/data/mods/public/simulation/templates/`.
 
 ## Architecture: one queue per production building
 

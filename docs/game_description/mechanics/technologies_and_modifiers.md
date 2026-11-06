@@ -1,18 +1,18 @@
 # Technologies, research and the modification system (0 A.D. 0.28.0)
 
-How technologies are defined, researched and turned into stat changes, and how the same machinery carries auras, civ bonuses and team bonuses. Grounded in `public/simulation/components/TechnologyManager.js`, `public/simulation/components/Researcher.js`, `public/simulation/components/ModifiersManager.js`, `public/simulation/components/ValueModificationManager.js`, `public/simulation/components/Auras.js`, `public/simulation/helpers/Requirements.js`, `public/simulation/helpers/ValueModification.js`, `public/globalscripts/Technologies.js`, `public/globalscripts/ModificationTemplates.js`, `public/globalscripts/Templates.js`, the JSON data under `public/simulation/data/technologies/`, `public/simulation/data/auras/`, `public/simulation/data/civs/`, and the AI-facing wrappers in `public/simulation/ai/common-api/`. All paths below are relative to `/home/ubuntu/0ad-reference`.
+How technologies are defined, researched and turned into stat changes, and how the same machinery carries auras, civ bonuses and team bonuses. Grounded in `binaries/data/mods/public/simulation/components/TechnologyManager.js`, `binaries/data/mods/public/simulation/components/Researcher.js`, `binaries/data/mods/public/simulation/components/ModifiersManager.js`, `binaries/data/mods/public/simulation/components/ValueModificationManager.js`, `binaries/data/mods/public/simulation/components/Auras.js`, `binaries/data/mods/public/simulation/helpers/Requirements.js`, `binaries/data/mods/public/simulation/helpers/ValueModification.js`, `binaries/data/mods/public/globalscripts/Technologies.js`, `binaries/data/mods/public/globalscripts/ModificationTemplates.js`, `binaries/data/mods/public/globalscripts/Templates.js`, the JSON data under `binaries/data/mods/public/simulation/data/technologies/`, `binaries/data/mods/public/simulation/data/auras/`, `binaries/data/mods/public/simulation/data/civs/`, and the AI-facing wrappers in `binaries/data/mods/public/simulation/ai/common-api/`. All paths below are relative to the root of the 0 A.D. source reference (see `AGENTS.md`).
 
 ## Technology templates
 
-Technologies are JSON files under `public/simulation/data/technologies/` (recursively, so `technologies/civbonuses/` included). They are loaded once into the `TechnologyTemplates` cache (`public/globalscripts/ModificationTemplates.js:41-45`); the file path relative to `technologies/` without the `.json` suffix is the technology name (e.g. `civbonuses/celt_structures`).
+Technologies are JSON files under `binaries/data/mods/public/simulation/data/technologies/` (recursively, so `technologies/civbonuses/` included). They are loaded once into the `TechnologyTemplates` cache (`binaries/data/mods/public/globalscripts/ModificationTemplates.js:41-45`); the file path relative to `technologies/` without the `.json` suffix is the technology name (e.g. `civbonuses/celt_structures`).
 
-Fields seen in the data (example: `public/simulation/data/technologies/phase_town_generic.json`):
+Fields seen in the data (example: `binaries/data/mods/public/simulation/data/technologies/phase_town_generic.json`):
 
 - `genericName`, `specificName` (per-civ map), `description`, `tooltip`, `requirementsTooltip`, `icon`, `soundComplete` — presentation only.
 - `cost` — object of resource amounts (`food`, `wood`, `stone`, `metal`). Paid in full when the tech is queued; refunded if the research is stopped (`TechnologyManager.js:30-39`, `TechnologyManager.js:55-59`).
 - `researchTime` — seconds of work needed (`TechnologyManager.js:41`).
 - `requirements` — see next section.
-- `supersedes` — name of a cheaper tech this one replaces in a chain (e.g. `gather_capacity_wheelbarrow` supersedes `gather_capacity_basket`, `public/simulation/data/technologies/gather_capacity_wheelbarrow.json:8`).
+- `supersedes` — name of a cheaper tech this one replaces in a chain (e.g. `gather_capacity_wheelbarrow` supersedes `gather_capacity_basket`, `binaries/data/mods/public/simulation/data/technologies/gather_capacity_wheelbarrow.json:8`).
 - `replaces` — list of tech names marked as researched when this tech finishes, without applying their effects (`TechnologyManager.js:107-112`). Used so that civ-specific variants satisfy requirements written against a generic name (see phases below).
 - `pair` / `top` / `bottom` — tech-pair mechanics, see "Tech pairs".
 - `autoResearch` — researched instantly and for free as soon as its requirements are met, see "Auto-research".
@@ -21,7 +21,7 @@ Fields seen in the data (example: `public/simulation/data/technologies/phase_tow
 
 ## Requirements
 
-A tech's `requirements` is a single object `{ <operator>: <value> }`; operators nest. Implemented by `InterpretTechRequirements` (`public/globalscripts/Technologies.js:199-365`):
+A tech's `requirements` is a single object `{ <operator>: <value> }`; operators nest. Implemented by `InterpretTechRequirements` (`binaries/data/mods/public/globalscripts/Technologies.js:199-365`):
 
 - `{"civ": "maur"}` — only that civ can research it.
 - `{"notciv": "athen"}` — every civ except that one.
@@ -31,14 +31,14 @@ A tech's `requirements` is a single object `{ <operator>: <value> }`; operators 
 
 The derived requirement list is an OR of ANDs: `CheckTechnologyRequirements` returns true if *any* requirement set has *all* of its `techs` researched and *all* of its `entities` specs satisfied (`TechnologyManager.js:332-374`). `DeriveTechnologyRequirements` additionally appends the superseded tech to every requirement set, so a superseding tech always requires its predecessor (`Technologies.js:137-162`).
 
-**Gating of entities, not just techs.** Trainable/buildable entity templates carry their own requirements in `<Identity><Requirements>` (schema in `public/simulation/helpers/Requirements.js:36-83`): `<Techs>` (space-separated, `!` negates), `<Entities>` with `Count` or `Variants` per class, combinable with `<All>`/`<Any>`. `TechnologyManager.CanProduce` checks them before production (`TechnologyManager.js:277-286`). Example: all champion units require `phase_city` (`public/simulation/templates/template_unit_champion.xml:16-18`). This is how "unlock" techs with no `modifications` work — e.g. `unlock_champion_infantry.json` only carries requirements; the effect is that the tech name appears in some template's `<Techs>` list.
+**Gating of entities, not just techs.** Trainable/buildable entity templates carry their own requirements in `<Identity><Requirements>` (schema in `binaries/data/mods/public/simulation/helpers/Requirements.js:36-83`): `<Techs>` (space-separated, `!` negates), `<Entities>` with `Count` or `Variants` per class, combinable with `<All>`/`<Any>`. `TechnologyManager.CanProduce` checks them before production (`TechnologyManager.js:277-286`). Example: all champion units require `phase_city` (`binaries/data/mods/public/simulation/templates/template_unit_champion.xml:16-18`). This is how "unlock" techs with no `modifications` work — e.g. `unlock_champion_infantry.json` only carries requirements; the effect is that the tech name appears in some template's `<Techs>` list.
 
 ## Researching a tech
 
-1. Only entities with a `Researcher` component can research. Its template lists `Technologies` (space-separated; `{civ}` is replaced by the owner's civ code if that tech exists, else by `generic`) and an optional `TechCostMultiplier` per resource plus `time` (schema: `public/simulation/components/Researcher.js:3-29`; `{civ}` resolution: `Researcher.js:199-210`).
+1. Only entities with a `Researcher` component can research. Its template lists `Technologies` (space-separated; `{civ}` is replaced by the owner's civ code if that tech exists, else by `generic`) and an optional `TechCostMultiplier` per resource plus `time` (schema: `binaries/data/mods/public/simulation/components/Researcher.js:3-29`; `{civ}` resolution: `Researcher.js:199-210`).
 2. `GetTechnologiesList` filters out techs disabled for the player and rewrites supersede chains: a tech whose predecessor was researched is shown in the predecessor's slot, and techs already researched or in progress are hidden (`Researcher.js:177-267`).
 3. Queueing (`Researcher.QueueTechnology` → `TechnologyManager.QueuedResearch` → `Technology.Queue`) immediately subtracts the cost. Actual cost per resource is `floor(TechCostMultiplier[res] * cost[res])` and total time is `TechCostMultiplier.time * researchTime * 1000` ms (`TechnologyManager.js:30-43`). Both multipliers are themselves modifiable values (`Researcher/TechCostMultiplier/<res>`, `Researcher.js:272-282`), so techs and auras can make research cheaper/faster.
-4. The item sits in the building's `ProductionQueue`, which advances it with allocated time on its timer (`public/simulation/components/ProductionQueue.js:121-143`). Progress is 1 ms of research per 1 ms allocated; no worker involvement.
+4. The item sits in the building's `ProductionQueue`, which advances it with allocated time on its timer (`binaries/data/mods/public/simulation/components/ProductionQueue.js:121-143`). Progress is 1 ms of research per 1 ms allocated; no worker involvement.
 5. Stopping a queued research refunds the full (multiplied) cost (`TechnologyManager.js:55-59`).
 6. On finish (`TechnologyManager.js:88-129`): the tech's modifications are registered in the global `ModifiersManager` under the ID `"tech/<techName>"` as **player-wide** modifiers; every name in `replaces` is marked researched; the tech itself is marked researched; entity limits are updated; an `MT_ResearchFinished` message is posted.
 
@@ -48,14 +48,14 @@ Research is per-player, not per-building: the queue lives in the player entity's
 
 ### Deriving modifiers
 
-`DeriveModificationsFromTech` (`public/globalscripts/ModificationTemplates.js:53-85`) turns a tech (or aura) JSON into `{ <valuePath>: [modifier, ...] }`:
+`DeriveModificationsFromTech` (`binaries/data/mods/public/globalscripts/ModificationTemplates.js:53-85`) turns a tech (or aura) JSON into `{ <valuePath>: [modifier, ...] }`:
 
 - Each entry of `modifications` has `value` (a slash-separated property path, e.g. `Health/Max`, `ResourceGatherer/Rates/food.fruit`, `Attack/Melee/Damage/Hack`), exactly one effect key — `add`, `multiply`, `replace` or `tokens` — and an optional per-modification `affects` class string.
 - The final `affects` of a modifier is the tech's top-level `affects` list (each entry split on whitespace) with the per-modification `affects` appended to every entry (`ModificationTemplates.js:58-83`). No `affects` at all means "applies to everything".
 
 ### Class matching
 
-A modifier applies to an entity if `MatchesClassList(classes, affects)` passes (`public/globalscripts/Templates.js:84-103`): the affects list is an **OR** of entries; each entry is an **AND** of class tokens (split on whitespace or `+`); a token prefixed with `!` requires the class to be **absent**. Example: `"affects": ["Structure !Wonder"]` in `civbonuses/celt_structures.json:18` means "structures that are not wonders". An empty affects list applies to anything (`public/globalscripts/Technologies.js:93-98`).
+A modifier applies to an entity if `MatchesClassList(classes, affects)` passes (`binaries/data/mods/public/globalscripts/Templates.js:84-103`): the affects list is an **OR** of entries; each entry is an **AND** of class tokens (split on whitespace or `+`); a token prefixed with `!` requires the class to be **absent**. Example: `"affects": ["Structure !Wonder"]` in `civbonuses/celt_structures.json:18` means "structures that are not wonders". An empty affects list applies to anything (`binaries/data/mods/public/globalscripts/Technologies.js:93-98`).
 
 ### Combining values
 
@@ -69,16 +69,16 @@ Example: a spearman (100 HP) with `unit_advanced` (Health/Max ×1.25) and `unit_
 
 ### Where modifiers live and how they are applied
 
-The system entity `ModifiersManager` stores every active modifier keyed by (property path, target entity) in a `MultiKeyMap` (`public/simulation/components/ModifiersManager.js:6-24`). Targets are either a **player entity** (player-wide modifiers: techs, global auras) or an **individual entity** (local auras). Every component that reads a modifiable stat passes its raw template value through `ApplyValueModificationsToEntity` (`public/simulation/helpers/ValueModification.js:3-12`), which calls `ModifiersManager.ApplyModifiers` (`ModifiersManager.js:137-176`):
+The system entity `ModifiersManager` stores every active modifier keyed by (property path, target entity) in a `MultiKeyMap` (`binaries/data/mods/public/simulation/components/ModifiersManager.js:6-24`). Targets are either a **player entity** (player-wide modifiers: techs, global auras) or an **individual entity** (local auras). Every component that reads a modifiable stat passes its raw template value through `ApplyValueModificationsToEntity` (`binaries/data/mods/public/simulation/helpers/ValueModification.js:3-12`), which calls `ModifiersManager.ApplyModifiers` (`ModifiersManager.js:137-176`):
 
 1. Player-wide modifiers are applied first, then entity-local ones on top (`ModifiersManager.js:162-172`). Since numeric combination is multiply-then-add regardless of list order, this ordering only matters for `replace` (first applicable replace in the list wins).
 2. Results are cached per (property, entity, original value) and invalidated when relevant modifiers change (`ModifiersManager.js:113-124`); a `MT_ValueModification` message is then posted to the entity, or `MT_TemplateModification` + a broadcast for player-wide changes (`ModifiersManager.js:51-75`).
 
-`ValueModificationManager` (`public/simulation/components/ValueModificationManager.js:12-15`) is only a thin bridge giving C++ components access to the same helper.
+`ValueModificationManager` (`binaries/data/mods/public/simulation/components/ValueModificationManager.js:12-15`) is only a thin bridge giving C++ components access to the same helper.
 
 ## Tech pairs
 
-Pairs model "choose one of two" research. Three files are involved; example in `public/simulation/data/technologies/`:
+Pairs model "choose one of two" research. Three files are involved; example in `binaries/data/mods/public/simulation/data/technologies/`:
 
 - A **pair definition** tech: `pair_gather_food_maur.json` = `{ "top": "gather_wicker_baskets_maur", "bottom": "gather_ahimsa", "requirements": {...} }`. It has no cost or effects.
 - The two **member** techs each carry `"pair": "pair_gather_food_maur"` plus their own cost, requirements and modifications (`gather_wicker_baskets_maur.json`, `gather_ahimsa.json`).
@@ -93,7 +93,7 @@ Exclusion mechanics (`TechnologyManager.js:299-323`):
 
 - **Supersede** models upgrade lines (wheelbarrow supersedes basket; `phase_town_generic` supersedes `phase_village`). Effects: the superseding tech automatically requires the superseded one (`Technologies.js:148-159`), and in `GetTechnologiesList` the better tech takes over the slot of the researched cheaper one (`Researcher.js:225-245`). Both techs' modifiers stay active — supersede does not remove the earlier tech's effects.
 - **Auto-research**: at game start every tech with `autoResearch` or `top` goes into `unresearchedAutoResearchTechs` (`TechnologyManager.js:210-217`). On every update tick, any such tech whose requirements pass is researched instantly, for free, with no building involved (`TechnologyManager.js:255-274`, `446-452`). This implements:
-  - **Civ bonuses**: techs under `technologies/civbonuses/` with `autoResearch: true` and a `civ`/`any`-civ requirement, e.g. `celt_structures.json` (gaul/brit: structures −20% build time, health and capture points). Note the `CivBonuses` block in `public/simulation/data/civs/gaul.json:30-35` is display text only; the actual mechanics live in these techs and in auras.
+  - **Civ bonuses**: techs under `technologies/civbonuses/` with `autoResearch: true` and a `civ`/`any`-civ requirement, e.g. `celt_structures.json` (gaul/brit: structures −20% build time, health and capture points). Note the `CivBonuses` block in `binaries/data/mods/public/simulation/data/civs/gaul.json:30-35` is display text only; the actual mechanics live in these techs and in auras.
   - **Rank bonuses**: `unit_advanced.json` / `unit_elite.json` — `autoResearch` techs with **no requirements at all**, so they are researched for every player on the first update tick (`CheckTechnologyRequirements` passes on an empty requirement list, `TechnologyManager.js:339-340`). Their effects do nothing until units are promoted because `affects: ["Advanced Unit", "Elite Unit"]` restricts every modifier to those classes (`unit_advanced.json:22`).
   - **Pair definitions**, as described above.
 
@@ -111,7 +111,7 @@ Note: phase research sends GUI notifications keyed on the name starting with `"p
 
 ## Auras, civ bonuses and team bonuses in the same pipeline
 
-Auras are JSON under `public/simulation/data/auras/` loaded into `AuraTemplates` (`ModificationTemplates.js:43`) and use the exact same `modifications`/`affects` format; `Auras.js` derives them with the same `DeriveModificationsFromTech` (`Auras.js:364-367`, `439-442`). Differences from techs:
+Auras are JSON under `binaries/data/mods/public/simulation/data/auras/` loaded into `AuraTemplates` (`ModificationTemplates.js:43`) and use the exact same `modifications`/`affects` format; `Auras.js` derives them with the same `DeriveModificationsFromTech` (`Auras.js:364-367`, `439-442`). Differences from techs:
 
 - Modifier IDs are `"aura/<name>"`, or `"aura/<name><sourceEntity>"` when the aura JSON has `"stackable": true` — non-stackable auras from several sources collapse into one modifier, stackable ones apply once per source (`Auras.js:21-26`).
 - `"type": "global"` auras are added as **player-wide** modifiers on every affected player (`Auras.js:356-374`); range/formation/garrison auras are added as **entity-local** modifiers on each affected entity (`Auras.js:412-447`) and removed when the source leaves range/dies (`Auras.js:449-485`).
@@ -123,13 +123,13 @@ Because everything funnels into the same `GetTechModifiedProperty` formula, a st
 
 ## How a bot sees all this
 
-The AI API (`public/simulation/ai/common-api/`, available to the shared script) exposes:
+The AI API (`binaries/data/mods/public/simulation/ai/common-api/`, available to the shared script) exposes:
 
 - **Tech templates:** `TechnologyTemplates.Get/Has/GetAll` directly (`gamestate.js:146-147`); the `Technology` wrapper (`ai/common-api/technology.js:4-127`) gives `cost(researcher)` (multiplier-aware), `researchTime()`, `requirements(civ)`, `modifications()`, `affects()`, `supersedes()`, `pair()`/`pairedWith()`/`getPairedTechs()`, `autoResearch()`.
 - **Per-building list:** `entity.researchableTechs(gameState, civ)` returns the raw `Researcher/Technologies/_string` with `{civ}` resolved (`ai/common-api/entity.js:333-348`) — note it does **not** hide already-researched techs or resolve supersede chains; use `gameState.canResearch` for that.
-- **Player state:** `gameState.playerData.researchedTechs` (Set), `playerData.researchQueued` (Map), `playerData.classCounts`, `playerData.disabledTechnologies`, fed from the simulation each turn (`public/simulation/components/GuiInterface.js:116`, `129-130`). Helpers: `gameState.isResearched(name)`, `isResearching(name)`, `canResearch(name)` (checks disabled, queued/researched, pair sibling, and requirements — `gamestate.js:213-250`), and `gameState.phases` (ordered phase list with requirements, built from the civil centre template, `gamestate.js:30-67`).
+- **Player state:** `gameState.playerData.researchedTechs` (Set), `playerData.researchQueued` (Map), `playerData.classCounts`, `playerData.disabledTechnologies`, fed from the simulation each turn (`binaries/data/mods/public/simulation/components/GuiInterface.js:116`, `129-130`). Helpers: `gameState.isResearched(name)`, `isResearching(name)`, `canResearch(name)` (checks disabled, queued/researched, pair sibling, and requirements — `gamestate.js:213-250`), and `gameState.phases` (ordered phase list with requirements, built from the civil centre template, `gamestate.js:30-67`).
 - **Issuing research:** `entity.research(techName)` posts a `research` order on the entity's production queue (`ai/common-api/entity.js:977-979`).
-- **Effective values:** the AI never computes modifiers itself. When a player-wide modifier changes, `AIInterface.OnTemplateModification` recomputes affected template values with `ApplyValueModificationsToTemplate` and pushes them into `changedTemplateInfo` (`public/simulation/components/AIInterface.js:209-273`); entity-local changes arrive as `ValueModification` events (`AIInterface.js:275+`). Population-related values are rounded to integers in this path (`AIInterface.js:258-260`).
+- **Effective values:** the AI never computes modifiers itself. When a player-wide modifier changes, `AIInterface.OnTemplateModification` recomputes affected template values with `ApplyValueModificationsToTemplate` and pushes them into `changedTemplateInfo` (`binaries/data/mods/public/simulation/components/AIInterface.js:209-273`); entity-local changes arrive as `ValueModification` events (`AIInterface.js:275+`). Population-related values are rounded to integers in this path (`AIInterface.js:258-260`).
 
 ## Edge cases worth knowing
 

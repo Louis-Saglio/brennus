@@ -2,7 +2,7 @@
 
 > "Revelling in the much awaited rain, the baked land transforms into a lush
 > haven for both man and beast."
-> (`public/maps/random/rmbiome/fields_of_meroe/rainy.json:2-5`)
+> (`binaries/data/mods/public/maps/random/rmbiome/fields_of_meroe/rainy.json:2-5`)
 
 Only usable on `random/fields_of_meroe`. JSON-only; loaded over
 `defaultbiome.json`. Same non-standard key set as `fields_of_meroe/dry` — the
@@ -28,7 +28,7 @@ particles, berry_01 bushes, and a deeper riverbed than
 
 ## What it sets
 
-`public/maps/random/rmbiome/fields_of_meroe/rainy.json`:
+`binaries/data/mods/public/maps/random/rmbiome/fields_of_meroe/rainy.json`:
 
 - **Environment**: `SkySet: "stormy"`; water murkiness 0.75 (visual).
 - **Terrains**: `mainDirt` `[savanna_grass_b_wetseason,

@@ -1,12 +1,12 @@
 # Auras (mechanic) — 0 A.D. 0.28.0
 
-How auras work in the engine. This file documents the **mechanic only**; the list of concrete auras is data and is documented elsewhere. Grounded in `public/simulation/components/Auras.js` (the `Auras` component), `public/simulation/data/auras/**` (aura data files, JSON), `public/globalscripts/ModificationTemplates.js` (aura template loading and modification derivation), `public/globalscripts/Technologies.js` and `public/simulation/components/ModifiersManager.js` (value modification), `public/simulation/helpers/ValueModification.js`, and `source/source/simulation2/components/CCmpRangeManager.cpp` (range queries). Paths below are relative to `/home/ubuntu/0ad-reference`.
+How auras work in the engine. This file documents the **mechanic only**; the list of concrete auras is data and is documented elsewhere. Grounded in `binaries/data/mods/public/simulation/components/Auras.js` (the `Auras` component), `binaries/data/mods/public/simulation/data/auras/**` (aura data files, JSON), `binaries/data/mods/public/globalscripts/ModificationTemplates.js` (aura template loading and modification derivation), `binaries/data/mods/public/globalscripts/Technologies.js` and `binaries/data/mods/public/simulation/components/ModifiersManager.js` (value modification), `binaries/data/mods/public/simulation/helpers/ValueModification.js`, and `source/simulation2/components/CCmpRangeManager.cpp` (range queries). Paths below are relative to the root of the 0 A.D. source reference (see `AGENTS.md`).
 
 ## Overview
 
-An aura is a named set of stat modifications emitted by an entity (the *source*) and applied to other entities (the *targets*). The source's entity template lists its auras in the `Auras` component as a whitespace-separated list of aura file names (`Auras.js:3-7`, `GetAuraNames` splits `template._string` on whitespace, `Auras.js:46-49`). Aura files are JSON under `simulation/data/auras/`, loaded once into the global `AuraTemplates` cache (`public/globalscripts/ModificationTemplates.js:41-45`).
+An aura is a named set of stat modifications emitted by an entity (the *source*) and applied to other entities (the *targets*). The source's entity template lists its auras in the `Auras` component as a whitespace-separated list of aura file names (`Auras.js:3-7`, `GetAuraNames` splits `template._string` on whitespace, `Auras.js:46-49`). Aura files are JSON under `simulation/data/auras/`, loaded once into the global `AuraTemplates` cache (`binaries/data/mods/public/globalscripts/ModificationTemplates.js:41-45`).
 
-Application pipeline: `Auras.js` decides **which entities** an aura touches (type, radius, players, classes), then registers modifiers with the system `ModifiersManager` (`AddModifiers`, `Auras.js:444-446`). Whenever a component reads a stat, it passes the raw template value through `ApplyValueModificationsToEntity` / `ApplyValueModificationsToTemplate` (`public/simulation/helpers/ValueModification.js:3-21`), which returns the value with all registered modifiers applied. Auras never mutate templates; they are a lookup-time overlay.
+Application pipeline: `Auras.js` decides **which entities** an aura touches (type, radius, players, classes), then registers modifiers with the system `ModifiersManager` (`AddModifiers`, `Auras.js:444-446`). Whenever a component reads a stat, it passes the raw template value through `ApplyValueModificationsToEntity` / `ApplyValueModificationsToTemplate` (`binaries/data/mods/public/simulation/helpers/ValueModification.js:3-21`), which returns the value with all registered modifiers applied. Auras never mutate templates; they are a lookup-time overlay.
 
 ## Aura JSON schema
 
@@ -18,7 +18,7 @@ Fields seen in the data files and read by `Auras.js`:
 | `radius` | Range in metres for `type: "range"` auras only (`Auras.js:61-66`). Ignored otherwise. |
 | `affects` | Array of class expressions selecting valid targets (`Auras.js:68-71`). See *Target selection*. |
 | `affectedPlayers` | Which players' entities can be targets; default `["Player"]` (`Auras.js:116`). See *Affected players*. |
-| `modifications` | Array of `{ "value": <path>, "add"|"multiply"|"replace"|"tokens": ... }`, optionally with a per-modification `affects` class expression (`public/globalscripts/ModificationTemplates.js:65-83`). `value` is a component property path, e.g. `Attack/Melee/Damage/Hack`, `ResourceGatherer/Rates/food.grain`, `Player/MaxPopulation`. |
+| `modifications` | Array of `{ "value": <path>, "add"|"multiply"|"replace"|"tokens": ... }`, optionally with a per-modification `affects` class expression (`binaries/data/mods/public/globalscripts/ModificationTemplates.js:65-83`). `value` is a component property path, e.g. `Attack/Melee/Damage/Hack`, `ResourceGatherer/Rates/food.grain`, `Player/MaxPopulation`. |
 | `requiredTechnology` | The aura is inert until the owner has researched this tech (`Auras.js:142-152`). Example: `structures/wonder_population_cap.json`. |
 | `stackable` | If `true`, multiple sources of this aura stack (default: no stacking). See *Stacking*. |
 | `auraName`, `auraDescription` | GUI text only. |
@@ -45,13 +45,13 @@ In 0.28.0 data the type counts are: 72 `range`, 63 `global`, 6 `garrison`, 4 `ga
 
 ## Target selection: class matching
 
-An entity in range (or garrisoned, etc.) only becomes a target if its `Identity` classes match the aura's `affects` (`GiveMembersWithValidClass`, `Auras.js:308-315`). Matching uses `MatchesClassList` (`public/globalscripts/Templates.js:84-103`): `affects` is an **OR** of entries; within one entry, space- or `+`-separated tokens are **AND**ed; a leading `!` negates a class. So `["Worker", "Field"]` matches Workers or Fields, and `["Soldier !Ship"]` would match soldiers that are not ships.
+An entity in range (or garrisoned, etc.) only becomes a target if its `Identity` classes match the aura's `affects` (`GiveMembersWithValidClass`, `Auras.js:308-315`). Matching uses `MatchesClassList` (`binaries/data/mods/public/globalscripts/Templates.js:84-103`): `affects` is an **OR** of entries; within one entry, space- or `+`-separated tokens are **AND**ed; a leading `!` negates a class. So `["Worker", "Field"]` matches Workers or Fields, and `["Soldier !Ship"]` would match soldiers that are not ships.
 
-Class filtering happens twice: once when the aura picks targets (`Auras.js:308-315`), and again at value-lookup time, because each derived modification carries its own `affects` (the aura-level classes, plus any per-modification `affects` appended — `public/globalscripts/ModificationTemplates.js:60-83`) and `DoesModificationApply` re-checks them against the reading entity's classes (`public/globalscripts/Technologies.js:93-98`).
+Class filtering happens twice: once when the aura picks targets (`Auras.js:308-315`), and again at value-lookup time, because each derived modification carries its own `affects` (the aura-level classes, plus any per-modification `affects` appended — `binaries/data/mods/public/globalscripts/ModificationTemplates.js:60-83`) and `DoesModificationApply` re-checks them against the reading entity's classes (`binaries/data/mods/public/globalscripts/Technologies.js:93-98`).
 
 ## How a modification changes a value
 
-Registered modifiers are stored per (property path, entity) in the `ModifiersManager` (`ModifiersManager.js:262-268`). When a component reads a stat through `ApplyValueModificationsToEntity`, the manager applies, in order, **player-wide modifiers first, then entity-local ones** (`ModifiersManager.js:162-172`). The arithmetic for a numeric value is (`public/globalscripts/Technologies.js:46-65`):
+Registered modifiers are stored per (property path, entity) in the `ModifiersManager` (`ModifiersManager.js:262-268`). When a component reads a stat through `ApplyValueModificationsToEntity`, the manager applies, in order, **player-wide modifiers first, then entity-local ones** (`ModifiersManager.js:162-172`). The arithmetic for a numeric value is (`binaries/data/mods/public/globalscripts/Technologies.js:46-65`):
 
 ```
 result = originalValue * (product of all matching "multiply") + (sum of all matching "add")
@@ -64,7 +64,7 @@ result = originalValue * (product of all matching "multiply") + (sum of all matc
 
 ## Stacking
 
-**Two sources of the same aura do not stack, unless the aura file sets `"stackable": true`.** The modifier identifier is `aura/<name>` for normal auras and `aura/<name><entityID>` for stackable ones (`GetModifierIdentifier`, `Auras.js:21-27`). Since the `MultiKeyMap` storage keys modifiers by ID, a second source with the same ID only increments a reference count without adding a new value (`public/globalscripts/MultiKeyMap.js:177-188`). Consequences:
+**Two sources of the same aura do not stack, unless the aura file sets `"stackable": true`.** The modifier identifier is `aura/<name>` for normal auras and `aura/<name><entityID>` for stackable ones (`GetModifierIdentifier`, `Auras.js:21-27`). Since the `MultiKeyMap` storage keys modifiers by ID, a second source with the same ID only increments a reference count without adding a new value (`binaries/data/mods/public/globalscripts/MultiKeyMap.js:177-188`). Consequences:
 
 - Two identical heroes standing together give the bonus **once**. Two farmsteads covering the same field give the bonus once (`farmstead_60.json` sets `"stackable": false` explicitly).
 - A stackable aura (e.g. `structures/wonder_population_cap.json`, several wonders) multiplies per source.
@@ -74,7 +74,7 @@ result = originalValue * (product of all matching "multiply") + (sum of all matc
 ## Timing and lifecycle
 
 - **Recomputation (`Clean`)**: `Auras.prototype.Clean` removes every modifier, recomputes affected players, checks `requiredTechnology`, and recreates range queries (`Auras.js:212-306`). It runs at init, on ownership change, on diplomacy change, when the required tech finishes researching, and when an affected player is defeated (`Auras.js:487-526`).
-- **Range application delay**: active queries are re-evaluated once per simulation turn (`MT_Update` → `ExecuteActiveQueries`, `CCmpRangeManager.cpp:796-800,1137`), and the default turn length is 200 ms (`source/source/simulation2/system/TurnManager.h:62`). A unit walking into an aura's radius gets the effect at the next turn boundary, not instantly.
+- **Range application delay**: active queries are re-evaluated once per simulation turn (`MT_Update` → `ExecuteActiveQueries`, `CCmpRangeManager.cpp:796-800,1137`), and the default turn length is 200 ms (`source/simulation2/system/TurnManager.h:62`). A unit walking into an aura's radius gets the effect at the next turn boundary, not instantly.
 - **`requiredTechnology` not yet researched**: the aura's targets are still tracked, but `isApplied` is false so no modifiers (and no range query) are registered (`Auras.js:248,279,358-359`). When the tech completes, `OnGlobalResearchFinished` triggers a `Clean` and the aura activates (`Auras.js:501-515`).
 - **Defeated owner**: `CalculateAffectedPlayers` returns an empty list, so the aura does nothing (`Auras.js:123-124,251-252`).
 

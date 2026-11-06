@@ -3,7 +3,7 @@
 > "Between the high summits of the Alps, the valleys are filled with fog in
 > the early morning. The ground is full of gravel and rocks, but silver fir and
 > spruce trees grow between them and provide shelter for deer and mountain
-> goats." (`public/maps/random/rmbiome/generic/alpine.json:2-5`)
+> goats." (`binaries/data/mods/public/maps/random/rmbiome/generic/alpine.json:2-5`)
 
 Command line: `-autostart-biome=generic/alpine`. Supported by every map with
 `SupportedBiomes: "generic/"`. No JS file → fully static (no random picks).

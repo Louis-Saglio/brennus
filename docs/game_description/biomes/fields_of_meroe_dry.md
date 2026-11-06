@@ -2,7 +2,7 @@
 
 > "The vitalizing waters of the Nile sustain life along its banks, while the
 > long dry season scorches the land."
-> (`public/maps/random/rmbiome/fields_of_meroe/dry.json:2-5`)
+> (`binaries/data/mods/public/maps/random/rmbiome/fields_of_meroe/dry.json:2-5`)
 
 Only usable on `random/fields_of_meroe`. JSON-only; loaded over
 `defaultbiome.json`. This biome family uses **non-standard keys**: the
@@ -31,7 +31,7 @@ desert bushes, no rain particles, a slightly higher riverbed.
 
 ## What it sets
 
-`public/maps/random/rmbiome/fields_of_meroe/dry.json`:
+`binaries/data/mods/public/maps/random/rmbiome/fields_of_meroe/dry.json`:
 
 - **Environment**: `SkySet: "sunny"`; water murkiness 0.83 (visual).
 - **Terrains**: `mainDirt` `[savanna_dirt_b, savanna_dirt_rocks_a]`,

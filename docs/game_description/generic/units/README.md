@@ -2,7 +2,7 @@
 
 One file per **generic unit**: a unit type trainable in a skirmish game by **more than one** civilisation (unit types trainable by a single civilisation — heroes, civ-specific champions, unique mercenaries — are deliberately excluded).
 
-All data was extracted from the game files, not from memory: `/home/ubuntu/0ad-reference/public/simulation/templates/` (0 A.D. 0.28.0, the version the harness runs). Template paths below are relative to that root.
+All data was extracted from the game files, not from memory: `binaries/data/mods/public/simulation/templates/` in the 0 A.D. source reference (0 A.D. 0.28.0, the version the harness runs; see `AGENTS.md`). Template paths below are relative to that directory.
 
 ## Method
 

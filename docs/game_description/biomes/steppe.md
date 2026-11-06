@@ -3,7 +3,7 @@
 > "Wide grasslands stretching to the horizon, without any trees blocking the
 > view. The Steppe is home to large herds of wild horses, which graze
 > peacefully on the empty land, but flee quickly if you try to catch them."
-> (`public/maps/random/rmbiome/generic/steppe.json:2-5`)
+> (`binaries/data/mods/public/maps/random/rmbiome/generic/steppe.json:2-5`)
 
 Command line: `-autostart-biome=generic/steppe`. Supported by every map with
 `SupportedBiomes: "generic/"`. No JS file → fully static.

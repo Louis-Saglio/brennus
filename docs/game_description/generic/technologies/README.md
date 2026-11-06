@@ -2,7 +2,7 @@
 
 One file per **generic technology**: a tech available to **more than one** civilisation — either researchable from one of the civ's buildings (`Researcher/Technologies` lists) or auto-researched (`autoResearch: true`, e.g. the civ bonus techs in `civbonuses/`). Techs available to a single civilisation (civ-specific phase techs, pair choices, unique bonuses) are deliberately excluded.
 
-All data was extracted from the game files, not from memory: `/home/ubuntu/0ad-reference/public/simulation/data/technologies/` (0 A.D. 0.28.0, the version the harness runs).
+All data was extracted from the game files, not from memory: `binaries/data/mods/public/simulation/data/technologies/` in the 0 A.D. source reference (0 A.D. 0.28.0, the version the harness runs; see `AGENTS.md`).
 
 ## Method
 

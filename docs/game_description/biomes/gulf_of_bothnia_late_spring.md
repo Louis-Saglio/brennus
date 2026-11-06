@@ -2,7 +2,7 @@
 
 > "A late spring breeze ripples through the conifer forests of the Gulf of
 > Bothnia. At this time of the year the gulf offers great fishing
-> opportunities." (`public/maps/random/rmbiome/gulf_of_bothnia/late_spring.json:2-5`)
+> opportunities." (`binaries/data/mods/public/maps/random/rmbiome/gulf_of_bothnia/late_spring.json:2-5`)
 
 Only usable on `random/gulf_of_bothnia`. JSON-only; loaded over
 `defaultbiome.json`. The gulf map reads the standard keys plus
@@ -31,7 +31,7 @@ back hard when hunted, unlike the fleeing deer).
 
 ## What it sets
 
-`public/maps/random/rmbiome/gulf_of_bothnia/late_spring.json`:
+`binaries/data/mods/public/maps/random/rmbiome/gulf_of_bothnia/late_spring.json`:
 
 - **Environment**: `SkySet: "stormy"`; `Water.Frozen: false`,
   `WaterBody.Type: "lake"`, teal water, waviness 5; light fog; HDR postproc.

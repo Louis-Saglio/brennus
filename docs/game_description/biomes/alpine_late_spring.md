@@ -1,10 +1,10 @@
 # Late Spring — biome `alpine/late_spring` — 0 A.D. 0.28.0
 
 > "A blend of lingering snow and emerging grass, marking a quiet transition
-> from winter to summer." (`public/maps/random/rmbiome/alpine/late_spring.json:2-5`)
+> from winter to summer." (`binaries/data/mods/public/maps/random/rmbiome/alpine/late_spring.json:2-5`)
 
 Only usable on `random/alpine_lakes` (`SupportedBiomes: "alpine/"`,
-`public/maps/random/alpine_lakes.json:7`). JSON-only — no JS setup function;
+`binaries/data/mods/public/maps/random/alpine_lakes.json:7`). JSON-only — no JS setup function;
 loaded over `defaultbiome.json`, overriding the keys below. `alpine_lakes.js`
 hardcodes its tree counts (`getTreeCounts(500, 3000, 0.7)`,
 `alpine_lakes.js:106`) — this biome does not control tree density.
@@ -26,7 +26,7 @@ tree/rock actors differ.
 
 ## What it sets
 
-`public/maps/random/rmbiome/alpine/late_spring.json`:
+`binaries/data/mods/public/maps/random/rmbiome/alpine/late_spring.json`:
 
 - **Terrains**: `mainTerrain` `alpine_dirt_grass_50`; `forestFloor`
   `alpine_forrestfloor_snow`; `cliff` `alpine_cliff_a/b/c`; `tier2Terrain`

@@ -4,7 +4,7 @@
 > diverse broadleaf forests. Poplars, pines, beeches and oaks all vie for
 > supremacy but this root-war is a never-ending struggle. Numerous apple trees
 > dot the land, deer and sheep gorge themselves on this years fallen fruit."
-> (`public/maps/random/rmbiome/generic/temperate.json:2-5`)
+> (`binaries/data/mods/public/maps/random/rmbiome/generic/temperate.json:2-5`)
 
 Command line: `-autostart-biome=generic/temperate`. Supported by every map with
 `SupportedBiomes: "generic/"` (e.g. `mainland.json:7`). This is the biome the

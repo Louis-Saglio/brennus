@@ -3,12 +3,11 @@
 ## Source basis
 
 This documents `pyrogenesis` **0.28.0** (the 0 A.D. engine executable), grounded in the
-pinned reference source tree (engine version confirmed via
-`source/source/lib/build_version.h:34-36`) and cross-checked against the installed binary
-(0ad 0.28.0-3, 0ad-data 0.28.0-1). It was written on a former headless Ubuntu VPS
-(reference tree `/home/ubuntu/0ad-reference/`, binary `/usr/games/pyrogenesis`);
-development now runs on boobynator (Arch, same package versions, binary
-`/usr/bin/pyrogenesis`, reference = the 0 A.D. git clone `~/Work/0ad` at tag `v0.28.0`).
+0 A.D. source reference (see `AGENTS.md`; engine version confirmed via
+`source/lib/build_version.h:34-36`) and cross-checked against the installed binary
+(packages 0ad 0.28.0-3, 0ad-data 0.28.0-1). It was first written on a headless Ubuntu
+VPS without display; packaged paths differ per distribution (binary
+`/usr/games/pyrogenesis` on Debian/Ubuntu, `/usr/bin/pyrogenesis` on Arch).
 
 Flags are marked:
 
@@ -16,10 +15,8 @@ Flags are marked:
   unless stated otherwise).
 - **[src]** — read from the source only; not execution-verified here.
 
-Inline citations are relative to the former reference tree, e.g.
-`source/source/ps/GameSetup/GameSetup.cpp:568`. In the clone, drop the leading `source/`
-(`~/Work/0ad/source/ps/GameSetup/GameSetup.cpp:568`) and read `public/<path>` as
-`binaries/data/mods/public/<path>`.
+Inline citations are relative to the root of the source reference, e.g.
+`source/ps/GameSetup/GameSetup.cpp:568`.
 
 ### Headless gotcha (verified on the former VPS)
 
@@ -34,9 +31,9 @@ terminate called after throwing an instance of 'PSERROR_System_VmodeFailed'
 Consequences **[run]**:
 
 - **There is no `--help` text.** Unknown flags are silently ignored by the parser
-  (`source/source/ps/GameSetup/CmdLineArgs.cpp:57-89`) and the game proceeds to normal
+  (`source/ps/GameSetup/CmdLineArgs.cpp:57-89`) and the game proceeds to normal
   (visual) startup, which dies with `System_VmodeFailed`. The authoritative "help" is
-  `source/binaries/system/readme.txt` plus this document.
+  `binaries/system/readme.txt` plus this document.
 - Flags that work headless: `-version`, `-dumpSchema`, `-replay`, `-archivebuild*`, and the
   whole `-autostart-nonvisual` path. Everything else requires GL.
 - To get "help" headless, read the source or run `-dumpSchema` / `-version`.
@@ -50,12 +47,12 @@ pyrogenesis [-flag[=value]]... [modfile.pyromod|modfile.zip]...
 - `-flag` and `--flag` are equivalent; values use `-flag=value` (no space form).
   Repeating a flag yields multiple values (`GetMultiple`), e.g. several `-mod=` / `-conf=` /
   `-autostart-ai=`. Arguments not starting with `-` are treated as mod archives to install
-  (`source/source/main.cpp:606-626`).
-- `pyrogenesis` refuses to run as root (`source/source/main.cpp:811-821`).
+  (`source/main.cpp:606-626`).
+- `pyrogenesis` refuses to run as root (`source/main.cpp:811-821`).
 
 ### Filesystem paths (Linux/XDG) **[run]**
 
-Computed in `source/source/ps/GameSetup/Paths.cpp:147-164`. With default XDG variables:
+Computed in `source/ps/GameSetup/Paths.cpp:147-164`. With default XDG variables:
 
 | Purpose | Path |
 |---|---|
@@ -73,7 +70,7 @@ Notes:
 - Logs: `mainlog.html` (full) and `interestinglog.html` (warnings/errors) are written every
   run **[run]**. `-unique-logs` appends `_<unixtime>_<pid>` to log and `oos_dump.txt` file
   names so concurrent runs don't clobber each other **[run]**
-  (`source/source/main.cpp:578-579`).
+  (`source/main.cpp:578-579`).
 
 ### `-writableRoot` **[src]**
 
@@ -85,17 +82,17 @@ isolation on a system install, prefer `HOME=` redirection (verified) over `-writ
 
 ## 2. Full option table
 
-Canonical list: `source/binaries/system/readme.txt` ("keep synchronized with
-`autostart/cmd_line_args.js`"); C++ consumers in `source/source/main.cpp`,
-`source/source/ps/GameSetup/{GameSetup,Config,Paths,Atlas}.cpp`; JS-side autostart parsing
-in `source/binaries/data/mods/public/autostart/cmd_line_args.js`.
+Canonical list: `binaries/system/readme.txt` ("keep synchronized with
+`autostart/cmd_line_args.js`"); C++ consumers in `source/main.cpp`,
+`source/ps/GameSetup/{GameSetup,Config,Paths,Atlas}.cpp`; JS-side autostart parsing
+in `binaries/data/mods/public/autostart/cmd_line_args.js`.
 
 ### General
 
 | Flag | Effect | Source | Status |
 |---|---|---|---|
 | `-version` | Print `Pyrogenesis 0.28.0` and exit | `main.cpp:564-570` | **[run]** |
-| `-mod=NAME` (repeatable) | Enable mod NAME (see §5) | `GameSetup.cpp:568-576`, `source/source/ps/Mod.cpp:157-178` | **[run]** |
+| `-mod=NAME` (repeatable) | Enable mod NAME (see §5) | `GameSetup.cpp:568-576`, `source/ps/Mod.cpp:157-178` | **[run]** |
 | `-writableRoot` | Store runtime data in install dir | `Paths.cpp:51` | **[src]** |
 | `-quickstart` | Faster startup; disables audio + some system-info logging | `Config.cpp:69-73` | **[src]** |
 | `-dumpSchema` | Write `entity.rng` (entity XML schema) to the **current working directory** and exit; with `-editor`, dumps Atlas schemas instead | `GameSetup.cpp:595-610`, `Atlas.cpp:80-86` | **[run]** |
@@ -167,7 +164,7 @@ C++ entry: `GameSetup.cpp:844-861`; JS: `autostart/autostart_host.js`, `autostar
 |---|---|---|
 | `-replay=PATH` | **Non-visual** replay of `.../commands.txt`; headless-safe; exits when done (see §4) | **[run]** |
 | `-replay-visual=PATH` | Visual replay (needs GL) | **[src]** |
-| `-ooslog` | Dump full sim state every turn to `<logs>/oos_logs/<date-index>/` — drastically slower (readme.txt; `source/source/simulation2/Simulation2.cpp:92`) | **[src]** (run started but too slow to observe output here) |
+| `-ooslog` | Dump full sim state every turn to `<logs>/oos_logs/<date-index>/` — drastically slower (readme.txt; `source/simulation2/Simulation2.cpp:92`) | **[src]** (run started but too slow to observe output here) |
 | `-serializationtest` | Serialize/deserialize sim state every turn and compare (with `-replay` or live) | **[src]** |
 | `-rejointest=N` | Simulate a client rejoin at turn N; cheaper OOS debugging | **[src]** |
 | `-hashtest-full=BOOL` / `-hashtest-quick=BOOL` | Enable full (default true) / quick (default false) state-hash checks in replay mode (`main.cpp:653-654`) | **[src]** |
@@ -177,7 +174,7 @@ C++ entry: `GameSetup.cpp:844-861`; JS: `autostart/autostart_host.js`, `autostar
 
 There is no `-oosdump` flag: on an out-of-sync error in a networked game the client
 automatically writes `oos_dump[_<ts>_<pid>].txt` + `.dat` into the log dir
-(`source/source/network/NetClientTurnManager.cpp:124-153`).
+(`source/network/NetClientTurnManager.cpp:124-153`).
 
 ### Editor (Atlas)
 
@@ -189,7 +186,7 @@ with `-editor` dumps Atlas schemas. No other Atlas CLI flags exist in 0.28.0. **
 - `-conf=KEY:VALUE` (repeatable) — set any config value at priority `CFG_COMMAND`
   (`Config.cpp:53-64`), e.g. `-conf=profiler2.autoenable:true`.
   **[src]** (mechanism read in source; keys verified only for `profiler2.autoenable` in
-  `source/binaries/data/config/default.cfg:191-196`).
+  `binaries/data/config/default.cfg:191-196`).
 - Profiler2 HTTP server: `profiler2.autoenable`, `profiler2.server` (default `127.0.0.1`),
   `profiler2.server.port` (default `8000`) — serves profiling pages while running.
   **[src]**
@@ -225,7 +222,7 @@ HOME=$PWD/tmp/smoke-home timeout 150 pyrogenesis \
 - Map names are VFS paths minus `maps/` and extension; list available ones with
   `unzip -l /usr/share/0ad/data/mods/public/public.zip | grep 'maps/skirmishes/.*\.xml$'`
   (Arch path; `/usr/share/games/0ad/mods/public/public.zip` on Debian/Ubuntu; loose
-  copies: `~/Work/0ad/binaries/data/mods/public/maps/`).
+  copies in the source reference: `binaries/data/mods/public/maps/`).
 - `-autostart-player=-1` = observer (all players AI-driven).
 - `-autostart-nonvisual` **alone is rejected**: `ERROR: -autostart-nonvisual can't be used
   alone. A map with -autostart="TYPEDIR/MAPNAME" is needed.` (`main.cpp:572-576`) **[run]**.
@@ -236,7 +233,7 @@ HOME=$PWD/tmp/smoke-home timeout 150 pyrogenesis \
 
 - Nonvisual mode executes **one turn per main-loop iteration as fast as the CPU allows**
   (`main.cpp:493-511`: `Update(DEFAULT_TURN_LENGTH, 1)` with a constant 200 ms step,
-  `DEFAULT_TURN_LENGTH` at `source/source/simulation2/system/TurnManager.h:62`). The observed rate depends heavily on the opponent — ~113 turns/s against a
+  `DEFAULT_TURN_LENGTH` at `source/simulation2/system/TurnManager.h:62`). The observed rate depends heavily on the opponent — ~113 turns/s against a
   sandbox, but only ~32 turns/s against a medium-difficulty Petra (a real opponent
   runs its own AI every turn), i.e. ~22× real time in the sandbox case (former VPS
   figures). On boobynator the standard match runs ~85-105 turns/s per match with 4 in
@@ -259,10 +256,10 @@ HOME=$PWD/tmp/smoke-home timeout 150 pyrogenesis \
 - Logs: `$HOME/.local/state/0ad/log/mainlog.html`, `interestinglog.html`
   (`-unique-logs` for per-run names).
 - Replay: `$HOME/.local/share/0ad/replays/0.28.0/YYYY-MM-DD_NNNN/` — directory named by
-  date plus a per-day counter (`source/source/ps/Util.cpp:92-117`), containing:
+  date plus a per-day counter (`source/ps/Util.cpp:92-117`), containing:
   - `commands.txt` — full simulation log (see §4),
   - `metadata.json` — written only on **clean** game shutdown
-    (`source/source/ps/Game.cpp:115-123` in `~CGame`, `source/source/ps/Replay.cpp:116-145`).
+    (`source/ps/Game.cpp:115-123` in `~CGame`, `source/ps/Replay.cpp:116-145`).
 - Cache: `$HOME/.cache/0ad/`.
 
 Per-run isolation: set `HOME=<persistent-dir>/<run>/home` (verified — all engine state,
@@ -273,17 +270,17 @@ Alternatively `-writableRoot` on a writable dev checkout **[src]**.
 ## 4. Determinism and replays
 
 - **Seeds:** fix `-autostart-seed` (map) and `-autostart-aiseed` (AI); both default to 0
-  (fixed) and `-1` means "pick randomly" (`source/binaries/data/mods/public/autostart/cmd_line_args.js:161-166`).
+  (fixed) and `-1` means "pick randomly" (`binaries/data/mods/public/autostart/cmd_line_args.js:161-166`).
 - **Pin `-autostart-biome` and `-autostart-placement` too.** Both default to the string
   `"random"` (`autostart/cmd_line_args.js:124-125`), and "random" values are resolved at
   game launch by `GameSettings.pickRandomItems()`
-  (`source/binaries/data/mods/public/gamesettings/GameSettings.js:116-131`, called from
+  (`binaries/data/mods/public/gamesettings/GameSettings.js:116-131`, called from
   `launchGame` at `:143`) via `pickRandom` in the GUI realm
   (`attributes/Biome.js:82-88`, `attributes/PlayerPlacement.js:47-53`) — i.e. outside the
   seeded map RNG. Empirically verified by the previous project: same seed, replay
   manifests show different placement patterns (`circle` vs `randomGroup`) across runs.
   Same-seed reproducibility requires pinning both on the command line.
-- **Replay file format** (`source/source/ps/Replay.cpp:75-114`): first line
+- **Replay file format** (`source/ps/Replay.cpp:75-114`): first line
   `start {json init attributes, incl. seeds, players, mods, engine_serialization_version, timestamp}`,
   then per turn `turn <n> <turnLength>`, `cmd <player> {json}`, `end`, plus `hash` /
   `hash-quick <hex>` state-hash lines (only present in networked/recorded-with-hashes games;
@@ -291,7 +288,7 @@ Alternatively `-writableRoot` on a writable dev checkout **[src]**.
 - **Replaying:** `pyrogenesis -replay=<abs path to commands.txt>` — fully headless, loads
   the mods recorded in the replay, re-simulates every turn, prints `# Final state: <hash>`
   and exits 0 **[run]**. Pass a *file*, not the directory (`main.cpp:592-604`). Use the
-  host's `commands.txt` for multiplayer games (`source/source/ps/Game.cpp:161`).
+  host's `commands.txt` for multiplayer games (`source/ps/Game.cpp:161`).
 - **The `-replay` path skips `InitVfs`**, so `psLogDir()` stays empty and the engine
   writes `profile.txt` / `crashlog.txt` / `profile2.jsonp` *relative to the process CWD*
   (the replay branch creates the VFS and mounts `cache/` directly). A non-writable CWD
@@ -303,20 +300,20 @@ Alternatively `-writableRoot` on a writable dev checkout **[src]**.
   (`main.cpp:647-655`). In live multiplayer, OOS errors auto-dump `oos_dump.txt`/`.dat`
   to the log dir.
 - **Turn length / speed:** single-player turn length is fixed at 200 ms
-  (`source/source/simulation2/system/TurnManager.h:62`); it is not CLI-configurable. Game speed (`-autostart-speed`) only
+  (`source/simulation2/system/TurnManager.h:62`); it is not CLI-configurable. Game speed (`-autostart-speed`) only
   scales visual-mode frame stepping; nonvisual runs always go flat-out.
 
 ## 5. Mod loading
 
-- Discovery (`source/source/ps/Mod.cpp:248-292`): mods are directories (or `.zip`/`.pyromod`) with a
+- Discovery (`source/ps/Mod.cpp:248-292`): mods are directories (or `.zip`/`.pyromod`) with a
   `mod.json` (must contain at least `name`, `version`, `dependencies`) under
   `<install>/mods/` (`/usr/share/0ad/data/mods/` on Arch, `/usr/share/games/0ad/mods/`
   on Debian/Ubuntu) or the user dir
   `~/.local/share/0ad/mods/`. A mod present in both places is taken from the install dir
   (`GameSetup.cpp:181-184`).
-- Enablement (`source/source/ps/Mod.cpp:157-178`):
+- Enablement (`source/ps/Mod.cpp:157-178`):
   - No `-mod` flag: uses config `mod.enabledmods` (default `"mod public"`,
-    `source/binaries/data/config/default.cfg:547`).
+    `binaries/data/config/default.cfg:547`).
   - With `-mod=NAME` (repeatable): the list is exactly what you pass, with the base `mod`
     mod always prepended. **`public` is NOT implicit** — `-mod=mybot` alone mounts only
     `mod`+`mybot` and autostart fails with

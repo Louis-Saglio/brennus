@@ -2,17 +2,17 @@
 
 This file documents the two resource-conversion mechanics: **barter** (instant exchange of resources at a market, prices drift with use) and **trade routes** (trader units shuttling between markets/docks generating resources per trip). Grounded in:
 
-- `public/simulation/components/Barter.js` — barter system component
-- `public/simulation/components/Trader.js` — trader unit component
-- `public/simulation/components/Market.js` — market/dock component and gain computation
-- `public/simulation/components/Player.js` — barter multipliers, trading goods
-- `public/globalscripts/Trade.js` — the distance-based gain formula
-- `public/globalscripts/Resources.js` + `public/simulation/data/resources/*.json` — resource properties and true prices
-- `public/simulation/templates/template_structure_economic_market.xml`, `template_structure_military_dock.xml`, `template_unit_support_trader.xml`, `template_unit_ship_merchant.xml`, `template_player.xml`
-- `public/simulation/components/UnitAI.js` — the trade order state machine
-- `public/simulation/helpers/Commands.js` — the commands a player/AI issues
+- `binaries/data/mods/public/simulation/components/Barter.js` — barter system component
+- `binaries/data/mods/public/simulation/components/Trader.js` — trader unit component
+- `binaries/data/mods/public/simulation/components/Market.js` — market/dock component and gain computation
+- `binaries/data/mods/public/simulation/components/Player.js` — barter multipliers, trading goods
+- `binaries/data/mods/public/globalscripts/Trade.js` — the distance-based gain formula
+- `binaries/data/mods/public/globalscripts/Resources.js` + `binaries/data/mods/public/simulation/data/resources/*.json` — resource properties and true prices
+- `binaries/data/mods/public/simulation/templates/template_structure_economic_market.xml`, `template_structure_military_dock.xml`, `template_unit_support_trader.xml`, `template_unit_ship_merchant.xml`, `template_player.xml`
+- `binaries/data/mods/public/simulation/components/UnitAI.js` — the trade order state machine
+- `binaries/data/mods/public/simulation/helpers/Commands.js` — the commands a player/AI issues
 
-All paths above are relative to `/home/ubuntu/0ad-reference`. The four resources food, wood, stone, metal are all `barterable`, `tradable` and `tributable`, and all have `truePrice: 100` (`public/simulation/data/resources/*.json`) — so in 0.28.0 all resources barter at equal base value.
+All paths above are relative to the root of the 0 A.D. source reference (see `AGENTS.md`). The four resources food, wood, stone, metal are all `barterable`, `tradable` and `tributable`, and all have `truePrice: 100` (`binaries/data/mods/public/simulation/data/resources/*.json`) — so in 0.28.0 all resources barter at equal base value.
 
 ## Barter
 
@@ -63,7 +63,7 @@ d[bought] += diff     (buying makes it more expensive)
 | Trader (land) | `template_unit_support_trader.xml` | `GainMultiplier: 0.75` (line 43); 100 food + 80 metal, 15 s |
 | Merchantman (ship) | `template_unit_ship_merchant.xml` | `GainMultiplier: 0.75`, `GarrisonGainMultiplier: 0.2` (lines 37-40); 100 metal, 20 s; requires `phase_town`; garrison capacity 15 |
 
-`GainMultiplier` is modifiable by technologies via `Trader/GainMultiplier` (`Trader.js:151-154`): `trade_gain_01` and `trade_gain_02` each multiply it by 1.15 (`public/simulation/data/technologies/trade_gain_01.json`, `trade_gain_02.json`).
+`GainMultiplier` is modifiable by technologies via `Trader/GainMultiplier` (`Trader.js:151-154`): `trade_gain_01` and `trade_gain_02` each multiply it by 1.15 (`binaries/data/mods/public/simulation/data/technologies/trade_gain_01.json`, `trade_gain_02.json`).
 
 ### Route setup and eligibility
 
@@ -79,7 +79,7 @@ Trading with allied markets hidden by fog of war works through the market's mira
 
 ### Gain formula (exact)
 
-Computed per leg by `Market.CalculateTraderGain` (`Market.js:77-139`) using the **straight-line Euclidean distance** between the two markets' 2D positions — the pathfinder is deliberately not used (`Market.js:115-117`). With `S = mapSize` in **metres** (`IID_Terrain.GetMapSize()` = tiles per side × 4, `source/source/simulation2/components/CCmpTerrain.cpp:113-116`, `source/source/graphics/Terrain.h:41` — e.g. a 128-tile map gives `S = 512`):
+Computed per leg by `Market.CalculateTraderGain` (`Market.js:77-139`) using the **straight-line Euclidean distance** between the two markets' 2D positions — the pathfinder is deliberately not used (`Market.js:115-117`). With `S = mapSize` in **metres** (`IID_Terrain.GetMapSize()` = tiles per side × 4, `source/simulation2/components/CCmpTerrain.cpp:113-116`, `source/graphics/Terrain.h:41` — e.g. a 128-tile map gives `S = 512`):
 
 ```
 TradeGain(d², S)      = d² / (1 + 0.25 × d / S)                                   (Trade.js:12-15)

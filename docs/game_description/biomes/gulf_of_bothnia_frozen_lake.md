@@ -3,7 +3,7 @@
 > "Thick ice has formed on the gulf which is capable of withstanding any
 > weight. All plants are covered in snow, but there are large herds of
 > migrating deer who try to find some food under the snow."
-> (`public/maps/random/rmbiome/gulf_of_bothnia/frozen_lake.json:2-5`)
+> (`binaries/data/mods/public/maps/random/rmbiome/gulf_of_bothnia/frozen_lake.json:2-5`)
 
 Only usable on `random/gulf_of_bothnia`. JSON-only; loaded over
 `defaultbiome.json`. The gulf map reads the standard keys plus
@@ -36,7 +36,7 @@ ice surface — units cross the gulf directly.
 
 ## What it sets
 
-`public/maps/random/rmbiome/gulf_of_bothnia/frozen_lake.json`:
+`binaries/data/mods/public/maps/random/rmbiome/gulf_of_bothnia/frozen_lake.json`:
 
 - **Environment**: `SkySet: "stormy"`; cold sun; `Water.Frozen: true`,
   `WaterBody.Type: "lake"`, murkiness 0.97; thin fog; HDR postproc.

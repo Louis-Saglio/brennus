@@ -5,18 +5,18 @@ change in a game. One file per biome follows in this folder. Written for an
 agent implementing a bot: the focus is on what differs *mechanically* between
 biomes (wood, food, animals), not on the visuals.
 
-**Everything here was verified against the pinned game copy at
-`/home/ubuntu/0ad-reference/` (0.28.0)** — biome data
-(`public/maps/random/rmbiome/**`), the map generator
-(`public/maps/random/rmgen/**`, `rmgen-common/**`, the `random/*.js` map
-scripts), template data (`public/simulation/templates/**`) and engine source
-(`source/source/**`). Paths below are relative to `/home/ubuntu/0ad-reference`;
+**Everything here was verified against the 0 A.D. source reference
+(0.28.0, see `AGENTS.md`)** — biome data
+(`binaries/data/mods/public/maps/random/rmbiome/**`), the map generator
+(`binaries/data/mods/public/maps/random/rmgen/**`, `rmgen-common/**`, the `random/*.js` map
+scripts), template data (`binaries/data/mods/public/simulation/templates/**`) and engine source
+(`source/**`). Paths below are relative to its root;
 every claim carries an inline `path:line` citation. If a statement looks wrong,
 trust the source, not the doc — and fix the doc.
 
 ## What a biome is
 
-A biome is a JSON file under `public/maps/random/rmbiome/` plus an optional JS
+A biome is a JSON file under `binaries/data/mods/public/maps/random/rmbiome/` plus an optional JS
 file that randomizes a few entries. It selects **terrain textures** (visual),
 **environment/sky settings** (visual), and the **gaia entity templates**
 (trees, animals, fish, fruit bushes, rocks, ore) that the map generator places.
@@ -25,15 +25,15 @@ mines, animal group counts, or terrain passability — see *What biomes do not
 control*.
 
 The gamesetup dropdown lists every `*.json` under `rmbiome/` except
-`defaultbiome.json` (`public/gui/common/settings.js:202-212`): the 10 **generic**
+`defaultbiome.json` (`binaries/data/mods/public/gui/common/settings.js:202-212`): the 10 **generic**
 biomes (`generic/*`, supported by all maps whose `SupportedBiomes` is
-`"generic/"`, e.g. `public/maps/random/mainland.json:7`) and 9 **sub-biomes**
+`"generic/"`, e.g. `binaries/data/mods/public/maps/random/mainland.json:7`) and 9 **sub-biomes**
 tied to one specific map family each (see *Index*). Command line:
 `-autostart-biome=generic/temperate`.
 
 ## How a biome is applied
 
-`setBiome(biomeID)` is the entry point (`public/maps/random/rmbiome/randombiome.js:14-32`):
+`setBiome(biomeID)` is the entry point (`binaries/data/mods/public/maps/random/rmbiome/randombiome.js:14-32`):
 
 1. `loadBiomeFile("defaultbiome")` — the baseline `rmbiome/defaultbiome.json`
    is merged into the globals first.
@@ -46,11 +46,11 @@ tied to one specific map family each (see *Index*). Command line:
    other unknown top-level key throws.
 4. `setupBiome_<name>()` from `rmbiome/<dirname>.js` runs if present
    (`randombiome.js:28-31`). `Engine.LoadLibrary` on a missing directory is a
-   silent no-op (`source/source/graphics/MapGenerator.cpp:149-189`), so biomes
+   silent no-op (`source/graphics/MapGenerator.cpp:149-189`), so biomes
    without a JS file (all sub-biomes) simply skip this step.
 
 The merged state lands in six globals (declared `randombiome.js:3-7` plus
-`g_Environment` from `public/maps/random/rmgen/environment.js:5`):
+`g_Environment` from `binaries/data/mods/public/maps/random/rmgen/environment.js:5`):
 `g_Environment`, `g_Terrains`, `g_Gaia`, `g_Decoratives`, `g_ResourceCounts`,
 `g_Heights`. Map scripts then read these globals directly — the biome does not
 decide *how many* of anything is placed, only *which template* and (for trees)
@@ -94,10 +94,10 @@ Forests use `tree1`/`tree2` (floor `forestFloor2`) and `tree4`/`tree5` (floor
   `fields_of_meroe.js:55` and `gulf_of_bothnia.js:45-47`.
 - **Terrain passability and movement speed.** Terrain textures carry no
   gameplay stats: the terrain XML only defines textures, props and material
-  (e.g. `public/art/terrains/biome-temperate-europe/temperate_grass_02.xml`).
+  (e.g. `binaries/data/mods/public/art/terrains/biome-temperate-europe/temperate_grass_02.xml`).
   Terrain-dependent passability is computed from **water depth, slope and
   distance to shore**, not from the texture
-  (`source/source/simulation2/components/CCmpPathfinder.cpp:661-693`). Two
+  (`source/simulation2/components/CCmpPathfinder.cpp:661-693`). Two
   biomes with different ground textures are mechanically identical for
   movement.
 - **Stone and metal amounts.** The biome only picks the rock/ore *actor*.
@@ -185,9 +185,9 @@ placement on those specific maps.
 ## Determinism
 
 `-autostart-biome` defaults to the string `"random"`
-(`public/autostart/cmd_line_args.js:124`), which is resolved at launch by
+(`binaries/data/mods/public/autostart/cmd_line_args.js:124`), which is resolved at launch by
 `GameSettings.pickRandomItems()` via the unseeded GUI `pickRandom`
-(`public/gamesettings/attributes/Biome.js:82-88`), outside the seeded map RNG.
+(`binaries/data/mods/public/gamesettings/attributes/Biome.js:82-88`), outside the seeded map RNG.
 Same seed + biome left random ⇒ different biomes across runs. Always pin it —
 see `docs/pyrogenesis_cli.md` §4.
 

@@ -1,19 +1,19 @@
 # Construction and repair
 
-How buildings are placed and built in 0 A.D. 0.28.0, and how damaged structures are repaired. Grounded in `public/simulation/components/Foundation.js`, `Builder.js`, `Repairable.js`, `AutoBuildable.js`, `Cost.js`, `BuildRestrictions.js`, `Health.js`, `UnitAI.js`, `public/simulation/helpers/Commands.js` (`TryConstructBuilding`, `"repair"` command), `public/simulation/helpers/Transform.js` (`ChangeEntityTemplate`), the template filter `public/simulation/templates/special/filter/foundation.xml`, and `source/source/simulation2/system/ParamNode.cpp` (filter semantics). Paths below are relative to `/home/ubuntu/0ad-reference`.
+How buildings are placed and built in 0 A.D. 0.28.0, and how damaged structures are repaired. Grounded in `binaries/data/mods/public/simulation/components/Foundation.js`, `Builder.js`, `Repairable.js`, `AutoBuildable.js`, `Cost.js`, `BuildRestrictions.js`, `Health.js`, `UnitAI.js`, `binaries/data/mods/public/simulation/helpers/Commands.js` (`TryConstructBuilding`, `"repair"` command), `binaries/data/mods/public/simulation/helpers/Transform.js` (`ChangeEntityTemplate`), the template filter `binaries/data/mods/public/simulation/templates/special/filter/foundation.xml`, and `source/simulation2/system/ParamNode.cpp` (filter semantics). Paths below are relative to the root of the 0 A.D. source reference (see `AGENTS.md`).
 
 ## Overview: the two-step process
 
-Construction is always two distinct steps (`public/simulation/helpers/Commands.js:1122-1129`):
+Construction is always two distinct steps (`binaries/data/mods/public/simulation/helpers/Commands.js:1122-1129`):
 
 1. **Placement** — a `"construct"` command creates a *foundation entity* (template `foundation|<building template>`) with 1 HP and 0 % progress, and the full resource cost is paid immediately.
 2. **Building** — builders work on the foundation; each work tick raises its hitpoints. Build progress *is* the health ratio. At 100 % the foundation is replaced by the real building via `ChangeEntityTemplate` (`Foundation.js:334-354`).
 
-Building on a foundation and repairing a damaged building are the same order: the `"repair"` command "covers both repairing damaged buildings, and constructing unfinished foundations" (`public/simulation/helpers/Commands.js:200-209`).
+Building on a foundation and repairing a damaged building are the same order: the `"repair"` command "covers both repairing damaged buildings, and constructing unfinished foundations" (`binaries/data/mods/public/simulation/helpers/Commands.js:200-209`).
 
 ## Step 1 — placing a foundation (`construct` command)
 
-`TryConstructBuilding` (`public/simulation/helpers/Commands.js:1101-1281`) does, in order:
+`TryConstructBuilding` (`binaries/data/mods/public/simulation/helpers/Commands.js:1101-1281`) does, in order:
 
 1. Filters `cmd.entities` to units the player controls; aborts if empty (`Commands.js:1132-1134`).
 2. Creates the entity with template `"foundation|" + cmd.template` at `(cmd.x, cmd.z)` with rotation `cmd.angle` (`Commands.js:1136-1160`). For `PlacementType == "shore"` (docks) the angle is recomputed automatically to face water (`Commands.js:1147-1155`).
@@ -29,7 +29,7 @@ Note: the command does **not** check the builders' `Builder/Entities` list or ev
 
 ### The foundation template
 
-`foundation|foo` is built by applying the filter `public/simulation/templates/special/filter/foundation.xml` on top of template `foo` (engine: `source/source/ps/TemplateLoader.cpp:61-70` — `A|B` loads B then applies A; filters are looked up in `special/filter/`). The filter keeps only a whitelist of components — the `filtered=""` attribute drops every child not listed (`source/source/simulation2/system/ParamNode.cpp:125-128,232-248`). Kept: `AIProxy, AutoBuildable, BuildRestrictions, Cost, Decay, Fogging, Footprint, Foundation, Health, Identity, Market, Minimap, Obstruction, OverlayRenderer, Ownership, Population, Position, RallyPoint, RallyPointRenderer, Resistance, Selectable, Sound, StatusBars, StatusEffectsReceiver, Visibility, Vision, VisualActor`. Dropped (relevant for a bot): **`Capturable`, `TerritoryDecay`, `TerritoryInfluence`, `Attack`, `ProductionQueue`, `GarrisonHolder`, `ResourceDropsite`** — foundations cannot be captured, do not decay in enemy/neutral territory, and project **no** territory (no `TerritoryInfluence`) until the building completes.
+`foundation|foo` is built by applying the filter `binaries/data/mods/public/simulation/templates/special/filter/foundation.xml` on top of template `foo` (engine: `source/ps/TemplateLoader.cpp:61-70` — `A|B` loads B then applies A; filters are looked up in `special/filter/`). The filter keeps only a whitelist of components — the `filtered=""` attribute drops every child not listed (`source/simulation2/system/ParamNode.cpp:125-128,232-248`). Kept: `AIProxy, AutoBuildable, BuildRestrictions, Cost, Decay, Fogging, Footprint, Foundation, Health, Identity, Market, Minimap, Obstruction, OverlayRenderer, Ownership, Population, Position, RallyPoint, RallyPointRenderer, Resistance, Selectable, Sound, StatusBars, StatusEffectsReceiver, Visibility, Vision, VisualActor`. Dropped (relevant for a bot): **`Capturable`, `TerritoryDecay`, `TerritoryInfluence`, `Attack`, `ProductionQueue`, `GarrisonHolder`, `ResourceDropsite`** — foundations cannot be captured, do not decay in enemy/neutral territory, and project **no** territory (no `TerritoryInfluence`) until the building completes.
 
 The filter also sets (`foundation.xml`):
 
@@ -69,7 +69,7 @@ time(N) = BuildTime / N^0.7
 
 The diminishing returns are per-foundation: `10^0.7 ≈ 5.01`, i.e. 10 builders finish in ~5.01× less time than 1, not 10× (`Foundation.js:220-221`). Builders with different rates contribute `rate_i × multiplier` each; the multiplier only depends on N.
 
-`BuildTime` is the entity's `Cost/BuildTime` in seconds, tech/aura-modified, queried live each tick (`Cost.js:36-39`). Examples: house `BuildTime` 30 s, 800 HP (`public/simulation/templates/template_structure_civic_house.xml:4,22`) → 26.67 HP/s per rate-1 builder; barracks 150 s, 2000 HP (`template_structure_military_barracks.xml:7,22`) → 13.33 HP/s.
+`BuildTime` is the entity's `Cost/BuildTime` in seconds, tech/aura-modified, queried live each tick (`Cost.js:36-39`). Examples: house `BuildTime` 30 s, 800 HP (`binaries/data/mods/public/simulation/templates/template_structure_civic_house.xml:4,22`) → 26.67 HP/s per rate-1 builder; barracks 150 s, 2000 HP (`template_structure_military_barracks.xml:7,22`) → 13.33 HP/s.
 
 `Foundation.GetBuildTime()` (what the AI/GUI can read) returns `timeRemaining = (1 − progress) × BuildTime / (totalBuilderRate × buildMultiplier)` plus `timeRemainingNew`, the estimate if one more rate-1 builder joined (`Foundation.js:234-244`).
 
@@ -124,7 +124,7 @@ refund_r = ceil(cost_r × (1 − maxProgress))
 
 ## Placement rules (`BuildRestrictions.CheckPlacement`)
 
-Run at placement time on the foundation entity (`public/simulation/components/BuildRestrictions.js:94-322`), in this order:
+Run at placement time on the foundation entity (`binaries/data/mods/public/simulation/components/BuildRestrictions.js:94-322`), in this order:
 
 1. **Visibility** — the spot must be explored (not "hidden") for the owner. **Skipped for AI players** (`BuildRestrictions.js:113-128`).
 2. **Obstruction and terrain** — engine `Obstruction.CheckFoundation(passClassName)`; the pass class comes from `PlacementType`: `land` → `building-land`, `shore` → `building-shore`, `land-shore` → `default-terrain-only` (`BuildRestrictions.js:131-147`). Failure codes: `fail_obstructs_foundation` (overlaps a building-blocking entity or resource) or `fail_terrain_class` (invalid terrain) (`BuildRestrictions.js:165-184`). For `Category == "Wall"` only the center point is tested (`BuildRestrictions.js:155-159`).
@@ -140,7 +140,7 @@ After placement, entity-category build limits (`EntityLimits.AllowedToBuild`) an
 
 ## Bot-facing summary
 
-- To build: send `{"type": "construct", "entities", "template", "x", "z", "angle", "autorepair", "autocontinue", "queued", "metadata"}` (`Commands.js:1103-1120`). The API helper `entity.construct(...)` sets `autorepair: false`, so the bot must then send `{"type": "repair", "entities", "target": <foundation id>, "autocontinue", "queued"}` itself (`public/simulation/ai/common-api/entity.js:957-975,896-899`).
-- Own unfinished foundations are visible as entities with template name `foundation|<template>` and class `Foundation` (`public/simulation/ai/common-api/gamestate.js:638-654`).
+- To build: send `{"type": "construct", "entities", "template", "x", "z", "angle", "autorepair", "autocontinue", "queued", "metadata"}` (`Commands.js:1103-1120`). The API helper `entity.construct(...)` sets `autorepair: false`, so the bot must then send `{"type": "repair", "entities", "target": <foundation id>, "autocontinue", "queued"}` itself (`binaries/data/mods/public/simulation/ai/common-api/entity.js:957-975,896-899`).
+- Own unfinished foundations are visible as entities with template name `foundation|<template>` and class `Foundation` (`binaries/data/mods/public/simulation/ai/common-api/gamestate.js:638-654`).
 - Wall construction uses a separate `"construct-wall"` command placing all pieces with obstruction control groups so segments may overlap during construction (`Commands.js:1283-1419`+).
 - Cheapest estimates: one builder → `BuildTime` seconds; each extra builder multiplies speed by `N^0.7/(N-1)^0.7`, i.e. less and less — going 1→2 builders is ×1.62, 4→5 is only ×1.17.

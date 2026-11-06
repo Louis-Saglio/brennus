@@ -1,10 +1,10 @@
 # Combat and damage (0 A.D. 0.28.0)
 
-How attacks, armor and damage work in 0 A.D. 0.28.0. Grounded in `public/simulation/components/Attack.js`, `Resistance.js`, `Health.js`, `DelayedDamage.js`, `DeathDamage.js`, `BuildingAI.js`, `TurretHolder.js`, the damage-application helper `public/simulation/helpers/Attack.js`, the effect receiver registry `public/simulation/data/attack_effects/*.json`, and the templates `template_unit_infantry_melee_spearman.xml`, `template_unit_infantry_ranged_archer.xml`, `template_structure_defensive_tower.xml`, `template_unit_siege_stonethrower.xml` and `mixins/fireship.xml`. All paths below are relative to `/home/ubuntu/0ad-reference` (the pinned 0.28.0 copy). Template times are stored in **milliseconds**, ranges in **meters**.
+How attacks, armor and damage work in 0 A.D. 0.28.0. Grounded in `binaries/data/mods/public/simulation/components/Attack.js`, `Resistance.js`, `Health.js`, `DelayedDamage.js`, `DeathDamage.js`, `BuildingAI.js`, `TurretHolder.js`, the damage-application helper `binaries/data/mods/public/simulation/helpers/Attack.js`, the effect receiver registry `binaries/data/mods/public/simulation/data/attack_effects/*.json`, and the templates `template_unit_infantry_melee_spearman.xml`, `template_unit_infantry_ranged_archer.xml`, `template_structure_defensive_tower.xml`, `template_unit_siege_stonethrower.xml` and `mixins/fireship.xml`. All paths below are relative to the root of the 0 A.D. source reference (the pinned 0.28.0 copy, see `AGENTS.md`). Template times are stored in **milliseconds**, ranges in **meters**.
 
 ## Attack types
 
-The engine knows three ordinary attack types — `Melee`, `Ranged`, `Capture` (`g_AttackTypes`, `public/simulation/components/Attack.js:3`) — plus `Slaughter`, which is handled specially (see below). An entity can have several types at once; the `Attack` component holds one block per type (`Attack.js:104-209`).
+The engine knows three ordinary attack types — `Melee`, `Ranged`, `Capture` (`g_AttackTypes`, `binaries/data/mods/public/simulation/components/Attack.js:3`) — plus `Slaughter`, which is handled specially (see below). An entity can have several types at once; the `Attack` component holds one block per type (`Attack.js:104-209`).
 
 - **Melee / Ranged** — deal `Damage` (health loss). Ranged attacks launch a projectile; melee attacks hit the target directly.
 - **Capture** — deals `Capture` points instead of health damage (see "Capture" below). Only usable on targets whose `Capturable` component allows it (`Attack.js:290`).
@@ -16,7 +16,7 @@ Non-capture attacks require the target to be an **enemy** with **health > 0** (`
 
 Damage comes in three types, declared per attack: **hack**, **pierce**, **crush** (template elements `Damage/Hack|Pierce|Crush`). The defender's armor values are `Resistance/Entity/Damage/{Hack,Pierce,Crush}` (or `Resistance/Foundation/...` while the entity is an unfinished foundation — `Resistance.js:122`).
 
-The exact formula (`public/simulation/helpers/Attack.js:172-174`, multiplied by the bonus at line 185):
+The exact formula (`binaries/data/mods/public/simulation/helpers/Attack.js:172-174`, multiplied by the bonus at line 185):
 
 ```
 totalDamage = bonusMultiplier × Σ_type  Damage[type] × 0.9 ^ armor[type]
@@ -25,7 +25,7 @@ totalDamage = bonusMultiplier × Σ_type  Damage[type] × 0.9 ^ armor[type]
 - Each point of armor multiplies the incoming damage of that type by 0.9, independently per type. E.g. 10 hack armor → hack damage ×0.9^10 ≈ ×0.349; 20 armor → ×0.122.
 - Armor 0 against a type → that type lands at full strength. There is no armor floor or subtraction: damage is purely exponential in armor.
 - `bonusMultiplier` is the product of all matching attack bonuses (see below) and, for splash damage, the distance falloff multiplier.
-- The result is handed to `Health.TakeDamage` (`helpers/Attack.js:312-321` via the receiver registry: `Damage` → `IID_Health.TakeDamage`, `public/simulation/data/attack_effects/damage.json`). `Health.Reduce` clamps at 0 HP and returns the HP actually lost (`public/simulation/components/Health.js:239-274`).
+- The result is handed to `Health.TakeDamage` (`helpers/Attack.js:312-321` via the receiver registry: `Damage` → `IID_Health.TakeDamage`, `binaries/data/mods/public/simulation/data/attack_effects/damage.json`). `Health.Reduce` clamps at 0 HP and returns the HP actually lost (`binaries/data/mods/public/simulation/components/Health.js:239-274`).
 - An invulnerable target (`Resistance.IsInvulnerable`) takes nothing at all (`helpers/Attack.js:305-307`).
 
 ## Capture
@@ -37,13 +37,13 @@ captureStrength = bonusMultiplier × Capture × 0.9 ^ captureResistance
                   / (0.1 + 0.9 × targetHP / targetMaxHP)
 ```
 
-The lower the target's health, the faster it captures — at full health the divisor is 1.0, near death it approaches 0.1 (×10 capture speed). Capture resistance works like armor (0.9 per point). The points are applied by `Capturable.Capture` (`public/simulation/components/Capturable.js:60-68`). Typical capture strength: infantry 2.5 (`template_unit_infantry.xml:4-10`), cavalry 1.75 (`template_unit_cavalry.xml:4-6`), repeat 1 s, range 4 m.
+The lower the target's health, the faster it captures — at full health the divisor is 1.0, near death it approaches 0.1 (×10 capture speed). Capture resistance works like armor (0.9 per point). The points are applied by `Capturable.Capture` (`binaries/data/mods/public/simulation/components/Capturable.js:60-68`). Typical capture strength: infantry 2.5 (`template_unit_infantry.xml:4-10`), cavalry 1.75 (`template_unit_cavalry.xml:4-6`), repeat 1 s, range 4 m.
 
 ## Attack bonuses vs classes
 
 An attack block may carry `Bonuses`: named entries with `Classes`, an optional `Civ`, and a `Multiplier` (schema at `helpers/Attack.js:70-85`). At damage time every bonus whose class list matches the target's classes (and whose `Civ`, if given, equals the target's civ) **multiplies** the total — bonuses stack multiplicatively (`helpers/Attack.js:357-378`, applied at line 309). Example: the generic spearman has ×2.5 vs `Cavalry` on its melee attack (`template_unit_infantry_melee_spearman.xml:13-18`).
 
-Class matching semantics (`MatchesClassList`, `public/globalscripts/Templates.js:84-103`): within one string, space-separated tokens are **OR**-ed, tokens joined by `+` are **AND**-ed, and a leading `!` negates a class. So `Cavalry Melee` matches targets that are Cavalry *or* Melee; `Unit+!Ship` matches units that are not ships.
+Class matching semantics (`MatchesClassList`, `binaries/data/mods/public/globalscripts/Templates.js:84-103`): within one string, space-separated tokens are **OR**-ed, tokens joined by `+` are **AND**-ed, and a leading `!` negates a class. So `Cavalry Melee` matches targets that are Cavalry *or* Melee; `Unit+!Ship` matches units that are not ships.
 
 ## Preferred and restricted classes
 
@@ -66,7 +66,7 @@ Edge cases a bot should know:
 
 - **Attack speed is conserved across target switches**: if less than `repeat` ms elapsed since the last attack, the new attack's prepare phase is stretched to the remaining repeat time (`Attack.js:498-505`).
 - While attacking, range is re-checked `ceil(repeat/1000)` times per repeat cycle, and once right after each hit; if the target left range the attack stops (`Attack.js:471-474`, `516-527`, `602-607`).
-- Damage is applied through the system component `DelayedDamage`: with no delay it fires immediately, otherwise via a timeout (`Attack.js:760-766`, `public/simulation/components/DelayedDamage.js`).
+- Damage is applied through the system component `DelayedDamage`: with no delay it fires immediately, otherwise via a timeout (`Attack.js:760-766`, `binaries/data/mods/public/simulation/components/DelayedDamage.js`).
 
 ## Range
 
@@ -77,9 +77,9 @@ Edge cases a bot should know:
 Ranged attacks with a `Projectile` block launch a real projectile (`Attack.js:662-754`):
 
 - **Flight time**: the target's velocity is extrapolated from its movement during the last turn (`Attack.js:677`), and an intercept time is computed (`PositionHelper.PredictTimeToTarget`, called at `Attack.js:679`). With probability `max(0, 0.75 − timeToTarget/1.333)` the shooter "cheats" and asks the target's `UnitMotion` for its planned future position; otherwise the dumb linear prediction is used (`Attack.js:690-706`). Long-range shots therefore always use linear prediction and miss zigzagging targets more often.
-- **Spread**: `Spread` is the standard deviation of a bivariate normal error at 100 m distance; the actual deviation scales linearly with distance: `distanceModifiedSpread = Spread × distance / 100` (`Attack.js:711-716`; normal from `public/globalscripts/random.js:5`). Per the schema help, a disk of radius 1×/2×/3× the modified spread catches 39.3 % / 86.5 % / 98.9 % of shots (`Attack.js:177`).
+- **Spread**: `Spread` is the standard deviation of a bivariate normal error at 100 m distance; the actual deviation scales linearly with distance: `distanceModifiedSpread = Spread × distance / 100` (`Attack.js:711-716`; normal from `binaries/data/mods/public/globalscripts/random.js:5`). Per the schema help, a disk of radius 1×/2×/3× the modified spread catches 39.3 % / 86.5 % / 98.9 % of shots (`Attack.js:177`).
 - **Delay**: `EffectDelay + flightTime` ms after the animation point, `DelayedDamage.Hit` resolves the impact (`Attack.js:720-722`, `DelayedDamage.js:36-93`).
-- **Hit resolution** (`DelayedDamage.js:63-92`): if the intended target's footprint (circle or rotated square) contains the impact point — tested against its interpolated position (`public/simulation/helpers/Position.js:75-100`) — it takes the full damage. On a **miss**, entities within `MISSILE_HIT_RADIUS = 2` m of the impact point are tested; the first one hit absorbs the projectile and takes the damage.
+- **Hit resolution** (`DelayedDamage.js:63-92`): if the intended target's footprint (circle or rotated square) contains the impact point — tested against its interpolated position (`binaries/data/mods/public/simulation/helpers/Position.js:75-100`) — it takes the full damage. On a **miss**, entities within `MISSILE_HIT_RADIUS = 2` m of the impact point are tested; the first one hit absorbs the projectile and takes the damage.
 - **Friendly fire**: when `Projectile/FriendlyFire` is `false` (the norm), only enemies of the shooter are considered for stray hits (`Attack.js:753`, `helpers/Attack.js:218-224`); a missed arrow can still hit a *different enemy*. With `FriendlyFire true`, all players' entities can be hit. Melee (non-projectile) attacks always hit exactly the intended target — there is no friendly fire in melee.
 
 ## Splash damage
@@ -104,7 +104,7 @@ Buildings that shoot use `BuildingAI`, which fires the building's own `Ranged` a
 
 ## Death damage
 
-An entity with a `DeathDamage` component damages an area when it dies: `Health.HandleDeath` calls `DeathDamage.CauseDeathDamage` (`Health.js:279-283`, `DeathDamage.js:32-54`), which runs the same `CauseDamageOverArea` as splash with type `"Death"` and its own radius/falloff/friendly-fire flag. Example — fire ships: circular, range 22, 500 crush, ×3 vs `Ship`/`Building`, no friendly fire (`public/simulation/templates/mixins/fireship.xml`).
+An entity with a `DeathDamage` component damages an area when it dies: `Health.HandleDeath` calls `DeathDamage.CauseDeathDamage` (`Health.js:279-283`, `DeathDamage.js:32-54`), which runs the same `CauseDamageOverArea` as splash with type `"Death"` and its own radius/falloff/friendly-fire flag. Example — fire ships: circular, range 22, 500 crush, ×3 vs `Ship`/`Building`, no friendly fire (`binaries/data/mods/public/simulation/templates/mixins/fireship.xml`).
 
 ## Delayed damage summary
 

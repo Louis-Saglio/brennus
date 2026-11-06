@@ -3,7 +3,7 @@
 > "Start in a region blessed with the Mediterranean climate, a warm and
 > inviting land. The cypresses are in a perpetual struggle with the dominant
 > fan palms while deer graze in their shadows, blissfully unaware."
-> (`public/maps/random/rmbiome/generic/aegean.json:2-5`)
+> (`binaries/data/mods/public/maps/random/rmbiome/generic/aegean.json:2-5`)
 
 Command line: `-autostart-biome=generic/aegean`. Supported by every map with
 `SupportedBiomes: "generic/"`.

@@ -2,14 +2,14 @@
 
 How fauna entities behave: their categories and stances, the `FLEEING` order
 that makes huntable animals run away, the speeds involved, and what happens
-when an animal dies (the meat corpse). Grounded in `public/simulation/components/UnitAI.js`
+when an animal dies (the meat corpse). Grounded in `binaries/data/mods/public/simulation/components/UnitAI.js`
 (stance table, the `FLEEING`/`Flee` orders, `Run()`), the fauna templates
-`public/simulation/templates/template_unit_fauna*.xml` and
-`public/simulation/templates/gaia/fauna_*.xml`, the base unit template
-`public/simulation/templates/template_unit.xml`, the corpse filter
-`public/simulation/templates/special/filter/resource.xml`, and
-`public/simulation/components/Health.js` (corpse creation). Paths below are
-relative to `/home/ubuntu/0ad-reference`.
+`binaries/data/mods/public/simulation/templates/template_unit_fauna*.xml` and
+`binaries/data/mods/public/simulation/templates/gaia/fauna_*.xml`, the base unit template
+`binaries/data/mods/public/simulation/templates/template_unit.xml`, the corpse filter
+`binaries/data/mods/public/simulation/templates/special/filter/resource.xml`, and
+`binaries/data/mods/public/simulation/components/Health.js` (corpse creation). Paths below are
+relative to the root of the 0 A.D. source reference (see `AGENTS.md`).
 
 ## Fauna categories
 

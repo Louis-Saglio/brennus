@@ -2,7 +2,7 @@
 
 > "Spring in the highlands, yet the heat has already begun making itself felt.
 > The short-lived green grasses are on the retreat, paving the way for
-> scorching summer." (`public/maps/random/rmbiome/persian_highlands/spring.json:2-5`)
+> scorching summer." (`binaries/data/mods/public/maps/random/rmbiome/persian_highlands/spring.json:2-5`)
 
 Only usable on `random/persian_highlands`. JSON-only; loaded over
 `defaultbiome.json`. The map reads non-standard terrain keys (`lakebed1`,
@@ -30,7 +30,7 @@ summer's baked dirt. Economy is otherwise identical to
 
 ## What it sets
 
-`public/maps/random/rmbiome/persian_highlands/spring.json`:
+`binaries/data/mods/public/maps/random/rmbiome/persian_highlands/spring.json`:
 
 - **Environment**: low golden sun (elevation 0.524, rotation -1.865); warm
   fog; HDR postproc with high contrast (1.25). No `SkySet` → random.

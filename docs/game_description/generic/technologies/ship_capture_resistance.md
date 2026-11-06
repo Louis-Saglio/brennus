@@ -18,7 +18,7 @@ Data file: `simulation/data/technologies/ship_capture_resistance.json`.
 ## Notes
 
 - **Vestigial in 0.28.0**: no building's `Researcher` lists this tech (verified — no
-  file under `public/simulation/` references it), so despite its `notciv: rome`
+  file under `binaries/data/mods/public/simulation/` references it), so despite its `notciv: rome`
   requirement (all non-rome civs are allowed by requirements) it is unresearchable
   through the build UI — a data vestige in the same class as athen's
   `pheidian_workshop` and spart's `agoge`. The per-civ `specificName` "Epibatai"

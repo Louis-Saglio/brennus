@@ -3,7 +3,7 @@
 > "The transition between the dry Sahara to the north and the tropical forests
 > to the south. The sunlight floods through the open canopy and lights the
 > grassland between the trees, where herds of zebras, wildebeest, giraffes and
-> elephants roam." (`public/maps/random/rmbiome/generic/savanna.json:2-5`)
+> elephants roam." (`binaries/data/mods/public/maps/random/rmbiome/generic/savanna.json:2-5`)
 
 Command line: `-autostart-biome=generic/savanna`. Supported by every map with
 `SupportedBiomes: "generic/"`.

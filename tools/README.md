@@ -143,9 +143,9 @@ commit.
 
 ## Game data ↔ docs
 
-`tools/gamedata/` works against the pinned 0 A.D. clone (`~/Work/0ad` at
-tag `v0.28.0`; override the templates root with `ZEROAD_REF`, the docs root
-with `ZEROAD_DOCS`). The shared loader lives in `templates.py` (walks the
+`tools/gamedata/` works against the 0 A.D. source reference (`AGENTS.md`;
+default `~/Work/0ad`; override the templates root with `ZEROAD_REF`, the
+docs root with `ZEROAD_DOCS`). The shared loader lives in `templates.py` (walks the
 entity templates, resolves Footprint/Obstruction through the parent chain).
 
 - `footprint-compare.py` — footprint/obstruction survey across civs.

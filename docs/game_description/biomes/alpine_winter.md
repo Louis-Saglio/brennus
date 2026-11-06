@@ -1,10 +1,10 @@
 # Winter — biome `alpine/winter` — 0 A.D. 0.28.0
 
 > "Snow-capped trees loom through the mist. The ground is blanketed in a layer
-> of snow." (`public/maps/random/rmbiome/alpine/winter.json:2-5`)
+> of snow." (`binaries/data/mods/public/maps/random/rmbiome/alpine/winter.json:2-5`)
 
 Only usable on `random/alpine_lakes` (`SupportedBiomes: "alpine/"`,
-`public/maps/random/alpine_lakes.json:7`). JSON-only — no JS setup function;
+`binaries/data/mods/public/maps/random/alpine_lakes.json:7`). JSON-only — no JS setup function;
 loaded over `defaultbiome.json`, overriding the keys below. Unlike the generic
 biomes, `alpine_lakes.js` hardcodes its tree counts
 (`getTreeCounts(500, 3000, 0.7)`, `alpine_lakes.js:106`) — this biome does not
@@ -26,7 +26,7 @@ The frozen variant of the alpine-lakes family: same economy as its sibling
 
 ## What it sets
 
-`public/maps/random/rmbiome/alpine/winter.json`:
+`binaries/data/mods/public/maps/random/rmbiome/alpine/winter.json`:
 
 - **Terrains**: `mainTerrain` `alpine_snow_a/b`; `forestFloor`
   `alpine_forrestfloor_snow`; `cliff` `alpine_cliff_snow`; `tier2Terrain`

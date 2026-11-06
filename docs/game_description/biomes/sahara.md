@@ -2,7 +2,7 @@
 
 > "A semi-desert area that boasts numerous clumps of date palms and acacia
 > trees. Herds of camels roam the wild and the occasional gazelle jumps up in
-> fright at being disturbed." (`public/maps/random/rmbiome/generic/sahara.json:2-5`)
+> fright at being disturbed." (`binaries/data/mods/public/maps/random/rmbiome/generic/sahara.json:2-5`)
 
 Command line: `-autostart-biome=generic/sahara`. Supported by every map with
 `SupportedBiomes: "generic/"`.

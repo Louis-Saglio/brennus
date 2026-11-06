@@ -1,10 +1,10 @@
 # Resources and gathering
 
-How resources are defined, how units gather them from supply entities, where they are dropped off, and how passive trickles work in 0 A.D. 0.28.0. Grounded in `public/globalscripts/Resources.js`, `public/simulation/helpers/Resources.js`, `public/simulation/data/resources/*.json`, `public/simulation/components/ResourceGatherer.js`, `ResourceSupply.js`, `ResourceDropsite.js`, `ResourceTrickle.js`, `UnitAI.js`, and the templates referenced inline (paths below are relative to `/home/ubuntu/0ad-reference`). Treasures and trade are out of scope (covered elsewhere).
+How resources are defined, how units gather them from supply entities, where they are dropped off, and how passive trickles work in 0 A.D. 0.28.0. Grounded in `binaries/data/mods/public/globalscripts/Resources.js`, `binaries/data/mods/public/simulation/helpers/Resources.js`, `binaries/data/mods/public/simulation/data/resources/*.json`, `binaries/data/mods/public/simulation/components/ResourceGatherer.js`, `ResourceSupply.js`, `ResourceDropsite.js`, `ResourceTrickle.js`, `UnitAI.js`, and the templates referenced inline (paths below are relative to the root of the 0 A.D. source reference, see `AGENTS.md`). Treasures and trade are out of scope (covered elsewhere).
 
 ## Resource types and subtypes
 
-The resource catalogue is loaded at startup from `public/simulation/data/resources/*.json` (`public/globalscripts/Resources.js:12-14`) and frozen. There are exactly 4 generic types, each with fixed subtypes (`public/simulation/data/resources/food.json`, `wood.json`, `stone.json`, `metal.json`):
+The resource catalogue is loaded at startup from `binaries/data/mods/public/simulation/data/resources/*.json` (`binaries/data/mods/public/globalscripts/Resources.js:12-14`) and frozen. There are exactly 4 generic types, each with fixed subtypes (`binaries/data/mods/public/simulation/data/resources/food.json`, `wood.json`, `stone.json`, `metal.json`):
 
 | Generic type | Subtypes | `truePrice` |
 |---|---|---|
@@ -14,12 +14,12 @@ The resource catalogue is loaded at startup from `public/simulation/data/resourc
 | `metal` | `ore`, `ruins` | 100 |
 
 - Every gatherable entity has a supply type of the form `<generic>.<specific>` (e.g. `food.fruit`, `wood.tree`); both parts are mandatory (`ResourceSupply.js:108-109`).
-- All 4 types carry the properties `barterable`, `tradable`, `tributable` (the JSON `properties` arrays), used to build the barter/trade/tribute code lists (`public/globalscripts/Resources.js:28-33`).
+- All 4 types carry the properties `barterable`, `tradable`, `tributable` (the JSON `properties` arrays), used to build the barter/trade/tribute code lists (`binaries/data/mods/public/globalscripts/Resources.js:28-33`).
 - `truePrice` (100 for all four) is the barter reference price — barter/trade mechanics themselves are not covered here.
 
 ## Resource supplies (`ResourceSupply`)
 
-Entities that can be gathered carry the `ResourceSupply` component (`public/simulation/components/ResourceSupply.js`):
+Entities that can be gathered carry the `ResourceSupply` component (`binaries/data/mods/public/simulation/components/ResourceSupply.js`):
 
 - `Type` — `<generic>.<specific>` pair (schema line `ResourceSupply.js:47-49`).
 - `Max` / `Initial` — supply capacity and starting amount; `Initial` defaults to `Max` (`ResourceSupply.js:102`). `Max` may be the literal `Infinity` (`ResourceSupply.js:40`).
@@ -32,7 +32,7 @@ Entities that can be gathered carry the `ResourceSupply` component (`public/simu
 - `TakeResources(n)` removes up to `n` units and returns the amount actually taken (clamped by what remains) plus an `exhausted` flag (`ResourceSupply.js:214-223`). Amounts are clamped to `[0, Max]` (`ResourceSupply.js:237`).
 - When the amount reaches 0 the entity is **destroyed** (`Engine.DestroyEntity`, `ResourceSupply.js:240-241`). A tree disappears when fully chopped; there is no stump.
 - Infinite supplies (`Max = Infinity`) never decrease and are never exhausted (`ResourceSupply.js:216-217`, `118-121`). Fields are infinite (see below).
-- Optional `<Change>` entries make a supply regenerate or decay over time: `Value` per `Interval` ms, gated by `State` (`alive`/`dead`/`gathered`/`notGathered`) and optional `LowerLimit`/`UpperLimit` (`ResourceSupply.js:59-98`, timers at `ResourceSupply.js:324-416`). Berry bushes regrow at +1 food per 6000 ms (`public/simulation/templates/template_gaia_fruit.xml:26-31`). Trees have no `Change` entry — they never regrow.
+- Optional `<Change>` entries make a supply regenerate or decay over time: `Value` per `Interval` ms, gated by `State` (`alive`/`dead`/`gathered`/`notGathered`) and optional `LowerLimit`/`UpperLimit` (`ResourceSupply.js:59-98`, timers at `ResourceSupply.js:324-416`). Berry bushes regrow at +1 food per 6000 ms (`binaries/data/mods/public/simulation/templates/template_gaia_fruit.xml:26-31`). Trees have no `Change` entry — they never regrow.
 
 ### Typical supply entities
 
@@ -58,7 +58,7 @@ where `n` is the number of gatherers (including approaching ones). This is a geo
 
 ## The gatherer (`ResourceGatherer`)
 
-Template parameters (`public/simulation/components/ResourceGatherer.js:3-32`; civilian example `public/simulation/templates/template_unit_support_civilian.xml:53-73`):
+Template parameters (`binaries/data/mods/public/simulation/components/ResourceGatherer.js:3-32`; civilian example `binaries/data/mods/public/simulation/templates/template_unit_support_civilian.xml:53-73`):
 
 - `MaxDistance` — gather range, 2.0 m for the civilian. Checked per tick via the obstruction manager (`ResourceGatherer.js:470-474`).
 - `BaseSpeed` — global rate multiplier (1.0 for the civilian).
@@ -89,7 +89,7 @@ Civilian rates (all civs unless overridden): `food.fruit` 1, `food.grain` 0.5, `
 
 ## Dropsites (`ResourceDropsite`)
 
-- A dropsite template lists the generic types it accepts and a `Sharable` flag (`public/simulation/components/ResourceDropsite.js:3-13`).
+- A dropsite template lists the generic types it accepts and a `Sharable` flag (`binaries/data/mods/public/simulation/components/ResourceDropsite.js:3-13`).
 - Dropping off credits the resources directly to the owning player's stockpile (`ReceiveResources` → `Player.AddResources`, `ResourceDropsite.js:45-58`); only accepted types are taken, anything else stays on the unit.
 - Standard player dropsites:
   - Civil centre: `food wood stone metal`, sharable (`template_structure_civic_civil_centre.xml:119-122`).
@@ -99,7 +99,7 @@ Civilian rates (all civs unless overridden): `food.fruit` 1, `food.grain` 0.5, `
 
 ### Nearest-dropsite selection (`UnitAI.FindNearestDropsite`)
 
-`public/simulation/components/UnitAI.js:4495-4545`:
+`binaries/data/mods/public/simulation/components/UnitAI.js:4495-4545`:
 
 - Candidates: all entities with `ResourceDropsite` owned by the player (or mutual allies when shared dropsites are on), found via the range manager over the whole map.
 - Filtered by: accepts the carried generic type, visible to the unit (`CheckTargetVisible` — dropsites hidden by fog of war are skipped), shared if foreign-owned, and — for ships — the `Naval` class (ships only use naval dropsites).
@@ -116,12 +116,12 @@ Civilian rates (all civs unless overridden): `food.fruit` 1, `food.grain` 0.5, `
 
 ## Resource trickle (`ResourceTrickle`)
 
-Passive income component (`public/simulation/components/ResourceTrickle.js`):
+Passive income component (`binaries/data/mods/public/simulation/components/ResourceTrickle.js`):
 
 - Template: `Rates` (per generic type) and `Interval` in ms. Every interval, the rates are added directly to the owner's stockpile (`ResourceTrickle.js:48-56`). There is no cap, no supply, no gatherer.
 - Both rates and interval are technology-modifiable (`ResourceTrickle.js:37`, `86`); a negative interval disables the trickle (`ResourceTrickle.js:87-93`), and entities with all-zero rates keep no timer (`ResourceTrickle.js:72-83`).
-- The player entity itself has a `ResourceTrickle` with all rates 0.0 (`public/simulation/templates/template_player.xml:99-107`) — the hook exists for techs.
-- Example: the Wonder trickles 1.0 of each resource every 2000 ms (`template_structure_wonder.xml:74-82`). The Persian ice house and Tachara variants also trickle (`public/simulation/templates/structures/pers/ice_house.xml`, `tachara*.xml`).
+- The player entity itself has a `ResourceTrickle` with all rates 0.0 (`binaries/data/mods/public/simulation/templates/template_player.xml:99-107`) — the hook exists for techs.
+- Example: the Wonder trickles 1.0 of each resource every 2000 ms (`template_structure_wonder.xml:74-82`). The Persian ice house and Tachara variants also trickle (`binaries/data/mods/public/simulation/templates/structures/pers/ice_house.xml`, `tachara*.xml`).
 
 ## Edge cases a bot must handle
 

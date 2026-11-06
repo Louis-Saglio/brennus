@@ -1,11 +1,12 @@
 # Game description — 0 A.D. 0.28.0
 
 Reference documentation of the game for agents developing the bot. Everything
-here is grounded in the pinned game copy at `/home/ubuntu/0ad-reference/`
-(0.28.0 — the version the harness runs), not in general knowledge of 0 A.D.:
+here is grounded in the 0 A.D. source reference (0.28.0 — the version the
+harness runs; see `AGENTS.md`), not in general knowledge of 0 A.D.:
 entity data was extracted from the simulation templates by the versioned
 scripts in `tools/`, and the mechanics files were written by reading the
-simulation source, with inline `path:line` citations. If a statement looks
+simulation source, with inline `path:line` citations relative to its root. If
+a statement looks
 wrong, trust the source and fix the doc.
 
 ## Layout

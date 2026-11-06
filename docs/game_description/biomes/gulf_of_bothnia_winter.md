@@ -2,7 +2,7 @@
 
 > "Winter has set in, carpeting the land with its first snow, but the landscape
 > is still dotted with colorful berry bushes."
-> (`public/maps/random/rmbiome/gulf_of_bothnia/winter.json:2-5`)
+> (`binaries/data/mods/public/maps/random/rmbiome/gulf_of_bothnia/winter.json:2-5`)
 
 Only usable on `random/gulf_of_bothnia`. JSON-only; loaded over
 `defaultbiome.json`. The gulf map reads the standard keys plus
@@ -31,7 +31,7 @@ only the terrain/lighting and counts differ from it.
 
 ## What it sets
 
-`public/maps/random/rmbiome/gulf_of_bothnia/winter.json`:
+`binaries/data/mods/public/maps/random/rmbiome/gulf_of_bothnia/winter.json`:
 
 - **Environment**: `SkySet: "stormy"`; dim sun (0.749/0.750/0.673); `Frozen:
   false`, `Type: "lake"`, waviness 7; HDR postproc (no `Fog` key — inherits

@@ -3,7 +3,7 @@
 > "The first leaves have fallen. The landscape is a dazzling dash of colors
 > irrevocably intertwined. The native beech and oak trees of this temperate
 > zone display a multi-colored foliage while animals try to prepare for the
-> approaching winter." (`public/maps/random/rmbiome/generic/autumn.json:2-5`)
+> approaching winter." (`binaries/data/mods/public/maps/random/rmbiome/generic/autumn.json:2-5`)
 
 Command line: `-autostart-biome=generic/autumn`. Supported by every map with
 `SupportedBiomes: "generic/"`. No JS file → fully static.

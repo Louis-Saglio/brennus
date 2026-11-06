@@ -2,7 +2,7 @@
 
 > "A region in the high snowy mountains. Biting winds sweep through the
 > abundant conifer forests, making even the more resilient deer and mountain
-> goats shiver." (`public/maps/random/rmbiome/generic/arctic.json:2-5`)
+> goats shiver." (`binaries/data/mods/public/maps/random/rmbiome/generic/arctic.json:2-5`)
 
 Command line: `-autostart-biome=generic/arctic`. Supported by every map with
 `SupportedBiomes: "generic/"`. No JS file → fully static.

@@ -1,6 +1,6 @@
 # Garrisoning
 
-How units take shelter inside structures, siege engines and ships, and how they stand on walls. Grounded in 0 A.D. 0.28.0 sources: `public/simulation/components/GarrisonHolder.js`, `Garrisonable.js`, `TurretHolder.js`, `Turretable.js`, `BuildingAI.js`, `Gate.js`, `Capturable.js`, `Health.js`, `UnitAI.js`, `public/simulation/helpers/Position.js`, `public/globalscripts/Templates.js`, and the entity templates under `public/simulation/templates/`. Template paths below are relative to `public/simulation/templates/`.
+How units take shelter inside structures, siege engines and ships, and how they stand on walls. Grounded in 0 A.D. 0.28.0 sources: `binaries/data/mods/public/simulation/components/GarrisonHolder.js`, `Garrisonable.js`, `TurretHolder.js`, `Turretable.js`, `BuildingAI.js`, `Gate.js`, `Capturable.js`, `Health.js`, `UnitAI.js`, `binaries/data/mods/public/simulation/helpers/Position.js`, `binaries/data/mods/public/globalscripts/Templates.js`, and the entity templates under `binaries/data/mods/public/simulation/templates/`. Template paths below are relative to `binaries/data/mods/public/simulation/templates/`.
 
 ## Two distinct mechanisms
 
@@ -21,7 +21,7 @@ A unit may garrison a holder only if all of the following hold (`GarrisonHolder.
 - Capacity: `OccupiedSlots() + unit's TotalSize() ≤ Max` (`GarrisonHolder.js:163`). `OccupiedSlots` sums the `Garrisonable/Size` of each garrisoned unit (`GarrisonHolder.js:145-155`); `TotalSize` additionally counts anything garrisoned *inside the garrisoned unit itself* (nested garrisoning, e.g. a loaded siege tower inside a ship — `Garrisonable.js:41-48`).
 - The holder's health is strictly above `floor(EjectHealth × MaxHitpoints)` (`GarrisonHolder.js:318-326`); holders without `EjectHealth` always pass.
 
-**Class list syntax** (`public/globalscripts/Templates.js:84-102`): the list is whitespace-separated alternatives; matching any alternative is enough. Within one alternative, `+` joins required classes (AND) and `!` negates. Example: houses use `Support+!Elephant` (support units except elephants). When a child template overrides a `datatype="tokens"` value, the tokens are **merged** with the parent's (union; `-Token` removes one) unless `replace=""` is given — engine merge semantics in `source/source/simulation2/system/ParamNode.cpp:151-193`.
+**Class list syntax** (`binaries/data/mods/public/globalscripts/Templates.js:84-102`): the list is whitespace-separated alternatives; matching any alternative is enough. Within one alternative, `+` joins required classes (AND) and `!` negates. Example: houses use `Support+!Elephant` (support units except elephants). When a child template overrides a `datatype="tokens"` value, the tokens are **merged** with the parent's (union; `-Token` removes one) unless `replace=""` is given — engine merge semantics in `source/simulation2/system/ParamNode.cpp:151-193`.
 
 **Size:** every unit inherits `Garrisonable/Size = 1` from `template_unit.xml:26-28`; no template in the game overrides it, so **1 unit = 1 slot** everywhere in 0.28.0.
 
@@ -55,7 +55,7 @@ A unit may garrison a holder only if all of the following hold (`GarrisonHolder.
 
 ## Leaving
 
-- Ungarrisoning needs a free spawn position adjacent to the holder's footprint (`PositionHelper.GetSpawnPosition`, `public/simulation/helpers/Position.js:142-169`); if none exists the unit **stays inside** (`Garrisonable.js:119-121`). For a sinking ship (0 HP) the spawn point must be passable by both ship and unit (`Position.js:151-157`); for forced ejects with no valid point the holder's centre is used (`Position.js:159-167`).
+- Ungarrisoning needs a free spawn position adjacent to the holder's footprint (`PositionHelper.GetSpawnPosition`, `binaries/data/mods/public/simulation/helpers/Position.js:142-169`); if none exists the unit **stays inside** (`Garrisonable.js:119-121`). For a sinking ship (0 HP) the spawn point must be passable by both ship and unit (`Position.js:151-157`); for forced ejects with no valid point the holder's centre is used (`Position.js:159-167`).
 - The unit is placed at that position, facing away from the holder, and is then ordered to the holder's rally point if any (`Garrisonable.js:127-158`). `UnloadAll` / "unload by owner/template" all go through the same path (`GarrisonHolder.js:234-306`).
 - If `AllowGarrisoning(false)` was set by any component, units can neither enter nor leave until re-allowed (`GarrisonHolder.js:106-131`); forced ejects bypass this (`GarrisonHolder.js:209-212`).
 
@@ -88,7 +88,7 @@ Wall segments and gates do **not** have a `GarrisonHolder`. Units stand on them 
 - Each turret point has an XYZ offset, optional `AllowedClasses` and `Ejectable` flag (default true — `TurretHolder.js:12-25`). A unit can occupy a free point if owned by the holder's owner or a mutual ally (`TurretHolder.js:80-93`); approach range is `LoadingRange` (default **2** when unspecified — `TurretHolder.js:264-267`).
 - Turreted units stay in the world: their obstruction is disabled for pathing, they are immobilised and switched to a stand-ground stance (`Turretable.js:77-93`, `UnitAI.js:5982-5996`), so they **fight with their own attack stats** from the wall. Ranged soldiers on walls are the wall's only armament.
 - Capacities (rome example): long wall 16 points (`structures/rome/wall_long.xml`), medium wall 8 points, gate 10 points (`structures/rome/wall_gate.xml`); counts are per-civ template data.
-- **Wall Protection aura:** wall long/medium/gate templates carry `structures/wall_garrisoned` (`template_structure_defensive_wall_long.xml:3-5`, `template_structure_defensive_wall_gate.xml:3-5`), a `turretedUnits`-type aura giving every **turreted Soldier +3 hack/pierce/crush resistance and +20 vision range** (`public/simulation/data/auras/structures/wall_garrisoned.json`). It does not apply to units garrisoned *inside* wall towers.
+- **Wall Protection aura:** wall long/medium/gate templates carry `structures/wall_garrisoned` (`template_structure_defensive_wall_long.xml:3-5`, `template_structure_defensive_wall_gate.xml:3-5`), a `turretedUnits`-type aura giving every **turreted Soldier +3 hack/pierce/crush resistance and +20 vision range** (`binaries/data/mods/public/simulation/data/auras/structures/wall_garrisoned.json`). It does not apply to units garrisoned *inside* wall towers.
 - **Gates** are separate: the `Gate` component opens the pass when a mobile allied unit is within `PassRange` (2 m — `template_structure_defensive_wall_gate.xml:14-16`, `Gate.js:67-114`) and closes when none remain (and nothing blocks the doorway, retried every turn — `Gate.js:247-283`). Locking forbids opening entirely (`Gate.js:171-193`). Only allies trigger opening; enemies must capture or destroy the gate.
 - A long wall can be converted into a gate in-game via the `Upgrade` component (`template_structure_defensive_wall_long.xml:24-30`).
 

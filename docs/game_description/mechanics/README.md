@@ -5,12 +5,13 @@ One file per **game mechanic**, written for an agent implementing a bot. Unlike 
 *data*), these files explain *how the simulation works*: formulas, timings,
 edge cases, and what a bot can observe or must do.
 
-**Everything here was verified against the pinned game copy at
-`/home/ubuntu/0ad-reference/` (0.28.0)** — the simulation components
-(`public/simulation/components/*.js`), helpers (`public/simulation/helpers/*.js`),
-data (`public/simulation/data/**`), templates (`public/simulation/templates/**`)
-and engine source (`source/source/simulation2/**`). Nothing was written from
-memory; every claim carries an inline `path:line` citation. If a statement looks
+**Everything here was verified against the 0 A.D. source reference
+(0.28.0, see `AGENTS.md`)** — the simulation components
+(`binaries/data/mods/public/simulation/components/*.js`), helpers (`binaries/data/mods/public/simulation/helpers/*.js`),
+data (`binaries/data/mods/public/simulation/data/**`), templates (`binaries/data/mods/public/simulation/templates/**`)
+and engine source (`source/simulation2/**`). Nothing was written from
+memory; every claim carries an inline `path:line` citation (relative to the
+reference's root). If a statement looks
 wrong, trust the source, not the doc — and fix the doc.
 
 ## Index

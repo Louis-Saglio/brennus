@@ -1,14 +1,14 @@
 # Orders and simulation time
 
-How player/AI commands travel from issue to effect, and how the simulation clock works, in 0 A.D. 0.28.0. Grounded in `source/source/simulation2/system/TurnManager.{h,cpp}`, `source/source/simulation2/system/LocalTurnManager.cpp`, `source/source/simulation2/Simulation2.cpp`, `source/source/simulation2/components/CCmpCommandQueue.cpp`, `source/source/simulation2/components/CCmpAIManager.cpp`, `source/source/ps/Game.cpp`, `public/simulation/helpers/Commands.js`, `public/simulation/components/UnitAI.js` and `public/simulation/components/Timer.js` (all paths relative to `/home/ubuntu/0ad-reference`).
+How player/AI commands travel from issue to effect, and how the simulation clock works, in 0 A.D. 0.28.0. Grounded in `source/simulation2/system/TurnManager.{h,cpp}`, `source/simulation2/system/LocalTurnManager.cpp`, `source/simulation2/Simulation2.cpp`, `source/simulation2/components/CCmpCommandQueue.cpp`, `source/simulation2/components/CCmpAIManager.cpp`, `source/ps/Game.cpp`, `binaries/data/mods/public/simulation/helpers/Commands.js`, `binaries/data/mods/public/simulation/components/UnitAI.js` and `binaries/data/mods/public/simulation/components/Timer.js` (all paths relative to the root of the 0 A.D. source reference, see `AGENTS.md`).
 
 ## The fixed-timestep turn model
 
 The simulation advances in **turns** of a fixed length:
 
-- **Default turn length: 200 ms** (simulation time), `DEFAULT_TURN_LENGTH = 200` (`source/source/simulation2/system/TurnManager.h:62`). Same value in single-player and multiplayer; a single-player game uses `CLocalTurnManager` with this default (`source/source/simulation2/system/LocalTurnManager.cpp:30-33`).
-- One rendered frame does **not** equal one turn. Each frame, the engine adds the elapsed (scaled) frame time to an accumulator `m_DeltaSimTime` and runs one turn per full 200 ms accumulated (`source/source/simulation2/system/TurnManager.cpp:74-164`). The accumulator is clamped to 2 turn lengths (400 ms), so a laggy machine fast-forwards at most 2 turns per frame (`TurnManager.cpp:81-84`).
-- Inside a turn, `CSimulation2Impl::Update` converts the turn length to a fixed-point `0.2` second `turnLengthFixed` and runs the update phases in order (`source/source/simulation2/Simulation2.cpp:369-409`, `519-596`):
+- **Default turn length: 200 ms** (simulation time), `DEFAULT_TURN_LENGTH = 200` (`source/simulation2/system/TurnManager.h:62`). Same value in single-player and multiplayer; a single-player game uses `CLocalTurnManager` with this default (`source/simulation2/system/LocalTurnManager.cpp:30-33`).
+- One rendered frame does **not** equal one turn. Each frame, the engine adds the elapsed (scaled) frame time to an accumulator `m_DeltaSimTime` and runs one turn per full 200 ms accumulated (`source/simulation2/system/TurnManager.cpp:74-164`). The accumulator is clamped to 2 turn lengths (400 ms), so a laggy machine fast-forwards at most 2 turns per frame (`TurnManager.cpp:81-84`).
+- Inside a turn, `CSimulation2Impl::Update` converts the turn length to a fixed-point `0.2` second `turnLengthFixed` and runs the update phases in order (`source/simulation2/Simulation2.cpp:369-409`, `519-596`):
   1. pathfinder: send requested paths;
   2. broadcast `TurnStart`;
   3. **`CommandQueue.FlushTurn(commands)` — all commands scheduled for this turn are executed** (`CCmpCommandQueue.cpp:116-138`);
@@ -34,7 +34,7 @@ So for a bot: **commands posted while processing the state of turn N are execute
 - There is no per-turn command limit. All commands buffered during a turn are executed, in order: AI/local commands first (in the order they were posted), then turn-manager commands grouped by client session ID for determinism (`TurnManager.h:53-56`, `TurnManager.cpp:143-149`).
 - Two commands issued in the same turn to the same unit both execute in the same turn, sequentially. The second one can overwrite the first's effect (e.g. two non-queued `walk` commands: the second replaces the first's order before any movement happened).
 
-## Command processing (`public/simulation/helpers/Commands.js`)
+## Command processing (`binaries/data/mods/public/simulation/helpers/Commands.js`)
 
 `ProcessCommand(player, cmd)` (`Commands.js:884-936`) is the single entry point for every command, human or AI:
 
@@ -46,7 +46,7 @@ Relevant `cmd.type` values (with the UnitAI method each calls): `walk` → `Walk
 
 Note: movement-type commands on several units go through `GetFormationUnitAIs` (`Commands.js:1541`), which may wrap the units in a formation entity and order the formation instead — for `cmd.formation == NULL_FORMATION` or queued orders formations are not forced (`Commands.js:898-902`).
 
-## UnitAI order queue semantics (`public/simulation/components/UnitAI.js`)
+## UnitAI order queue semantics (`binaries/data/mods/public/simulation/components/UnitAI.js`)
 
 Every unit has an **order queue**; the current order is always `orderQueue[0]` (also cached as `this.order`) (`UnitAI.js:3478-3479`). An order is `{ "type": ..., "data": ... }`; orders created from player/AI commands carry `data.force = true` (e.g. `Walk`, `UnitAI.js:5455-5461`), orders the unit creates on its own (auto-attack, flee, find-new-resource) carry `force = false` (e.g. `UnitAI.js:6088-6092`).
 
@@ -81,7 +81,7 @@ Present in 0.28.0. Set per unit by the `stance` command (`SwitchToStance`, `Unit
 
 UnitAI is a finite state machine (`helpers/FSM.js`), initialised to `INDIVIDUAL.IDLE` (or `FORMATIONCONTROLLER.IDLE` for formation controllers) (`UnitAI.js:3647-3652`). Top-level branches: `FORMATIONCONTROLLER` (moves/attacks as a group, delegates to members), `FORMATIONMEMBER` (follow formation offsets), and `INDIVIDUAL` — the normal case. Under `INDIVIDUAL` (`UnitAI.js:1540` on): `IDLE` (animals roam via timers), `WALKING`, `WALKINGANDFIGHTING`, `PATROL`, `GUARD`, `FLEEING`, `COMBAT` (sub-states `APPROACHING`/`ATTACKING`/`FINDINGNEWTARGET`/`CHASING`), `GATHER` (`APPROACHING`/`GATHERING`/`RETURNINGRESOURCE`...), `HEAL`, `RETURNRESOURCE`, `COLLECTTREASURE`, `TRADE`, `REPAIR`, `GARRISON`, `CHEERING`, `PACKING`/`UNPACKING`, `PICKUP`. Transitions are message-driven (`Order.<Type>` when an order starts, `MovementUpdate` from UnitMotion, `Timer`, `LosRangeUpdate` from range queries, `Attacked`...), not polled per turn.
 
-## Timers and the simulation clock (`public/simulation/components/Timer.js`)
+## Timers and the simulation clock (`binaries/data/mods/public/simulation/components/Timer.js`)
 
 - `Timer` is a system component. `GetTime()` returns **elapsed simulation time in milliseconds**; it advances by exactly the turn length each turn: `OnUpdate` receives `turnLength` in seconds, converts with `Math.round(msg.turnLength * 1000)` and adds it (`Timer.js:108-112`). Simulation time therefore advances in discrete 200 ms steps, independent of wall-clock.
 - `SetTimeout(ent, iid, funcname, time, data)` / `SetInterval(..., repeattime)` schedule a component method call after at least `time` ms (`Timer.js:41-73`). Timers are only checked once per turn, so **any timer fires at the first turn boundary at or after its due time** — a 100 ms timer fires 200 ms later (1 turn), and the callback receives the overshoot as `lateness` in ms (`Timer.js:30-39`, `116-164`). Repeating timers re-fire within the same turn if still due.
@@ -91,11 +91,11 @@ UnitAI is a finite state machine (`helpers/FSM.js`), initialised to `INDIVIDUAL.
 
 ## Game speed: wall-clock vs simulation time
 
-- Game speed is a multiplier `m_SimRate` (default 1.0) on the real frame time before it feeds the turn accumulator: `deltaSimTime = deltaRealTime * m_SimRate` (`source/source/ps/Game.cpp:419-449`). It is set from the `gameSpeed` init attribute (`Game.cpp:244-251`), itself settable with `-autostart-speed` (`public/autostart/cmd_line_args.js:168-169`).
-- The GUI offers speeds 0.1× to 20× (`public/simulation/data/settings/game_speeds.json`, default `Normal (1×)`).
+- Game speed is a multiplier `m_SimRate` (default 1.0) on the real frame time before it feeds the turn accumulator: `deltaSimTime = deltaRealTime * m_SimRate` (`source/ps/Game.cpp:419-449`). It is set from the `gameSpeed` init attribute (`Game.cpp:244-251`), itself settable with `-autostart-speed` (`binaries/data/mods/public/autostart/cmd_line_args.js:168-169`).
+- The GUI offers speeds 0.1× to 20× (`binaries/data/mods/public/simulation/data/settings/game_speeds.json`, default `Normal (1×)`).
 - **The turn length never changes: it is always 200 ms of simulation time.** Speed only changes how much wall-clock time buys one turn: at 0.5× a turn takes 400 ms wall-clock, at 2× 100 ms. Commands, timers, build times, speeds are all expressed in simulation time and are unaffected.
 - Per frame at most `maxTurns = (size_t)m_SimRate` turns run, always at least 1 (`Game.cpp:428-434`, `TurnManager.cpp:108`), so at speed ≤ 1× the sim advances at most one turn per rendered frame; catch-up after lag is capped at 2 turns per frame (`TurnManager.cpp:81-84`).
-- **Headless mode (`-autostart-nonvisual`, what the harness uses) ignores the frame-rate pacing entirely:** `NonVisualFrame` calls `TurnManager::Update(DEFAULT_TURN_LENGTH, 1)` directly, so exactly **one turn per engine frame, as fast as the CPU can compute it**, regardless of game speed (`source/source/main.cpp:493-512`). A 20-game-minute match is 6000 turns.
+- **Headless mode (`-autostart-nonvisual`, what the harness uses) ignores the frame-rate pacing entirely:** `NonVisualFrame` calls `TurnManager::Update(DEFAULT_TURN_LENGTH, 1)` directly, so exactly **one turn per engine frame, as fast as the CPU can compute it**, regardless of game speed (`source/main.cpp:493-512`). A 20-game-minute match is 6000 turns.
 
 ## Edge cases a bot should care about
 
