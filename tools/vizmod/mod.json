@@ -1,0 +1,7 @@
+{
+	"name": "brennus-viz",
+	"version": "0.1.0",
+	"label": "Brennus viz director",
+	"description": "Camera director for visual replays of Brennus matches (tools/viz.py). GUI-only: never touches the simulation. Inert outside a visual replay.",
+	"dependencies": ["0ad=0.28.0"]
+}

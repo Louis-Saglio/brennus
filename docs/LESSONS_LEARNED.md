@@ -3,6 +3,45 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-11-06 (viz v2: camera director mod, hidden output)
+
+Supersedes the viz.sh / aim.py / `run.sh -s` bullets of the entry below.
+
+- Drive the camera **from the GUI realm, not with input**: a viz-only GUI mod
+  (`tools/vizmod/`) uses `Engine.SetCameraData` / `GetCameraPivot` /
+  `GetTerrainAtScreenPoint` with `GameView_SetConstrainCameraEnabled(false)`
+  (lifts the 28-60° pitch and 50-200 m zoom clamps), and pauses with
+  `Engine.SetPaused(true, false)` — no overlay when called directly. It
+  hooks in through `gui/session/dialogs/*.xml` (included by session.xml), so
+  no public file is overridden. Pivot = position + forward·zoom: read the
+  forward vector back from the engine instead of re-deriving the rotation
+  convention.
+- Speed: `Engine.SetSimRate(20)` from the GUI works on **any** recording; no
+  record-time flag needed (`run.sh -s` removed). `SetSimRate` has no upper
+  clamp.
+- Target finding: `GetNonGaiaEntities` + `GetMultipleEntityStates` (read-only).
+  `GetPlayerEntities` returns the *caller's* entities — none for an observer.
+  Hunting puts units in COMBAT states on gaia animals: a "fight" must target
+  another player's entity.
+- Read-only for real: seed 1 replayed with the director (298 frames) prints the
+  same 70 `[HARNESS] map` snapshots as the batch run (identical apart from `dt`).
+- The engine screenshot is hotkey-only (`source/main.cpp:244`), so frames are
+  grabbed outside: `grim -T <stableId>` (foreign-toplevel capture of the window).
+  A region grab (`-g`) shows the user's pointer: Hyprland draws it on every
+  output, headless ones included.
+- Hidden display: a Hyprland headless output far off the layout
+  (`hyprctl output create headless BRENNUS-VIZ`). This Hyprland uses the Lua
+  config: `hyprctl keyword` and `dispatch exec "[rules] cmd"` fail; use
+  `hyprctl eval 'hl.monitor{...}'` and `hl.exec_cmd(cmd, rules)`. Omarchy's
+  bar is drawn on the new output over fullscreen windows → float the window
+  in a margin. Omarchy records each new output name in
+  `~/.local/state/omarchy/monitor-workspaces`: keep one stable name.
+- `fog = false` in user.cfg: distance fog whitens everything seen from more
+  than ~400 m (top-down overview at 0.95 × map size). Fullscreen + unfocused
+  stops rendering (`CRenderer::ShouldRender`): run windowed.
+- Cost: a 35-min seed-1 match, 6 targets every 30 s, took 354 s wall
+  (1600x900, grabs ~0.1 s each).
+
 ## 2026-11-06 (watching a match: visual replay + map snapshots)
 
 - Visual observation is *two* tools, not one: `tools/viz.sh` (the recorded

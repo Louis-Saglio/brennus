@@ -12,7 +12,7 @@ x, z: metres (map is 192 tiles * 4 m = 768 m across)
 
 Renders a contact sheet of snapshots (default: all of them, at most --max) and,
 with --tracks, one image showing how the military units moved over the whole
-game. This is the batch-scalable complement to tools/viz.sh: exact positions,
+game. This is the batch-scalable complement to tools/viz.py: exact positions,
 no GPU, one picture per match, works on 12 parallel games.
 
 Usage:

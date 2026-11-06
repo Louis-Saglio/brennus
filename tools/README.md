@@ -37,13 +37,10 @@ engine cache and the mod copy are dropped). The batch ends with an
 
 Options: `-m DIR` mod to test (default `bot/`), `-j N` local slots,
 `-H HOST:N` remote slots, `-t SEC` wall cap per match (default 1800),
-`-l MIN` in-game limit (patched into the snapshot only), `-s SPEED` record
-the match with `-autostart-speed=SPEED` (`-autostart-speed` has no effect on a
-headless sim, but it travels in the replay's init attributes, so the recorded
-match plays back at that speed under `tools/viz.sh`; 20 is the engine's max),
-`-a AI` player-1 AI (default `brennus`), `-d DIFF` / `-v BEHAV` / `-c CIV`
-opponent Petra difficulty (3), behavior (`aggressive`) and civ (`rome`),
-`-M MAP` (`random/mainland`), `-b BIOME` (`generic/temperate`).
+`-l MIN` in-game limit (patched into the snapshot only), `-a AI` player-1
+AI (default `brennus`), `-d DIFF` / `-v BEHAV` / `-c CIV` opponent Petra
+difficulty (3), behavior (`aggressive`) and civ (`rome`), `-M MAP`
+(`random/mainland`), `-b BIOME` (`generic/temperate`).
 
 ```sh
 # probe 3 seeds (rotate them while iterating)
@@ -130,40 +127,54 @@ dropDist, inTerr, and whether the carcass is within civilian pickup range.
 Two complementary ways to look at what the bot did. Neither replaces a batch:
 `tools/run.sh` stays the source of truth (determinism, parallelism, scale).
 
-### viz.sh — watch a recorded match
+### viz.py — watch a recorded match
 
 ```sh
-tools/run.sh -s 20 tmp/viz/seed7 7           # record for 20x playback
-tools/viz.sh tmp/viz/seed7/seed7 -A -B -z 8  # aim at both civic centres
-tools/viz.sh tmp/viz/seed7/seed7 -a 0.5,0.5 -t 300 -f 1
+tools/viz.py tmp/probe/seed7                    # default plan, whole match
+tools/viz.py tmp/probe/seed7 --every 10 --from 8 --to 14 -T fight,army:1
+tools/viz.py tmp/probe/seed7 --every 0 --shot 12.5:ent:4242 --shot 13:xy:300,420
+tools/viz.py tmp/probe/seed7 --show --hud --every 60   # watch it live
 ```
 
-Launches the match's own replay with `-replay-visual` (observer, full
-visibility), drives the camera, and grabs frames with `grim` into
-`<match>/viz/frames/`, one line of metadata per frame in `frames.jsonl`
-(wall time, turn, in-game minute). Options: `-t SEC` capture window (150),
-`-f FPS` (1, `0` = plan shots only), `-B` bird's-eye view, `-z N` zoom-out
-steps, `-a U,V` centre the camera on that map fraction (repeatable; note the
-engine's click→world mapping rotates with the camera angle, so prefer `-A`),
-`-A` aim at each player's base by finding its colour on the minimap
-(`tools/aim.py`), `-p SEC` pause per camera move, `-m DIR` mod snapshot
-(defaults to the batch's `mod/`), `-k` leave the game running for manual
-driving.
+Replays the match's own `commands.txt` with `-replay-visual` (observer, the
+exact recorded game, 45-minute trigger included): any recording works, no
+special flag at record time. The camera is driven from inside the game by the
+**brennus-viz** GUI mod (`tools/vizmod/`, mounted only here): no synthetic
+input, no window focus. Every `--every` game seconds (30) the director pauses
+the simulation, frames each target in turn, and prints `[VIZ] shot {...}` once
+the frame is rendered; `viz.py` then grabs the window with `grim -T` (the
+window's own pixels, no pointer, no shell). So every frame of a group shows the
+same game instant, and `frames.jsonl` records the game time, the target, where
+the camera looked (metres) and what it found.
 
-The engine runs as an XWayland client (`SDL_VIDEODRIVER=x11`) because that is
-the only path where synthetic input works; frames come from the compositor
-(`grim -s 0.5 -l 3`), not `x11grab` (black on XWayland). Playback runs
-render-bound, ~10-15x real time at 2560x1440: a 45-minute match needs ~4
-minutes of capture, not 45.
+Targets (`-T`, comma-separated; default `overview,base:1,base:2,army:1,army:2,fight`):
+`overview` (whole map, top-down), `base:P` (P's civic centre, else its
+structures), `army:P` (densest cluster of P's soldiers/siege not at work),
+`fight` (densest cluster of units attacking another player's entity),
+`ent:ID` (an id from the `[HARNESS] map` telemetry), `xy:X,Z` (metres). A
+target that is absent at that instant is skipped. Other options: `--from` /
+`--to` game minutes, `--shot MIN:TARGET` one-off shots, `--speed` (20),
+`--size` (1600x900), `--hud`, `--plan FILE` (any key of `DEFAULTS` in
+`tools/vizmod/gui/session/brennus_viz/director.js`: zoom, pitch, cluster
+sizes...), `-m DIR` mod snapshot (default: the batch's `mod/`).
 
-### frames.py — contact sheet and clip
+By default the game runs on a private Hyprland headless output, a virtual
+monitor far off the desktop layout: nothing shows on the screen, the pointer
+cannot reach it, and it is removed afterwards. `--show` opens the window on the
+current workspace instead (`--keep` leaves it running after the plan).
+A whole match at the default plan takes about 10 s of wall time per game
+minute (seed 1: 35 game-minutes, 298 frames, 6 minutes).
+
+### frames.py — contact sheets and time-lapse
 
 ```sh
-tools/frames.py <viz dir> [--cols 8] [--thumb 480] [--video clip.mp4]
+tools/frames.py <viz dir> [--rows 10] [--thumb 400] [--from MIN] [--to MIN]
+tools/frames.py <viz dir> --targets overview --video overview.mp4
 ```
 
-One labelled image grid of the captured frames (in-game minutes on each), so
-a whole match can be read at a glance; `--video` also encodes the frames.
+One table per page (`contact_01.png`, ...): a row per instant, a column per
+target, each cell captioned with what the director found (units, players,
+position). `--video` encodes one target's frames as a time-lapse.
 
 ### mapview.py — top-down map from the telemetry
 
