@@ -41,6 +41,16 @@ Supersedes the viz.sh / aim.py / `run.sh -s` bullets of the entry below.
   stops rendering (`CRenderer::ShouldRender`): run windowed.
 - Cost: a 35-min seed-1 match, 6 targets every 30 s, took 354 s wall
   (1600x900, grabs ~0.1 s each).
+- `Math.tan` (and the other transcendental Math functions) **throws in the GUI
+  realm too** ("does not yet have a synchronization safe implementation"),
+  not only in the simulation: use constants (tan 22.5° = √2 − 1).
+  `Math.sqrt` / `Math.hypot` work.
+- `Engine.GetTerrainAtScreenPoint` clamps to the map square: a pixel looking
+  past the edge returns a point on the edge. Drop edge samples before using
+  them to georeference a frame.
+- Camera geometry: vertical FOV 45°, so a top-down camera at distance d sees
+  a ground half-height of d·(√2 − 1); the whole 768 m map needs d ≈ 950.
+  In top-down frames world x grows left→right and z grows bottom→top.
 
 ## 2026-11-06 (watching a match: visual replay + map snapshots)
 

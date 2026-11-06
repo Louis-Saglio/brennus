@@ -132,7 +132,8 @@ Two complementary ways to look at what the bot did. Neither replaces a batch:
 ```sh
 tools/viz.py tmp/probe/seed7                    # default plan, whole match
 tools/viz.py tmp/probe/seed7 --every 10 --from 8 --to 14 -T fight,army:1
-tools/viz.py tmp/probe/seed7 --every 0 --shot 12.5:ent:4242 --shot 13:xy:300,420
+tools/viz.py tmp/probe/seed7 --every 0 --shot 12.5:ent:4242@20 --shot 13:area:300,420,60
+tools/viz.py tmp/probe/seed7 --from 17 --to 18 --every 10 -T overview,fight,fight@35
 tools/viz.py tmp/probe/seed7 --show --hud --every 60   # watch it live
 ```
 
@@ -151,8 +152,17 @@ Targets (`-T`, comma-separated; default `overview,base:1,base:2,army:1,army:2,fi
 `overview` (whole map, top-down), `base:P` (P's civic centre, else its
 structures), `army:P` (densest cluster of P's soldiers/siege not at work),
 `fight` (densest cluster of units attacking another player's entity),
-`ent:ID` (an id from the `[HARNESS] map` telemetry), `xy:X,Z` (metres). A
-target that is absent at that instant is skipped. Other options: `--from` /
+`ent:ID` (an id from the `[HARNESS] map` telemetry), `xy:X,Z` (metres),
+`area:X,Z,R` (top-down view of the ground within R metres of X,Z). A target
+that is absent at that instant is skipped.
+
+Zoom: any target takes a camera suffix `@R[/PITCH[/YAW]]` — frame about R
+metres around it (smaller = closer; R is the half-height of the view),
+PITCH in degrees below the horizon (89 = top-down), YAW in degrees:
+`fight@35`, `base:1@300/89`, `ent:4242@20/35`. Coordinates are world metres,
+the same as the telemetry and `mapview.py`, and `frames.py` draws them as a
+grid on top-down frames: read a spot off a gridded overview, then rerun with
+`--shot MIN:area:X,Z,R` to look at it closely. Other options: `--from` /
 `--to` game minutes, `--shot MIN:TARGET` one-off shots, `--speed` (20),
 `--size` (1600x900), `--hud`, `--plan FILE` (any key of `DEFAULTS` in
 `tools/vizmod/gui/session/brennus_viz/director.js`: zoom, pitch, cluster
@@ -174,7 +184,10 @@ tools/frames.py <viz dir> --targets overview --video overview.mp4
 
 One table per page (`contact_01.png`, ...): a row per instant, a column per
 target, each cell captioned with what the director found (units, players,
-position). `--video` encodes one target's frames as a time-lapse.
+position, view radius). Top-down frames get a world-coordinate grid (metres),
+fitted from screen→ground samples the director records with every frame;
+full-size gridded copies go to `<viz>/grid/` (`--no-grid` to skip).
+`--video` encodes one target's frames as a time-lapse.
 
 ### mapview.py — top-down map from the telemetry
 

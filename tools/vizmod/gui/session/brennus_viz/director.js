@@ -270,20 +270,39 @@ class BrennusViz
 	 *   fight         densest cluster of units in a COMBAT state
 	 *   ent:ID        an entity (e.g. an id from the [HARNESS] map telemetry)
 	 *   xy:X,Z        a fixed point, in metres
-	 * Spec keys zoom / pitch / yaw override the per-kind defaults.
+	 *   area:X,Z,R    top-down view of the ground within R metres of X,Z
+	 * Any target takes a camera suffix @R[/PITCH[/YAW]]: R frames about R metres
+	 * around the target (camera distance R / tan 22.5°: the half-height of the
+	 * view for a top-down shot), PITCH in degrees below the horizon (89 =
+	 * top-down), YAW in degrees. E.g. fight@40, base:1@300/89, ent:4242@25/40.
+	 * Plan spec keys radius / zoom (camera distance) / pitch / yaw do the same.
 	 */
 	resolve(spec, snap)
 	{
 		const plan = this.plan;
-		const [kind, arg] = spec.target.split(":");
+		const [target, mods] = spec.target.split("@");
+		const [kind, arg] = target.split(":");
+		const cam = { "radius": spec.radius, "zoom": spec.zoom, "pitch": spec.pitch, "yaw": spec.yaw };
+		if (mods)
+		{
+			const [r, pitch, yaw] = mods.split("/").map(v => v === "" ? undefined : Number(v));
+			if ([r, pitch, yaw].some(v => v !== undefined && !isFinite(v)))
+				return { "why": "bad camera suffix @" + mods };
+			if (r !== undefined)
+				cam.radius = r;
+			if (pitch !== undefined)
+				cam.pitch = pitch;
+			if (yaw !== undefined)
+				cam.yaw = yaw;
+		}
 		let shot = null;
 
 		if (kind == "overview")
 		{
 			const c = this.mapSize / 2;
-			// Vertical FOV 45°: the ground seen is 2·d·tan(22.5°) = 0.83·d high, so
-			// d = 0.95·size frames the whole (circular) map with a small margin.
-			shot = { "x": c, "y": 0, "z": c, "zoom": this.mapSize * 0.95, "pitch": 89, "info": {} };
+			// The view is 2·radius high (the short side): the whole circular map
+			// plus a 3% margin.
+			shot = { "x": c, "y": 0, "z": c, "zoom": c * 1.03 / BrennusViz.TAN_HALF_FOV, "pitch": 89, "info": {} };
 		}
 		else if (kind == "base" || kind == "cc")
 		{
@@ -347,13 +366,24 @@ class BrennusViz
 				return { "why": "bad point " + arg };
 			shot = { "x": x, "y": 0, "z": z, "zoom": plan.zoom, "info": {} };
 		}
+		else if (kind == "area")
+		{
+			const [x, z, r] = (arg || "").split(",").map(Number);
+			if (![x, z, r].every(isFinite) || r <= 0)
+				return { "why": "area expects X,Z,R, got " + arg };
+			shot = { "x": x, "y": 0, "z": z, "zoom": r / BrennusViz.TAN_HALF_FOV, "pitch": 89, "info": {} };
+		}
 		else
 			return { "why": "unknown target kind " + kind };
 
-		shot.pitch = spec.pitch !== undefined ? spec.pitch : shot.pitch !== undefined ? shot.pitch : plan.pitch;
-		shot.yaw = spec.yaw !== undefined ? spec.yaw : plan.yaw;
-		if (spec.zoom !== undefined)
-			shot.zoom = spec.zoom;
+		shot.pitch = cam.pitch !== undefined ? cam.pitch : shot.pitch !== undefined ? shot.pitch : plan.pitch;
+		shot.yaw = cam.yaw !== undefined ? cam.yaw : plan.yaw;
+		if (cam.radius !== undefined)
+			shot.zoom = cam.radius / BrennusViz.TAN_HALF_FOV;
+		else if (cam.zoom !== undefined)
+			shot.zoom = cam.zoom;
+		if (!(shot.zoom > 0) || !(shot.pitch > 0 && shot.pitch <= 90))
+			return { "why": "bad camera (distance " + shot.zoom + ", pitch " + shot.pitch + ")" };
 		return shot;
 	}
 
@@ -392,7 +422,23 @@ class BrennusViz
 		shot.x = Math.round(shot.x);
 		shot.z = Math.round(shot.z);
 		shot.y = Math.round(shot.y || 0);
+		shot.radius = Math.round(zoom * BrennusViz.TAN_HALF_FOV);
 		shot.zoom = Math.round(zoom);
+		// Screen -> ground samples (5x5), so the frame can be georeferenced
+		// afterwards (tools/frames.py draws a world grid on top-down shots).
+		// GetTerrainAtScreenPoint clamps to the map: samples on the edge are
+		// not where that pixel looks, drop them.
+		shot.ground = [];
+		const edge = this.mapSize - 0.5;
+		for (const fy of [0.1, 0.3, 0.5, 0.7, 0.9])
+			for (const fx of [0.1, 0.3, 0.5, 0.7, 0.9])
+			{
+				const px = Math.floor(this.screen[0] * fx);
+				const py = Math.floor(this.screen[1] * fy);
+				const w = Engine.GetTerrainAtScreenPoint(px, py);
+				if (w && w.x > 0.5 && w.z > 0.5 && w.x < edge && w.z < edge)
+					shot.ground.push([px, py, Math.round(w.x * 10) / 10, Math.round(w.z * 10) / 10]);
+			}
 	}
 
 	static centroid(list)
@@ -445,6 +491,11 @@ class BrennusViz
 
 BrennusViz.PLAN = "gui/session/brennus_viz/plan.json";
 
+// Vertical field of view 45° (view.fov): half-height seen at distance d is
+// d·tan 22.5° = d·(√2 − 1). (Math.tan throws in 0 A.D.: "no synchronization
+// safe implementation", even in the GUI realm.)
+BrennusViz.TAN_HALF_FOV = Math.SQRT2 - 1;
+
 BrennusViz.DEFAULTS = {
 	"speed": 20,          // sim rate (engine has no upper clamp; 20 = the UI's max)
 	"every": 30,          // game seconds between shot groups (0 = explicit shots only)
@@ -452,7 +503,7 @@ BrennusViz.DEFAULTS = {
 	"end": null,          // game seconds of the last group (null = match end)
 	"targets": ["overview", "base:1", "base:2", "army:1", "army:2", "fight"],
 	"shots": [],          // explicit [{t, target, zoom?, pitch?, yaw?, label?}]
-	"zoom": 160,          // camera distance (m) for army / fight / ent / xy
+	"zoom": 160,          // camera distance (m) for army / fight / ent / xy (radius = 0.41 × distance)
 	"baseZoom": 230,
 	"maxZoom": 450,
 	"pitch": 55,          // degrees below the horizon

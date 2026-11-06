@@ -32,12 +32,21 @@ Targets (comma-separated, one frame each per group):
   fight         densest cluster of units in a combat state
   ent:ID        an entity (ids as printed by the [HARNESS] map telemetry)
   xy:X,Z        a fixed point, in metres
+  area:X,Z,R    top-down view of the ground within R metres of X,Z
+Camera suffix on any target: @R[/PITCH[/YAW]] — frame about R metres around
+it (smaller = closer), PITCH degrees below the horizon (89 = top-down), YAW
+degrees: fight@40, base:1@300/89, ent:4242@20/35, overview@150 (map centre).
 Explicit one-off shots: --shot MIN:TARGET (repeatable, MIN in game minutes).
+
+Coordinates are world metres, the same as the [HARNESS] map telemetry and
+tools/mapview.py; tools/frames.py draws them as a grid on top-down frames, so
+an overview tells you where to point an area: shot next.
 
 Examples:
   tools/viz.py tmp/probe/seed7                       # default plan, hidden
   tools/viz.py tmp/probe/seed7 --every 10 --from 8 --to 14 -T fight,army:1
-  tools/viz.py tmp/probe/seed7 --every 0 --shot 12.5:ent:4242 --shot 13:xy:300,420
+  tools/viz.py tmp/probe/seed7 --every 0 --shot 12.5:ent:4242@20 --shot 13:area:300,420,60
+  tools/viz.py tmp/probe/seed7 --from 17 --to 18 --every 10 -T overview,fight,fight@35
   tools/viz.py tmp/probe/seed7 --show --hud --every 60   # watch it live
 Then: tools/frames.py <out dir>   (contact sheets, one row per instant)
 """
@@ -45,6 +54,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -155,7 +165,8 @@ def build_plan(a):
         if val is not None:
             plan[key] = val
     if a.targets is not None:
-        plan["targets"] = [t for t in a.targets.split(",") if t]
+        # Commas also separate coordinates (xy:X,Z): a new target starts with a letter.
+        plan["targets"] = [t for t in re.split(r",(?=[A-Za-z])", a.targets) if t]
     if a.start is not None:
         plan["start"] = a.start * 60
     if a.end is not None:
@@ -370,7 +381,8 @@ def follow(env, pid, out, log, plan, timeout, t0):
                     slow += 1
                 rec = {"frame": name, "wall": round(time.time() - t0, 1), "game_min": round(data["t"] / 60000, 2),
                        "grab_s": round(dt, 2)}
-                rec.update({k: data[k] for k in ("t", "target", "label", "x", "y", "z", "zoom", "pitch", "yaw", "info")})
+                rec.update({k: data.get(k) for k in ("t", "target", "label", "x", "y", "z", "radius", "zoom", "pitch",
+                                                     "yaw", "info", "ground")})
                 meta.write(json.dumps(rec) + "\n")
                 meta.flush()
                 if data["n"] % 25 == 0:
