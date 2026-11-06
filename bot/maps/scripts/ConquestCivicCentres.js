@@ -211,6 +211,104 @@ Trigger.prototype.EfficiencySample = function()
 			delete EFF_WORKERS[ent];
 };
 
+// ---------------------------------------------------------------------------
+// Map snapshots: where every unit and building is, every 30 s of sim time.
+//
+// Purpose: a top-down, exact picture of a match that can be rendered offline
+// (tools/mapview.py) and compared across seeds — the cheap complement to a
+// visual replay, which shows one match in detail but cannot scale to a batch.
+//
+// One stdout line per snapshot, JSON after the tag:
+//   [HARNESS] map {"t": <sim seconds>, "1": [[id,kind,state,x,z], ...], "2": [...]}
+// kind:  1 worker, 2 soldier, 3 cavalry, 4 siege, 5 building, 6 civic centre (class CivCentre)
+// state: 0 idle, 1 gathering, 2 attacking, 3 moving/other
+// x,z are metres rounded to 1 m (map is size*4 metres across). Observation
+// only: no RNG, no simulation state touched — deterministic.
+// ---------------------------------------------------------------------------
+
+const MAP_KINDS = [
+	{ "kind": 6, "class": "CivCentre" },
+	{ "kind": 5, "class": "Structure" },
+	{ "kind": 4, "class": "Siege" },
+	{ "kind": 3, "class": "Cavalry" },
+	{ "kind": 2, "class": "CitizenSoldier" },
+	{ "kind": 1, "class": "Worker" }
+];
+
+// entity id -> { name, kind }. The sim Identity component exposes no class list
+// (ICmpIdentity has only civ/phenotype/selection group), so the classes come
+// from the template, as `Identity.Classes._string` (token lists are read that
+// way from sim scripts — see simulation/components/AlertRaiser.js).
+const MAP_KIND_CACHE = new Map();
+
+function MAP_kind(ent)
+{
+	const cmpTemplateManager = Engine.QueryInterface(SYSTEM_ENTITY, IID_TemplateManager);
+	const name = cmpTemplateManager.GetCurrentTemplateName(ent) || "";
+	const cached = MAP_KIND_CACHE.get(ent);
+	if (cached && cached.name === name)
+		return cached.kind;
+
+	let kind = 0;
+	if (name)
+	{
+		const tpl = cmpTemplateManager.GetTemplate(name);
+		const classes = tpl && tpl.Identity && tpl.Identity.Classes ?
+			String(tpl.Identity.Classes._string || "") : "";
+		for (const k of MAP_KINDS)
+			if (classes.indexOf(k.class) !== -1)
+			{
+				kind = k.kind;
+				break;
+			}
+	}
+	MAP_KIND_CACHE.set(ent, { "name": name, "kind": kind });
+	return kind;
+}
+
+function MAP_state(ent, kind)
+{
+	if (kind >= 5)
+		return 0;
+	const cmpUnitAI = Engine.QueryInterface(ent, IID_UnitAI);
+	if (!cmpUnitAI)
+		return 0;
+	const state = cmpUnitAI.GetCurrentState();
+	if (state.indexOf("IDLE") !== -1)
+		return 0;
+	if (state.indexOf("GATHER") !== -1)
+		return 1;
+	if (state.indexOf("ATTACK") !== -1 || state.indexOf("COMBAT") !== -1)
+		return 2;
+	return 3;
+}
+
+Trigger.prototype.MapSnapshot = function()
+{
+	const t0 = Date.now();
+	const now = Engine.QueryInterface(SYSTEM_ENTITY, IID_Timer).GetTime() / 1000;
+	const per = { "1": [], "2": [] };
+	for (const ent of Engine.GetEntitiesWithInterface(IID_Position))
+	{
+		const cmpOwnership = Engine.QueryInterface(ent, IID_Ownership);
+		const owner = cmpOwnership ? cmpOwnership.GetOwner() : -1;
+		if (owner !== 1 && owner !== 2)
+			continue;
+		const kind = MAP_kind(ent);
+		if (!kind)
+			continue;
+		const cmpPosition = Engine.QueryInterface(ent, IID_Position);
+		if (!cmpPosition.IsInWorld())
+			continue;
+		const pos = cmpPosition.GetPosition2D();
+		per[owner].push("[" + ent + "," + kind + "," + MAP_state(ent, kind) + "," +
+			Math.round(pos.x) + "," + Math.round(pos.y) + "]");
+	}
+	print("[HARNESS] map {\"t\":" + now.toFixed(0) +
+		",\"dt\":" + (Date.now() - t0) +
+		",\"1\":[" + per["1"].join(",") + "],\"2\":[" + per["2"].join(",") + "]}\n");
+};
+
 Trigger.prototype.PrintEfficiency = function()
 {
 	if (EFF_printed)
@@ -269,6 +367,9 @@ Trigger.prototype.PrintEfficiency = function()
 	// (pick-ups and drop-offs must not straddle one window — see the file
 	// header).
 	cmpTrigger.RegisterTrigger("OnInterval", "EfficiencySample", { "enabled": true, "delay": 200, "interval": 200 });
+
+	// Map snapshots: every 30 s of sim time (see the section above).
+	cmpTrigger.RegisterTrigger("OnInterval", "MapSnapshot", { "enabled": true, "delay": 30000, "interval": 30000 });
 
 	// Print the summary when the game ends, next to the statistics JSON.
 	cmpTrigger.RegisterTrigger("OnPlayerWon", "PrintEfficiency", { "enabled": true });

@@ -3,6 +3,47 @@
 Cleared 2026-08-29. Reference knowledge was migrated into
 `docs/game_description/`, `docs/ai_engine_api.md` and `docs/pyrogenesis_cli.md`.
 
+## 2026-11-06 (watching a match: visual replay + map snapshots)
+
+- Visual observation is *two* tools, not one: `tools/viz.sh` (the recorded
+  match rendered, observer, ~15x real time) answers "why does this unit do
+  that"; the mod's `[HARNESS] map` snapshots rendered by `tools/mapview.py`
+  answer "where and when" for a whole batch, exactly and without a GPU.
+- Playback speed comes from the **recording**, not the UI:
+  `tools/run.sh -s 20` puts `gameSpeed:20` in the replay's init attributes
+  and `CGame::RegisterInit` calls `SetSimRate()` on load
+  (`source/ps/Game.cpp:242-248`). Effective rate is render-bound: ~13-16x at
+  2560x1440 with shadows off, so a 35-min game captures in ~2.5 min.
+- Input only works through **XWayland**: `SDL_VIDEODRIVER=x11` + `xdotool`.
+  A native Wayland 0 A.D. window ignores `wtype`'s virtual-keyboard events
+  (verified: `Shift+Space` pause did not pause), and `ffmpeg -f x11grab` and
+  `xwd` return black for XWayland GL windows — capture with `grim`
+  (compositor screencopy, `-s 0.5 -l 3` keeps it cheap). `pauseonfocusloss`
+  must be `false` or the replay pauses as soon as the window is unfocused.
+- Camera: WASD/arrows pan, +/- zoom, `Shift+Tab` bird's-eye (orthographic),
+  left-click on the minimap recentres. The mapping in
+  `CMiniMap::GetMouseWorldCoordinates` **rotates with the camera angle**
+  (`angle = -atan2(camIn.X, camIn.Z)`, plus `m_MapScale` = 1.414 for
+  non-circular LOS), so clicking a computed "map fraction" lands somewhere
+  else — find the player's colour on the minimap instead (`tools/aim.py`)
+  and click that pixel; it is exact by construction and needs no geometry.
+- Pause is `Pause`/`Shift+Space` (not `P`), and the paused overlay dims the
+  whole frame — capture unpaused frames.
+- Map snapshots: the sim realm exposes **no class list** on `IID_Identity`
+  (`ICmpIdentity` has only civ/phenotype/selection group); classes come from
+  the template as `Identity.Classes._string` via `IID_TemplateManager`
+  (`GetCurrentTemplateName` + `GetTemplate`), cached per entity. The civic
+  centre's class is **`CivCentre`**, not `CivilCentre` (that spelling is only
+  in `VisibleClasses`).
+- Cost of the snapshot telemetry: measured in-place (`dt` field), **~1 ms
+  per snapshot, max 2 ms, 61-70 snapshots per match** — ~0.003% of a 45-min
+  game. Wall-clock A/B (95 s vs 90 s) was pure noise and useless here; a
+  stray leftover engine from an earlier probe (running 1.5 h) was also
+  skewing measurements — check `pgrep -a pyrogenesis` before timing
+  anything.
+- Behavior preservation: the snapshot telemetry leaves the game untouched —
+  same statistics hash (`84f1dfb6319d`) with and without it on seed 1.
+
 ## 2026-11-05 (development moved to boobynator, kiln retired)
 
 - Matches now run locally with `tools/run.sh` (12 slots on boobynator,

@@ -37,10 +37,13 @@ engine cache and the mod copy are dropped). The batch ends with an
 
 Options: `-m DIR` mod to test (default `bot/`), `-j N` local slots,
 `-H HOST:N` remote slots, `-t SEC` wall cap per match (default 1800),
-`-l MIN` in-game limit (patched into the snapshot only), `-a AI` player-1
-AI (default `brennus`), `-d DIFF` / `-v BEHAV` / `-c CIV` opponent Petra
-difficulty (3), behavior (`aggressive`) and civ (`rome`), `-M MAP`
-(`random/mainland`), `-b BIOME` (`generic/temperate`).
+`-l MIN` in-game limit (patched into the snapshot only), `-s SPEED` record
+the match with `-autostart-speed=SPEED` (`-autostart-speed` has no effect on a
+headless sim, but it travels in the replay's init attributes, so the recorded
+match plays back at that speed under `tools/viz.sh`; 20 is the engine's max),
+`-a AI` player-1 AI (default `brennus`), `-d DIFF` / `-v BEHAV` / `-c CIV`
+opponent Petra difficulty (3), behavior (`aggressive`) and civ (`rome`),
+`-M MAP` (`random/mainland`), `-b BIOME` (`generic/temperate`).
 
 ```sh
 # probe 3 seeds (rotate them while iterating)
@@ -121,6 +124,58 @@ tools/hunt-analyze.py <stdout.log>
 
 Parses `[HUNT]` lines: per huntable animal, template, mode, wound/kill/carcass
 dropDist, inTerr, and whether the carcass is within civilian pickup range.
+
+## Seeing a match
+
+Two complementary ways to look at what the bot did. Neither replaces a batch:
+`tools/run.sh` stays the source of truth (determinism, parallelism, scale).
+
+### viz.sh — watch a recorded match
+
+```sh
+tools/run.sh -s 20 tmp/viz/seed7 7           # record for 20x playback
+tools/viz.sh tmp/viz/seed7/seed7 -A -B -z 8  # aim at both civic centres
+tools/viz.sh tmp/viz/seed7/seed7 -a 0.5,0.5 -t 300 -f 1
+```
+
+Launches the match's own replay with `-replay-visual` (observer, full
+visibility), drives the camera, and grabs frames with `grim` into
+`<match>/viz/frames/`, one line of metadata per frame in `frames.jsonl`
+(wall time, turn, in-game minute). Options: `-t SEC` capture window (150),
+`-f FPS` (1, `0` = plan shots only), `-B` bird's-eye view, `-z N` zoom-out
+steps, `-a U,V` centre the camera on that map fraction (repeatable; note the
+engine's click→world mapping rotates with the camera angle, so prefer `-A`),
+`-A` aim at each player's base by finding its colour on the minimap
+(`tools/aim.py`), `-p SEC` pause per camera move, `-m DIR` mod snapshot
+(defaults to the batch's `mod/`), `-k` leave the game running for manual
+driving.
+
+The engine runs as an XWayland client (`SDL_VIDEODRIVER=x11`) because that is
+the only path where synthetic input works; frames come from the compositor
+(`grim -s 0.5 -l 3`), not `x11grab` (black on XWayland). Playback runs
+render-bound, ~10-15x real time at 2560x1440: a 45-minute match needs ~4
+minutes of capture, not 45.
+
+### frames.py — contact sheet and clip
+
+```sh
+tools/frames.py <viz dir> [--cols 8] [--thumb 480] [--video clip.mp4]
+```
+
+One labelled image grid of the captured frames (in-game minutes on each), so
+a whole match can be read at a glance; `--video` also encodes the frames.
+
+### mapview.py — top-down map from the telemetry
+
+```sh
+tools/mapview.py <stdout.log> [-o mapview.png] [--tracks tracks.png] [--video clip.mp4]
+```
+
+The mod prints a `[HARNESS] map` line every 30 s of sim time — every unit and
+building of both players as `[id,kind,state,x,z]` in metres. `mapview.py`
+renders those snapshots as a grid (and optionally per-unit movement tracks),
+which is exact, needs no GPU, and scales to a whole batch: 12 games in one
+picture, or one game per seed compared side by side.
 
 ## Local install
 

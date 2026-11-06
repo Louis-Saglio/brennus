@@ -32,6 +32,10 @@
 #   -c CIV     opponent civ (default rome)
 #   -M MAP     map (default random/mainland)
 #   -b BIOME   biome (default generic/temperate)
+#   -s SPEED   record the match with -autostart-speed=SPEED (default: unset, i.e.
+#              the engine's 1x). No effect on a headless sim — it only lands in
+#              the replay's init attributes, so the recorded match plays back at
+#              that speed under `-replay-visual` (tools/viz.sh). 20 is the max.
 #
 # Examples:
 #   tools/run.sh tmp/probe 7 23 51                  # 3-seed probe, 12 local slots
@@ -51,10 +55,11 @@ BEHAV=aggressive
 CIV=rome
 MAP=random/mainland
 BIOME=generic/temperate
+SPEED=""
 
 usage() { sed -n '2,/^set -u/{/^set -u/d;s/^# \{0,1\}//;p}' "$0" >&2; exit 2; }
 
-while getopts "m:j:H:t:l:a:d:v:c:M:b:h" opt; do
+while getopts "m:j:H:t:l:a:d:v:c:M:b:s:h" opt; do
 	case $opt in
 		m) MODDIR=$OPTARG ;;
 		j) JOBS=$OPTARG ;;
@@ -67,6 +72,7 @@ while getopts "m:j:H:t:l:a:d:v:c:M:b:h" opt; do
 		c) CIV=$OPTARG ;;
 		M) MAP=$OPTARG ;;
 		b) BIOME=$OPTARG ;;
+		s) SPEED=$OPTARG ;;
 		*) usage ;;
 	esac
 done
@@ -119,7 +125,7 @@ mkdir -p "$OUTDIR/.slots"
 	fi
 	echo "content: $(cd "$OUTDIR/mod" && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)"
 	echo "build: $BUILD"
-	echo "match: $MAP $BIOME 192 circle conquest_civic_centers | $AI gaul 3 aggressive vs petra $CIV $DIFF $BEHAV | limit ${LIMIT:-mod default} | wall ${WALL}s"
+	echo "match: $MAP $BIOME 192 circle conquest_civic_centers | $AI gaul 3 aggressive vs petra $CIV $DIFF $BEHAV | limit ${LIMIT:-mod default} | wall ${WALL}s | record-speed ${SPEED:-1}"
 	echo "slots: $SLOTS"
 } > "$OUTDIR/batch.txt"
 
@@ -157,6 +163,10 @@ run_match() {
 		-autostart-civ=2:"$CIV" -autostart-team=2:2
 		-autostart-player=-1 -unique-logs -nosound -mod=public -mod=brennus
 	)
+	# Viz recordings: gameSpeed only lands in the replay's init attributes
+	# (nonvisual sims ignore it), so the recorded match can be replayed
+	# visually at that speed.
+	[ -n "$SPEED" ] && args+=(-autostart-speed="$SPEED")
 	rm -rf "$dir"
 	mkdir -p "$dir"
 	if [ "$host" = local ]; then
@@ -202,7 +212,7 @@ run_one() {
 	echo "$tag seed=$seed: no free slot" >&2
 }
 export -f run_match run_one
-export OUTDIR SLOTS REMOTE WALL AI DIFF BEHAV CIV MAP BIOME
+export OUTDIR SLOTS REMOTE WALL AI DIFF BEHAV CIV MAP BIOME SPEED
 
 echo "run.sh: ${#PAIRS[@]} matches on $NSLOTS slots -> $OUTDIR"
 printf '%s\n' "${PAIRS[@]}" | xargs -P "$NSLOTS" -I{} bash -c 'run_one "$1"' _ {}
