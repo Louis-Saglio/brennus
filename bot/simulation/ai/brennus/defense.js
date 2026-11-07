@@ -650,11 +650,13 @@ DefenseManager.prototype.manageDefense = function()
 	}
 	for (const h of holders)
 		for (const p of mil)
-			if (SquareDistance(p, h.pos) < 100 * 100)
-			{
+		{
+			const d2 = SquareDistance(p, h.pos);
+			if (d2 < 30 * 30)
+				h.contact = true;
+			if (d2 < 100 * 100)
 				this.shelterDanger[h.ent.id()] = this.bot.turn;
-				break;
-			}
+		}
 	for (const h of holders)
 		if (h.ent.garrisonedSlots() > 0 &&
 			this.bot.turn - (this.shelterDanger[h.ent.id()] ?? -1000) > 20)
@@ -670,19 +672,25 @@ DefenseManager.prototype.manageDefense = function()
 		if (state.indexOf("GARRISON") !== -1 || state.indexOf("REPAIR") !== -1)
 			continue;
 		const wp = ent.position();
-		let danger = false;
+		let danger = 0;
 		for (const p of mil)
-			if (SquareDistance(p, wp) < 60 * 60)
-			{
-				danger = true;
+			if (SquareDistance(p, wp) < 60 * 60 && ++danger >= 3)
 				break;
-			}
 		if (!danger)
 			continue;
-		let best, bestD = 90 * 90;
+		// Nearest holder with room that is not itself in contact (an enemy
+		// within 30 m: Petra captures the edge houses and ejects their
+		// garrison into the melee), at any distance — the old 90 m cap left
+		// far woodline/mine workers working on until they died (s50: ~39
+		// civilians in one 21-min wave; 13-seed batch: up to 150 civilians
+		// killed per game). A lone scout or raider keeps the old 90 m reach:
+		// sending everyone across the base for one rider cost +1.6 min mean
+		// win time (13 seeds) in lost gathering.
+		const reach = danger >= 3 ? 160 : 90;
+		let best, bestD = reach * reach;
 		for (const h of holders)
 		{
-			if (h.free <= 0)
+			if (h.free <= 0 || h.contact)
 				continue;
 			const d2 = SquareDistance(h.pos, wp);
 			if (d2 < bestD)
@@ -696,6 +704,8 @@ DefenseManager.prototype.manageDefense = function()
 			best.free--;
 			ent.garrison(best.ent);
 		}
+		else if (homePos && danger >= 3)
+			ent.move(homePos[0], homePos[1]);
 	}
 };
 

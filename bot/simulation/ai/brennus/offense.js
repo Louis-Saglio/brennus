@@ -227,7 +227,7 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 			// 2: the walk alone to a far CC takes ~2 min, and
 			// agg8 s1 abort/relaunched twice at the 2-min mark — the army walked
 			// home and back each time and the second CC never even got attacked.
-			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid aborted at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)} (rams=${ramEnts.length}, age=${((this.bot.turn - (this.target.turn || 0)) / 300).toFixed(1)}m, army=${armyEnts.length}, enemy=${this.bot.armyManager.enemyArmy || 0})\n`);
+			print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m raid aborted at ${this.target.x.toFixed(0)},${this.target.z.toFixed(0)} (rams=${ramEnts.length}, age=${((this.bot.turn - (this.target.turn || 0)) / 300).toFixed(1)}m, army=${armyEnts.length}, enemy=${this.bot.armyManager.enemyArmy || 0}) rams at ${ramEnts.map(r => `${Math.hypot(r.position()[0] - this.target.x, r.position()[1] - this.target.z).toFixed(0)}m:${(r.unitAIState() || "").split(".").pop()}`).join(" ")}\n`);
 			this.target = undefined;
 			this.bot.defenseManager.armyCmdTurn = 0;
 			for (const ent of armyEnts)
@@ -361,6 +361,7 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 	// capture strength against the CC's regen and garrison (shouldCapture).
 	const capEnt = gameState.getEntityById(this.target.id);
 	const cap = capEnt ? this.shouldCapture(capEnt, armyEnts) : false;
+	const hunters = this.contestHunters(foes, armyEnts, this.target.x, this.target.z);
 	let attackers = 0;
 	for (const ent of armyEnts)
 	{
@@ -369,7 +370,7 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 			ent.attackMove(this.target.x, this.target.z, UNITS_ONLY, false);
 			continue;
 		}
-		if (foes.length)
+		if (foes.length && (!hunters || hunters.has(ent.id())))
 		{
 			// Cavalry flanks: siege first, then the ranged back line — its run
 			// speed carries it around the melee frontline that pins the
@@ -432,6 +433,32 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 	for (const ent of healerEnts)
 		ent.move(this.target.x, this.target.z);
 	return true;
+};
+
+/**
+ * Who answers a contest: everyone against a real defense, but a handful of
+ * foes gets only its 3 nearest soldiers each and the rest keep working the
+ * structure. Before, ONE enemy unit inside the 100 m contest radius pinned
+ * the whole army on it (s31: 97 men "engaging 1 enemy unit" for 2.5 min
+ * under the garrisoned CC's arrows, 97 -> 65, raid aborted at the age cap
+ * with enemy = 0). Returns undefined for "everyone", else a Set of ids.
+ */
+OffenseManager.prototype.contestHunters = function(foes, armyEnts, x, z)
+{
+	const near = armyEnts.filter(ent => SquareDistance(ent.position(), [x, z]) < 60 * 60);
+	if (!foes.length || foes.length * 3 >= near.length)
+		return undefined;
+	const hunters = new Set();
+	for (const foe of foes)
+	{
+		const fp = foe.position();
+		const picks = near.filter(ent => !hunters.has(ent.id()))
+			.map(ent => [SquareDistance(ent.position(), fp), ent.id()])
+			.sort((a, b) => a[0] - b[0] || a[1] - b[1]).slice(0, 3);
+		for (const [, id] of picks)
+			hunters.add(id);
+	}
+	return hunters;
 };
 
 /**
@@ -536,6 +563,14 @@ OffenseManager.prototype.trackRamMarch = function(ram, gameState)
 	}
 	if (tr.nudges < 2)
 		ram.attack(this.target.id, false);
+	else if (tr.nudges === 2 && (tr.breaks || 0) < 4 && this.breakOut(ram, rp, gameState))
+	{
+		// Battering or clearing the blocker: stay on this strike so a ram
+		// boxed in by several buildings can break out more than once.
+		tr.breaks = (tr.breaks || 0) + 1;
+		tr.still = 0;
+		return;
+	}
 	else if (tr.nudges === 2)
 	{
 		const dx = this.target.x - rp[0], dz = this.target.z - rp[1];
@@ -554,6 +589,54 @@ OffenseManager.prototype.trackRamMarch = function(ram, gameState)
 	}
 	tr.still = 0;
 	tr.nudges++;
+};
+
+/**
+ * A wedged ram breaks out through the nearest building within 25 m: an
+ * enemy one is battered (the march filter skips houses, so rams wedged in
+ * Petra's housing ring 90-140 m short of the CC just sat there), one of our
+ * own houses/fields is demolished (s31: the arsenal sat on the map's east
+ * edge boxed in by houses; all 6 rams stayed 606-635 m from the raid target
+ * for 8 min, IDLE/WALKINGANDFIGHTING, and the CC could not fall). Called on
+ * the watchdog's third strike only, so the scans stay rare.
+ */
+OffenseManager.prototype.breakOut = function(ram, rp, gameState)
+{
+	let best, bestD = 25 * 25, own = false;
+	for (const ent of gameState.getEnemyStructures().values())
+	{
+		const p = ent.position();
+		if (!p || ent.owner() === 0 || ent.hasClass("Wall") || ent.hasClass("Palisade"))
+			continue;
+		const d = SquareDistance(p, rp);
+		if (d < bestD)
+		{
+			bestD = d;
+			best = ent;
+		}
+	}
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		const p = ent.position();
+		if (!p || !(ent.hasClass("House") || ent.hasClass("Field")))
+			continue;
+		const d = SquareDistance(p, rp);
+		if (d < bestD)
+		{
+			bestD = d;
+			best = ent;
+			own = true;
+		}
+	}
+	if (!best)
+		return false;
+	const bp = best.position();
+	print(`[WARNING] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m wedged ram at ${rp[0].toFixed(0)},${rp[1].toFixed(0)} breaks out through ${own ? "own" : "enemy"} ${best.templateName().split("/").pop()} at ${bp[0].toFixed(0)},${bp[1].toFixed(0)}\n`);
+	if (own)
+		best.destroy();
+	else
+		ram.attack(best.id(), false);
+	return true;
 };
 
 /**
@@ -720,6 +803,7 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 	const purgeCapEnt = gameState.getEntityById(this.purgeTarget.id);
 	const purgeCap = purgeCapEnt ? this.shouldCapture(purgeCapEnt, armyEnts) : false;
 	let purgeAtk = 0;
+	const purgeHunters = this.contestHunters(purgeFoes, armyEnts, this.purgeTarget.x, this.purgeTarget.z);
 	for (const ent of armyEnts)
 	{
 		if (SquareDistance(ent.position(), [this.purgeTarget.x, this.purgeTarget.z]) >= 60 * 60)
@@ -727,7 +811,7 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 			ent.attackMove(this.purgeTarget.x, this.purgeTarget.z, UNITS_ONLY, false);
 			continue;
 		}
-		if (purgeFoes.length)
+		if (purgeFoes.length && (!purgeHunters || purgeHunters.has(ent.id())))
 		{
 			let best, bestDist;
 			for (const foe of purgeFoes)
@@ -927,6 +1011,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 		if (struct)
 			op.structId = struct.id();
 		const structCap = struct ? this.shouldCapture(struct, armyEnts) : false;
+		const opHunters = struct ? this.contestHunters(foes, armyEnts.filter(ent => ent.position()), op.x, op.z) : undefined;
 		for (const ent of armyEnts)
 		{
 			if (!ent.position())
@@ -936,7 +1021,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 				ent.attackMove(op.x, op.z, UNITS_ONLY, false);
 				continue;
 			}
-			if (foes.length)
+			if (foes.length && (!opHunters || opHunters.has(ent.id())))
 			{
 				let best, bestDist;
 				for (const foe of foes)

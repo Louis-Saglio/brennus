@@ -1971,3 +1971,32 @@ unchanged.
   attacked directly inside 60 m.
 - A/B on seeds 31 44-55: 13W vs 12W/1T; s31 43.8→31.3, s52 44.1→35.6,
   s53 timeout→29.7; mean win time −3.0 min; worst regression +2.2 (s44).
+
+## 2026-11-07 (shelter reach, contest hunters, wedged-ram break-out)
+
+- Civilian losses were large and invisible in the telemetry: end stats
+  `unitsLost.Civilian` minus the "dismissing a civilian" lines gave up to
+  150 civilians KILLED per game (13 seeds 31 44-55: 650 total). Shelter
+  only looked for a holder within 90 m, so far woodline/mine workers kept
+  working while a wave cut them down (s50: ~39 in the 21-min wave).
+  Fix (defense.js shelter): with 3+ enemy soldiers within 60 m the worker
+  goes to the nearest holder with room up to 160 m that is not itself in
+  contact (enemy < 30 m — Petra captures edge houses, ejecting the
+  garrison), else walks to the CC; a lone scout/raider keeps the old 90 m
+  reach. Unbounded reach for any single soldier cost +1.6 min mean win
+  time (everyone crossing the base for one rider).
+- Contest pinning: one enemy unit inside the 100 m contest radius sent
+  the WHOLE army at it (s31: "engaging 1 enemy unit" for 2.5 min, 97 → 65
+  under the garrisoned CC's fire, aborted with enemy = 0). contestHunters:
+  a handful of foes gets its 3 nearest soldiers each; the rest keep
+  working the structure (raid, purge, clearing op).
+- Wedged rams: the raid-abort line now lists each ram's distance to the
+  target and UnitAI state. s31: all 6 rams 606-635 m away, i.e. at home —
+  the arsenal sat on the map's east edge boxed in by our houses. The
+  watchdog's third strike now breaks out through the nearest building
+  within 25 m (enemy: battered — rams wedged in Petra's housing ring;
+  own house/field: destroyed), up to 4 times per ram, before the 40 m hop.
+  s31 timeout → win 42.5 m (3 own houses demolished).
+- Results, all three together vs 90cb36e: seeds 31 44-55 13W vs 13W,
+  mean 28.8 → 29.1 m, civilians killed 650 → 401; fresh seeds 56-67
+  12W vs 12W, mean 27.5 → 26.3 m, civilians killed 486 → 240.
