@@ -2013,5 +2013,7 @@ unchanged.
   a ram already in production.
 - Metric caveat: `unitsLost.Civilian` does not count dismissals the way
   the log does — "killed = lost − dismissed" goes negative when many
-  civilians are dismissed; compare it only between runs with similar
-  dismissal counts.
+  civilians are dismissed;  compare it only between runs with similar
+  dismissal counts. Raw `unitsLost.Civilian` for the b4a1f06 shelter
+  change: seeds 31 44-55 766 → 493 (−36%), fresh 56-67 561 → 336 (−40%);
+  this change: 829 → 839 (neutral).
