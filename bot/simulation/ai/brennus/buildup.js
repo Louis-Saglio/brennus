@@ -364,7 +364,7 @@ BuildupManager.prototype.manageDefenseTraining = function()
 	// before the army hits raid size or every raid goes in without them (4
 	// made for 3-7-minute kills in agg6 — first razed CC at 40.2m, too slow).
 	const arsenalType = gameState.applyCiv("structures/{civ}/arsenal");
-	let rams = 0;
+	let rams = 0, ramQueued = 0;
 	const arsenals = [];
 	for (const ent of gameState.getOwnStructures().values())
 	{
@@ -372,7 +372,10 @@ BuildupManager.prototype.manageDefenseTraining = function()
 			continue;
 		this.arsenalBuilt = true;
 		for (const item of ent.trainingQueue() || [])
+		{
 			rams += item.count;
+			ramQueued += item.count;
+		}
 		if ((ent.trainingQueue()?.length || 0) <= 1)
 			arsenals.push(ent);
 	}
@@ -611,7 +614,10 @@ BuildupManager.prototype.manageDefenseTraining = function()
 	// free, throttled and never below a floor that keeps the economy alive.
 	// Post-boom only: before city+300 the women are still racing to pop 300 and
 	// dismissing them would deadlock the boom (army pop counts toward 300).
-	if (boom && missing > 0 &&
+	// Rams too: at the pop cap a queued ram (3 pop) never came out and the
+	// decisive raid launched ramless ("no pop room for rams": 5 of 46 raids
+	// over 25 games), its infantry hacking at a CC it cannot hurt.
+	if (boom && (missing > 0 || ramPending || ramQueued > 0) &&
 		gameState.getPopulation() > gameState.getPopulationLimit() - 6 &&
 		this.bot.turn >= (this.nextDismissTurn || 0))
 	{

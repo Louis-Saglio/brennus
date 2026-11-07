@@ -2000,3 +2000,18 @@ unchanged.
 - Results, all three together vs 90cb36e: seeds 31 44-55 13W vs 13W,
   mean 28.8 → 29.1 m, civilians killed 650 → 401; fresh seeds 56-67
   12W vs 12W, mean 27.5 → 26.3 m, civilians killed 486 → 240.
+
+## 2026-11-07 (pop-cap dismissal now covers rams — neutral)
+
+- The civilian-dismissal gate (buildup.js) only fired for missing
+  infantry; at the pop cap a queued or pending ram (3 pop) never came
+  out. Extended to `ramPending || ramQueued > 0`. 25 seeds (31 44-67):
+  25W vs 25W, mean 27.8 → 27.9 m — neutral. The remaining "no pop room
+  for rams" raids (5 of 25 games) are late arsenals, not pop: s60's
+  arsenal went up at 28.7 m and the 75-man raid gate opened at 32.2 m
+  before the first ram. Next lead: arsenal timing / raid gate waiting for
+  a ram already in production.
+- Metric caveat: `unitsLost.Civilian` does not count dismissals the way
+  the log does — "killed = lost − dismissed" goes negative when many
+  civilians are dismissed; compare it only between runs with similar
+  dismissal counts.
