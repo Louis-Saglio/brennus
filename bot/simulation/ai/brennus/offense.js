@@ -1,4 +1,4 @@
-import { SquareDistance } from "simulation/ai/brennus/helpers.js";
+import { SquareDistance, UNITS_ONLY } from "simulation/ai/brennus/helpers.js";
 
 export function OffenseManager(bot)
 {
@@ -366,7 +366,7 @@ OffenseManager.prototype.raid = function(gameState, armyEnts, healerEnts, mil, h
 	{
 		if (SquareDistance(ent.position(), [this.target.x, this.target.z]) >= 60 * 60)
 		{
-			ent.attackMove(this.target.x, this.target.z, "Unit", false);
+			ent.attackMove(this.target.x, this.target.z, UNITS_ONLY, false);
 			continue;
 		}
 		if (foes.length)
@@ -724,7 +724,7 @@ OffenseManager.prototype.purge = function(gameState, armyEnts, healerEnts, mil, 
 	{
 		if (SquareDistance(ent.position(), [this.purgeTarget.x, this.purgeTarget.z]) >= 60 * 60)
 		{
-			ent.attackMove(this.purgeTarget.x, this.purgeTarget.z, "Unit", false);
+			ent.attackMove(this.purgeTarget.x, this.purgeTarget.z, UNITS_ONLY, false);
 			continue;
 		}
 		if (purgeFoes.length)
@@ -933,7 +933,7 @@ OffenseManager.prototype.clearance = function(gameState, armyEnts, healerEnts, m
 				continue;
 			if (SquareDistance(ent.position(), [op.x, op.z]) >= 60 * 60)
 			{
-				ent.attackMove(op.x, op.z, "Unit", false);
+				ent.attackMove(op.x, op.z, UNITS_ONLY, false);
 				continue;
 			}
 			if (foes.length)

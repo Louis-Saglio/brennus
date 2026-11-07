@@ -1952,3 +1952,22 @@ unchanged.
   a recreated outdir. Kill `pyrogenesis` processes explicitly. Also
   `pkill -f <pattern>` from a shell whose command line contains the
   pattern kills that shell — use the `[x]yz` bracket trick.
+
+## 2026-11-07 (army attackMove filter: "Unit" string filtered nothing)
+
+- Every army/detachment attackMove passed the plain string "Unit" as
+  targetClasses — the same no-op as the rams' old "Structure" string
+  (2026-09-12): UnitAI.FindWalkAndFightTargets (components/UnitAI.js
+  6065-6091) reads `targetClasses.attack`. And the walk-and-fight attack
+  order takes `allowCapture: order.allowCapture || DEFAULT_CAPTURE`, so
+  passing allowCapture=false still captures. Marching soldiers therefore
+  stopped to CAPTURE every structure in vision on the way.
+- Seen in s31 (viz at 33/35 min): a 94-man raid with 6 rams sat in
+  Petra's housing ring ~100 m east of the CC with enemy army = 0, aborted
+  at the 6-min age cap twice, game won only at 43.8 m.
+- Fix: helpers.js `UNITS_ONLY = { "attack": "Unit" }` at all 8 army
+  attackMove sites (raid, purge, clearing op, deny, siege-camp sortie,
+  swat, engage back line, razzia home). The target itself is still
+  attacked directly inside 60 m.
+- A/B on seeds 31 44-55: 13W vs 12W/1T; s31 43.8→31.3, s52 44.1→35.6,
+  s53 timeout→29.7; mean win time −3.0 min; worst regression +2.2 (s44).

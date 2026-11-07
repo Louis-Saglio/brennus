@@ -1,4 +1,4 @@
-import { SquareDistance } from "simulation/ai/brennus/helpers.js";
+import { SquareDistance, UNITS_ONLY } from "simulation/ai/brennus/helpers.js";
 
 /**
  * Razzia: a squad of Gaul javelin cavalry (trained at the CC — a gaul CC
@@ -191,7 +191,7 @@ RaidManager.prototype.goHome = function(riders, state, why)
 		if (state === "home")
 		{
 			r.setStance("aggressive");
-			r.attackMove(p[0], p[1]);
+			r.attackMove(p[0], p[1], UNITS_ONLY, false);
 		}
 		else
 		{

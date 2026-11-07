@@ -1,4 +1,4 @@
-import { SquareDistance } from "simulation/ai/brennus/helpers.js";
+import { SquareDistance, UNITS_ONLY } from "simulation/ai/brennus/helpers.js";
 
 export function DefenseManager(bot)
 {
@@ -477,7 +477,7 @@ DefenseManager.prototype.manageDefense = function()
 				this.armyCmdTurn = this.bot.turn + 10;
 				print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m sortie against siege camp ${(cx / campN).toFixed(0)},${(cz / campN).toFixed(0)} (camp=${campN}, army=${armyEnts.length}, enemy=${this.bot.armyManager.enemyArmy || 0})\n`);
 				for (const ent of armyEnts)
-					ent.attackMove(cx / campN, cz / campN, "Unit", false);
+					ent.attackMove(cx / campN, cz / campN, UNITS_ONLY, false);
 				for (const ent of healerEnts)
 					ent.move(cx / campN, cz / campN);
 			}
@@ -567,7 +567,7 @@ DefenseManager.prototype.manageDefense = function()
 				this.swatting = true;
 				const det = Math.min(armyEnts.length, Math.max(6, swat.n * 2));
 				for (let i = 0; i < det; i++)
-					armyEnts[i].attackMove(swat.x, swat.z, "Unit", false);
+					armyEnts[i].attackMove(swat.x, swat.z, UNITS_ONLY, false);
 			}
 			else if (waveSize < 8)
 			{
@@ -861,9 +861,9 @@ DefenseManager.prototype.musterEngage = function(gameState, tx, tz, ccx, ccz, re
 			}
 		}
 		if (!ent.hasClass("Cavalry") && ent.hasClass("Ranged"))
-			ent.attackMove(bx, bz, "Unit", false);
+			ent.attackMove(bx, bz, UNITS_ONLY, false);
 		else
-			ent.attackMove(tx, tz, "Unit", false);
+			ent.attackMove(tx, tz, UNITS_ONLY, false);
 	}
 	for (const ent of healerEnts)
 		ent.move(bx, bz);
@@ -943,7 +943,7 @@ DefenseManager.prototype.manageDeny = function(gameState, armyEnts, mil, homePos
 		if (SquareDistance(ent.position(), [this.deny.x, this.deny.z]) < 60 * 60)
 			ent.attack(this.deny.id, false);
 		else
-			ent.attackMove(this.deny.x, this.deny.z, "Unit", false);
+			ent.attackMove(this.deny.x, this.deny.z, UNITS_ONLY, false);
 	}
 	return true;
 };
