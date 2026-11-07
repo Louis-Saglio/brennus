@@ -183,6 +183,9 @@ ResourceArbiter.prototype.declaredAmount = function(name, resource)
 ResourceArbiter.prototype.spenders = [
 	["defense", bot => bot.defenseManager.manageDefense()],
 	["phaseUp", bot => bot.boomManager.managePhaseUp()],
+	// Razzia riders right behind the phase-ups: as a leftovers-only stage it
+	// never trained a rider (the boom spends every block's balance).
+	["raid", bot => bot.raidManager.update()],
 	["research", bot => bot.boomManager.manageResearch()],
 	["workers", bot => bot.boomManager.trainWorkers()],
 	["construction", bot => bot.constructionManager.manageConstruction()],

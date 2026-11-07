@@ -1919,3 +1919,36 @@ unchanged.
   spot once freed (s340: 4 orders at one spot across 27.7-33.8m, zero
   construct failures, failedSpots flat) — correct rebuild behavior, not
   a placement bug.
+
+## 2026-11-07 (razzia: javelin-cavalry harassment of enemy workers, raid.js)
+
+- raid.js RaidManager: 5 gaul `cavalry_javelineer_b` trained at the CC
+  (metadata `razzia: true`), a separate roster that army/economy/defense/
+  expansion skip (`isRaider`, `claims`). Targets: enemy `Support` units
+  > 85 m from any enemy CC/Tower/Fortress and not covered by 3+ free
+  soldiers within 40 m. Per-rider kiting (free soldier < 15 m → move 25 m
+  away); squad breaks off on health < 60% or > 2 chasers per rider; a
+  rider < 35% HP retires to the army. Telemetry: `[RAZZIA]` lines per
+  sortie (start, end reason, kills).
+- The AI proxy exposes `unitAIState()` and `unitAIOrderData()` for ENEMY
+  entities too (components/AIProxy.js) — order target = "who is chasing
+  whom", the usable signal for a real response.
+- Petra gathers with citizen soldiers: counting every soldier near the
+  squad as an alarm aborted every sortie on arrival (0 kills in 12 seeds).
+  Count only soldiers not in GATHER/RETURNRESOURCE/REPAIR/GARRISONED.
+- Petra's women garrison/flee when hit: half the sorties end "no exposed
+  workers" — kills stay low (0-4 per sortie); the effect is disruption.
+- Funding: as a leftovers-only spender it trained 0-1 rider per game (the
+  boom spends every block's balance). A priority reserve from minute 8
+  made it work but delayed the city phase 1-3 min → 11W/1L (s37 never
+  reached city) vs 12W baseline. Moved to the war stage: 10-rider budget
+  + reserve went 10W/2T (s29, s31 timeouts). Shipped: war stage, one
+  5-rider squad, no replacements, surplus-only (food > cost+600, wood >
+  cost+400): 12W/0T on probe seeds 3 5 8 11 13 17 19 22 29 31 37 43,
+  mean win 29.9 m vs 29.4 m baseline (ece5eaa) — neutral; the squad
+  rides out in all 12 games (trained 18.9-28.8 m), 15 sorties, 25 kills.
+- Harness pitfall: killing `tools/run.sh` does NOT kill its pyrogenesis
+  children — orphans kept running (load 92 on 16 threads) and wrote into
+  a recreated outdir. Kill `pyrogenesis` processes explicitly. Also
+  `pkill -f <pattern>` from a shell whose command line contains the
+  pattern kills that shell — use the `[x]yz` bracket trick.

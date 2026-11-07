@@ -71,7 +71,8 @@ ArmyManager.prototype.maintainRoster = function(gameState)
 				delete this.bot.economyManager.assignments[id];
 				continue;
 			}
-			if (this.army[id] || !ent.hasClass("Soldier") || id === this.bot.economyManager.herderId)
+			if (this.army[id] || !ent.hasClass("Soldier") || id === this.bot.economyManager.herderId ||
+				this.bot.raidManager?.isRaider(id) || this.bot.raidManager?.claims(ent))
 				continue;
 			this.army[id] = 1;
 			delete this.bot.economyManager.assignments[id];

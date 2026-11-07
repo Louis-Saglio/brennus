@@ -819,7 +819,8 @@ ExpansionManager.prototype.manageExpansion = function()
 			// A lone builder dies or gets sheltered en route: send a party of 6.
 			const party = gameState.getOwnUnits()
 				.filter(ent => ent.isGatherer() && ent.position() &&
-					!this.bot.armyManager.army[ent.id()] && ent.id() !== this.bot.economyManager.herderId)
+					!this.bot.armyManager.army[ent.id()] && ent.id() !== this.bot.economyManager.herderId &&
+					!this.bot.raidManager?.isRaider(ent.id()))
 				.filterNearest(spot, 6).toEntityArray();
 			for (const ent of party)
 				ent.construct(ccType, spot[0], spot[1], this.bot.placementManager.getPlacementAngle(), undefined);

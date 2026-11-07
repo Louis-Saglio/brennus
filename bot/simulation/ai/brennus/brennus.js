@@ -19,6 +19,7 @@ import { ConstructionManager } from "simulation/ai/brennus/construction.js";
 import "simulation/ai/brennus/config.js";
 import { ExpansionManager } from "simulation/ai/brennus/expansion.js";
 import { PlacementManager } from "simulation/ai/brennus/placement.js";
+import { RaidManager } from "simulation/ai/brennus/raid.js";
 import "simulation/ai/brennus/status.js";
 
 export function BrennusBot(settings)
@@ -65,6 +66,8 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	this.armyManager.deserialize(this.savedState?.army);
 	this.defenseManager = new DefenseManager(this);
 	this.buildupManager = new BuildupManager(this);
+	// Razzia: javelin-cavalry harassment of enemy workers before the war stage.
+	this.raidManager = new RaidManager(this);
 };
 
 BrennusBot.prototype.OnUpdate = function()

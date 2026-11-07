@@ -449,7 +449,8 @@ EconomyManager.prototype.assignGatherers = function()
 
 	for (const ent of this.bot.gameState.getOwnUnits().values())
 	{
-		if (!ent.isGatherer() || !ent.position() || (this.bot.armyManager.army[ent.id()] && !this.bot.armyManager.demobilized[ent.id()]))
+		if (!ent.isGatherer() || !ent.position() || (this.bot.armyManager.army[ent.id()] && !this.bot.armyManager.demobilized[ent.id()]) ||
+			this.bot.raidManager?.isRaider(ent.id()) || ent.getMetadata(this.bot.player, "razzia") === true && !this.bot.raidManager?.retired[ent.id()])
 			continue;
 
 		if (ent.id() === this.herderId && !this.herdingDone)
@@ -768,7 +769,8 @@ EconomyManager.prototype.manageHerding = function()
 		// kidnapped into herding — the army roster skips the herder, so it
 		// would silently vanish from the war machine.
 		for (const ent of gameState.getOwnUnits().values())
-			if (ent.position() && ent.isGatherer() &&
+			if (ent.position() && ent.isGatherer() && !this.bot.raidManager?.isRaider(ent.id()) &&
+				ent.getMetadata(this.bot.player, "razzia") !== true &&
 				ent.templateName().indexOf("cavalry_javelineer") !== -1)
 			{
 				herder = ent;
