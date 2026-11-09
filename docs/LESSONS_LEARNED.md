@@ -2088,3 +2088,22 @@ unchanged.
   83 vs 256. Annex ordered at 10.6-22.4 m (median 13.5), built on 33/36,
   lost on 2. Arsenal now built on s3 (18 m) and s8 (28 m), never before;
   s22 still none.
+
+## 2026-11-09 (200-seed baseline of 8275472)
+
+- Seeds 1-200, standard settings: 195W/2T/3L, 0 JS errors, mean win
+  26.4 m, city median 18.6 m, pop 300 on 186/200. 200 games take ~29 min
+  wall on 12 local + 4 thinkpad slots (sweeps/2026-11-09-sweep200-8275472).
+- Garrison <-> engage churn at the outpost CC: 377 of 428 rapid
+  (<= 0.15 min) `[THREATDEC]` flips happen while defending a non-home CC.
+  Games with >= 4 flips: 4 non-wins of 22 vs 1 of 178 (Fisher p 0.0005),
+  wins 6 m slower. Suspected loop: the overflow falls back home > 200 m,
+  mean responder distance > 120 m trips `farRinged` (defense.js), engage
+  marches them back, garrison sends them home again. Not yet fixed.
+- The annex exposure rule finds no exposure <= 0 candidate on 87/198
+  orders (least-exposed fallback, up to +148 m); those games still won
+  85/87.
+- run.sh: an ssh drop to a remote host mid-batch loses that match silently
+  (no stdout, "tar: not a tar archive" in the batch log) — check the
+  summary count (199 of 200) and rerun the missing seed with
+  `-m <outdir>/mod`.
