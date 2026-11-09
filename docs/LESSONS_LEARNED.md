@@ -2107,3 +2107,19 @@ unchanged.
   (no stdout, "tar: not a tar archive" in the batch log) — check the
   summary count (199 of 200) and rerun the missing seed with
   `-m <outdir>/mod`.
+
+## 2026-11-09 (outpost CC: no far-army engage — shipped)
+
+- Fix for the churn above: `farRinged` (engage a far army without
+  superiority) applies only when the threatened CC is home. At an outpost
+  the far soldiers are the shelter fall-back's own overflow.
+- 200 seeds paired vs 8275472: 196W/2T/2L vs 195W/2T/3L; rapid flips
+  428 -> 83 (outpost 377 -> 45); mean win 26.41 -> 26.27 m (n.s.); units
+  lost -6/game, civilians +2.5/game (both n.s.). 161 games bit-identical,
+  38 of the 39 changed ones had an outpost threat. s159 L->W, s194 T->W,
+  s29 W->T (sweeps/2026-11-09-sweep200-outpost).
+- s29's timeout is a market placement failure: no spot for 24 min, 26 of
+  68 rejected for nearby enemies (Petra camps by the free lots), city 42 m.
+  "no placement for market" shows in 29/200 games in both runs — next lead.
+- Residual flips sit on the 15 % superiority band edge (s64: 69 vs
+  60 x 1.15, responders changing between cycles), not on distance.

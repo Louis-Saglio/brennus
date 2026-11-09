@@ -339,7 +339,14 @@ DefenseManager.prototype.manageDefense = function()
 			for (const ent of responders)
 				respDist += Math.sqrt(SquareDistance(ent.position(), [threat.ccx, threat.ccz]));
 			respDist = responders.length ? respDist / responders.length : 0;
-			const farRinged = respDist > 120 && threat.n >= armyN * 0.5 && nearThreat <= armyN * 1.5;
+			// Home CC only: at an outpost the outnumbered overflow is sent
+			// home on purpose (shelter fall-back below), so the far-army
+			// rule saw its own fall-back as "far" and flipped to engage,
+			// which marched it back in — garrison/engage every armyCmd
+			// cycle while the wave fed on it (sweep200 8275472: 377 of 428
+			// rapid flips at outposts, 4 of 5 non-wins; s159 98 -> 12).
+			const atHome = !homePos || Math.abs(threat.ccx - homePos[0]) < 1 && Math.abs(threat.ccz - homePos[1]) < 1;
+			const farRinged = atHome && respDist > 120 && threat.n >= armyN * 0.5 && nearThreat <= armyN * 1.5;
 			const engage = farRinged || (armyN >= nearThreat * 1.15 && waveSize <= armyN);
 			if (engage !== this.threatDecBranch || this.bot.turn >= (this.threatDecLog || 0))
 			{
