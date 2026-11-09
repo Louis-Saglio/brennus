@@ -18,6 +18,16 @@ import { SquareDistance } from "simulation/ai/brennus/helpers.js";
  *  - forward: toward the map centre (and Petra), to take the land she would
  *    expand into — only while the area is quiet (no enemy soldiers seen
  *    near it in the last 3 min, no enemy building within 250 m);
+ *  - never nearer Petra's CC than home is: her attack plans target the
+ *    enemy CivCentre nearest to her (petra/attackPlan.js getNearestTarget
+ *    over defaultTargetFinder), so an annex on her side becomes the first
+ *    target of every wave, away from the army, towers and home garrison —
+ *    the first two annex batches put 33 of 35 there and lost 4 of them,
+ *    each a lost or timed-out game. Spots behind that line only get the
+ *    forward bonus (toward the centre, sideways). Fallback when no node
+ *    qualifies: the least exposed;
+ *  - Petra's attack corridor (the segment from home to her CC) is
+ *    penalized within corridorClear: her waves walk it;
  *  - contested ground (soldiers seen there, or an enemy building near)
  *    is penalized — the flank wins when the middle is dangerous — and
  *    ground under heavy traffic is skipped;
@@ -57,8 +67,12 @@ AnnexManager.prototype.minDist = 204;
 AnnexManager.prototype.maxDist = 240;
 /** Radius (m) of the land the annex is credited with: its own territory where the home bubble does not already reach. */
 AnnexManager.prototype.annexReach = 120;
-/** Early-muster barracks that must be placed before the annex competes for wood. */
-AnnexManager.prototype.barracksFirst = 3;
+/** Early-muster barracks that must be placed before the annex competes for wood (3 landed the annex at 14-17 min, on top of Petra's first wave). */
+AnnexManager.prototype.barracksFirst = 2;
+/** Distance (m) from Petra's attack corridor below which a spot is penalized (3 points per m) and never counts as quiet. */
+AnnexManager.prototype.corridorClear = 150;
+/** How much nearer (m) Petra's CC the annex may stand than home does. */
+AnnexManager.prototype.exposureMax = 0;
 /** Attempts (orders) before giving up: a CC that keeps dying is a war, not a land grab. */
 AnnexManager.prototype.maxAttempts = 3;
 
@@ -69,11 +83,13 @@ AnnexManager.prototype.isAnnex = function(ent)
 };
 
 /**
- * Off until the defense stops treating the annex like the home CC: in the
- * first 36-seed batch it lured the army 300 m out to garrison it while
- * Petra's first wave sacked the home economy (s54, s61 losses).
+ * On since the exposure rule and the outpost shelter (defense.js): with
+ * the annex on the near side of Petra's CC and the army falling back home
+ * instead of marching to it, 36 seeds went 35W/1T/0L vs 35W/0T/1L without
+ * it (2026-11-09). The first version (annex on Petra's side, army sent to
+ * garrison it) went 32W/2T/2L.
  */
-AnnexManager.prototype.enabled = false;
+AnnexManager.prototype.enabled = true;
 
 /** Arbiter stage (right after the phase-up): fund and order the annex CC. */
 AnnexManager.prototype.update = function()
@@ -168,7 +184,7 @@ AnnexManager.prototype.update = function()
 		bot.expansionManager.expansionRegion = bot.accessibility.getAccessValue(home.position());
 	print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m annex CC order at ${pick.pos[0].toFixed(0)},${pick.pos[1].toFixed(0)} ` +
 		`(${pick.kind}: newLand ${pick.newLand} tiles, forward ${pick.forward.toFixed(2)}, res ${pick.res.toFixed(2)}, ` +
-		`soldiers seen ${pick.danger}, enemy buildings ${pick.enemyBld}; ${pick.n} candidates; attempt ${this.state.attempts})\n`);
+		`soldiers seen ${pick.danger}, enemy buildings ${pick.enemyBld}, corridor ${Math.round(pick.lane)} m, exposure ${Math.round(pick.exposure)} m; ${pick.n} candidates; attempt ${this.state.attempts})\n`);
 };
 
 /** Enemy soldiers seen, sampled every 50 turns and kept 3 min: where the fighting has been is where the annex should not go. */
@@ -211,9 +227,35 @@ AnnexManager.prototype.pickSpot = function(homePos)
 	const centre = [mapSize / 2, mapSize / 2];
 
 	const allCC = [];
+	const enemyCC = [];
 	for (const ent of gameState.getStructures().values())
 		if (ent.hasClass("CivCentre") && ent.position())
+		{
 			allCC.push(ent.position());
+			if (gameState.isPlayerEnemy(ent.owner()))
+				enemyCC.push(ent.position());
+		}
+	// Petra's attack corridor: the segment from home to each enemy CC. Her
+	// waves walk it, and an annex on it takes the first wave alone (s54,
+	// s61 in the first annex batch).
+	const exposure = pos => {
+		let worst = -Infinity;
+		for (const e of enemyCC)
+			worst = Math.max(worst, Math.hypot(homePos[0] - e[0], homePos[1] - e[1]) - Math.hypot(pos[0] - e[0], pos[1] - e[1]));
+		return worst;
+	};
+	const corridor = pos => {
+		let best = Infinity;
+		for (const e of enemyCC)
+		{
+			const dx = e[0] - homePos[0], dz = e[1] - homePos[1];
+			const len2 = dx * dx + dz * dz;
+			let t = len2 ? ((pos[0] - homePos[0]) * dx + (pos[1] - homePos[1]) * dz) / len2 : 0;
+			t = Math.max(0, Math.min(1, t));
+			best = Math.min(best, Math.hypot(pos[0] - homePos[0] - t * dx, pos[1] - homePos[1] - t * dz));
+		}
+		return best;
+	};
 	const enemyBld = [];
 	for (const ent of gameState.getEnemyStructures().values())
 		if (ent.owner() !== 0 && ent.position())
@@ -289,7 +331,8 @@ AnnexManager.prototype.pickSpot = function(homePos)
 		const land = newLand(pos);
 		const forward = (Math.hypot(homePos[0] - centre[0], homePos[1] - centre[1]) -
 			Math.hypot(pos[0] - centre[0], pos[1] - centre[1])) / this.minDist;
-		const quiet = danger === 0 && enemyFar === 0;
+		const lane = corridor(pos);
+		const quiet = danger === 0 && enemyFar === 0 && lane >= this.corridorClear;
 		let ores = 0, wood = 0;
 		for (const [p, amt] of mines)
 			if (SquareDistance(p, pos) < 100 * 100 && SquareDistance(p, homePos) > 130 * 130)
@@ -300,13 +343,17 @@ AnnexManager.prototype.pickSpot = function(homePos)
 		const res = Math.min(1, ores / 6000) + Math.min(1, wood / 15000);
 		const contested = danger > 0 || enemyNear > 0;
 		const score = land + (quiet ? 60 * forward : 0) + 40 * res -
-			(contested ? 80 + 2 * danger + 60 * enemyNear : 0);
+			(contested ? 80 + 2 * danger + 60 * enemyNear : 0) -
+			Math.max(0, this.corridorClear - lane) * 3;
 		scored.push({ "pos": pos, "score": score, "newLand": land, "forward": forward, "res": res,
-			"danger": danger, "enemyBld": enemyNear,
+			"danger": danger, "enemyBld": enemyNear, "lane": lane, "exposure": exposure(pos),
 			"kind": contested ? "contested" : quiet && forward > 0.3 ? "forward" : "flank" });
 	}
-	scored.sort((a, b) => b.score - a.score);
-	const pick = scored[0];
+	// Hard rule, not a weight: an exposed annex is the wave's target.
+	const safe = scored.filter(c => c.exposure <= this.exposureMax);
+	const pool = safe.length ? safe : scored.sort((a, b) => a.exposure - b.exposure).slice(0, 1);
+	pool.sort((a, b) => b.score - a.score);
+	const pick = pool[0];
 	if (pick)
 		pick.n = scored.length;
 	this.cache = { "turn": bot.turn, "pick": pick };

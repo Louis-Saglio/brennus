@@ -315,28 +315,7 @@ DefenseManager.prototype.manageDefense = function()
 					responders.push(ent);
 			// Garrisoned soldiers (not the ungarrisoned remainder) decide
 			// superiority — 20 in the CC is +20 arrows, and they eject into
-			// the fight once the balance flips.
-			// Shelters: the threatened CC, then built defense towers within
-			// 120 m of it. A stone tower holds 5 infantry at +1 arrow each
-			// (default 4, GarrisonArrowMultiplier 1, GarrisonArrowClasses
-			// Infantry) — five full towers shelter 25 soldiers behind ~45
-			// extra arrows; the CC alone could not hold the army (agg10 s3:
-			// the 39-man overflow stood outside and was slaughtered). Sending
-			// the overflow to far shelters was tried and reverted: sitting
-			// out the fight far away kept them alive but they missed the
-			// engage, and previously-won seeds regressed (val 2026-09-22).
-			const shelters = [];
-			{
-				const ccEnt0 = gameState.getEntityById(threat.ccId);
-				if (ccEnt0)
-					shelters.push(ccEnt0);
-				const towerType = gameState.applyCiv("structures/{civ}/defense_tower");
-				for (const ent of gameState.getOwnStructures().values())
-					if (ent.templateName() === towerType && ent.position() &&
-						ent.foundationProgress() === undefined &&
-						SquareDistance(ent.position(), [threat.ccx, threat.ccz]) < 120 * 120)
-						shelters.push(ent);
-			}
+			// the fight once the balance flips. Shelters: see shelterPlan.
 			// Engage only from clear superiority, and never into a bulk bigger
 			// than the whole army. Parity was a churn machine: nearThreat
 			// oscillates by several units per round as the wave floods the
@@ -387,28 +366,64 @@ DefenseManager.prototype.manageDefense = function()
 					this.garrisonLogged = true;
 					print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m garrisoning ${responders.length} soldiers, outnumbered ${armyN} vs ${nearThreat} near CC ${threat.ccx.toFixed(0)},${threat.ccz.toFixed(0)}\n`);
 				}
-				const frees = shelters.map(s => Math.max(0, (+s.garrisonMax() || 0) - s.garrisonedSlots()));
-				const garrisonIn = ent =>
+				const plan = this.shelterPlan(gameState, threat, mil, homePos);
+				const garrisonIn = (ent, list) =>
 				{
-					for (let i = 0; i < shelters.length; i++)
-						if (frees[i] > 0)
+					for (const sh of list)
+						if (sh.free > 0)
 						{
-							ent.garrison(shelters[i]);
-							frees[i]--;
+							ent.garrison(sh.ent);
+							sh.free--;
 							return true;
 						}
 					return false;
 				};
-				for (const ent of responders)
+				// The attacked CC's shelters go to the soldiers already near
+				// it, nearest first. At an outpost CC the rest never march
+				// into the ring (s54: 100 marched 300 m to the annex, 20
+				// fitted in, the 80 outside died while the wave went on to
+				// sack home): they fall back to the nearest CC Petra is not
+				// attacking, under its arrows and ready for her next move —
+				// if she turns on it, it becomes the threat and its
+				// shelters open. At home the overflow stands under the
+				// CC's arrows as before (sending it to far shelters missed
+				// the engage, val 2026-09-22).
+				// Home keeps the responders' own order: nearest-first was
+				// tried there and cost the army (def3 s29/s52/s57: the
+				// nearest hid, the far half walked into the wave
+				// piecemeal — 95 soldiers -> 26 in 3 min, 3 seeds lost).
+				const sorted = plan.isHome ? responders : responders.slice().sort((x, y) =>
+					SquareDistance(x.position(), [threat.ccx, threat.ccz]) - SquareDistance(y.position(), [threat.ccx, threat.ccz]));
+				let inThreat = 0, fellBack = 0, outside = 0;
+				const back = plan.isHome ? undefined : plan.fallbackPos || homePos;
+				for (const ent of sorted)
 				{
 					ent.setStance("defensive");
-					if (!garrisonIn(ent) && SquareDistance(ent.position(), [threat.ccx, threat.ccz]) > 40 * 40)
-						ent.move(threat.ccx, threat.ccz);
+					const near = plan.isHome || SquareDistance(ent.position(), [threat.ccx, threat.ccz]) < 150 * 150;
+					if (near && garrisonIn(ent, plan.threat))
+						++inThreat;
+					else if (back)
+					{
+						++fellBack;
+						if (SquareDistance(ent.position(), back) > 40 * 40)
+							ent.move(back[0], back[1]);
+					}
+					else
+					{
+						++outside;
+						if (SquareDistance(ent.position(), [threat.ccx, threat.ccz]) > 40 * 40)
+							ent.move(threat.ccx, threat.ccz);
+					}
+				}
+				if (this.bot.turn >= (this.shelterLog || 0))
+				{
+					this.shelterLog = this.bot.turn + 300;
+					print(`[DEFENSE] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m shelter at ${plan.isHome ? "home" : "outpost"} CC ${threat.ccx.toFixed(0)},${threat.ccz.toFixed(0)}: ${inThreat} hidden (${plan.threatSlots} slots), ${fellBack} fell back to ${back ? `${back[0].toFixed(0)},${back[1].toFixed(0)}` : "-"}, ${outside} outside\n`);
 				}
 				if (!split)
 					for (const ent of healerEnts)
-						if (!garrisonIn(ent))
-							ent.move(threat.ccx, threat.ccz);
+						if (!garrisonIn(ent, plan.threat))
+							ent.move(...(back || [threat.ccx, threat.ccz]));
 			}
 		}
 	}
@@ -752,6 +767,60 @@ DefenseManager.prototype.waveRecall = function(gameState, armyEnts, healerEnts, 
 	for (const ent of healerEnts)
 		ent.move(homePos[0], homePos[1]);
 	return true;
+};
+
+/**
+ * Where an outnumbered army hides. Shelters of a CC district: the arrow
+ * platforms within 120 m of the CC — the CC itself, then the built defense
+ * towers (a stone tower holds 5 infantry at +1 arrow each; five full
+ * towers shelter 25 soldiers behind ~45 extra arrows — agg10 s3: the CC
+ * alone could not hold the army, the 39-man overflow died outside). Plain cover (barracks, temple,
+ * assembly) was tried and reverted: 90 soldiers sat out the wave inside
+ * barracks while it killed the women (def2: 35 -> 32 wins, civilians lost
+ * 1621 -> 1982); outside, under the arrows, the overflow still fights.
+ * Returns the attacked district's shelters, the fallback position (the
+ * nearest other own CC with fewer than 8 enemy soldiers within 150 m) and
+ * whether the attacked CC is home.
+ */
+DefenseManager.prototype.shelterPlan = function(gameState, threat, mil, homePos)
+{
+	const ccType = gameState.applyCiv("structures/{civ}/civil_centre");
+	const towerType = gameState.applyCiv("structures/{civ}/defense_tower");
+	const threatList = [];
+	const ccEnt0 = gameState.getEntityById(threat.ccId);
+	if (ccEnt0)
+		threatList.push(ccEnt0);
+	for (const ent of gameState.getOwnStructures().values())
+		if (ent.templateName() === towerType && ent.position() &&
+			ent.foundationProgress() === undefined &&
+			SquareDistance(ent.position(), [threat.ccx, threat.ccz]) < 120 * 120)
+			threatList.push(ent);
+	for (let i = 0; i < threatList.length; ++i)
+		threatList[i] = { "ent": threatList[i], "free": Math.max(0, (+threatList[i].garrisonMax() || 0) - threatList[i].garrisonedSlots()) };
+	let fallbackPos, best = Infinity;
+	for (const ent of gameState.getOwnStructures().values())
+	{
+		if (ent.templateName() !== ccType || !ent.position() || ent.id() === threat.ccId)
+			continue;
+		const cp = ent.position();
+		let n = 0;
+		for (const p of mil)
+			if (SquareDistance(p, cp) < 150 * 150 && ++n >= 8)
+				break;
+		if (n >= 8)
+			continue;
+		const d = SquareDistance(cp, [threat.ccx, threat.ccz]);
+		if (d < best)
+		{
+			best = d;
+			fallbackPos = cp;
+		}
+	}
+	return {
+		"threat": threatList, "fallbackPos": fallbackPos,
+		"threatSlots": threatList.reduce((n, sh) => n + sh.free, 0),
+		"isHome": !homePos || Math.abs(threat.ccx - homePos[0]) < 1 && Math.abs(threat.ccz - homePos[1]) < 1
+	};
 };
 
 /**

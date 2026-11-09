@@ -2063,3 +2063,28 @@ unchanged.
   hashes checked). Next: keep the annex off Petra's attack corridor
   (home-to-enemy-CC segment), land it before the first wave, and never
   garrison the army at a non-home CC far from home.
+
+## 2026-11-09 (annex CC on; defending a two-CC base)
+
+- Petra's attack plans target the enemy CivCentre nearest to her
+  (petra/attackPlan.js getNearestTarget over defaultTargetFinder). The
+  first annex version put 33/35 annexes nearer Petra than home — every
+  first wave hit the annex, away from the army and the home towers. A
+  corridor penalty (soft weight) changed almost no placement; a hard rule
+  (never nearer any enemy CC than home, least-exposed fallback) did.
+- Outnumbered at a non-home CC: only soldiers within 150 m garrison it
+  (CC + towers); the rest fall back to the nearest other own CC with
+  < 8 enemy soldiers around (usually home) instead of marching into the
+  wave. Home defense unchanged.
+- Tried and reverted: hiding the overflow in barracks/temples/assembly
+  (90 soldiers sat out the wave inside, the women died: 35 -> 32 wins,
+  civilians lost 1621 -> 1982); garrisoning nearest-first at home (the
+  far half walked into the wave piecemeal, s29 95 -> 26 soldiers in
+  3 min). With the old home order restored, annex-off games reproduce
+  the committed hashes (s29 s52 s57 s64).
+- Result, 36 seeds (3-43 + 44-67), annex on vs off: 35W/1T/0L vs
+  35W/0T/1L, mean win 26.7 vs 26.8 m, city 19.5 vs 19.6 m, civilians lost
+  1299 vs 1621 (paired t -1.25, not significant), "no placement" warnings
+  83 vs 256. Annex ordered at 10.6-22.4 m (median 13.5), built on 33/36,
+  lost on 2. Arsenal now built on s3 (18 m) and s8 (28 m), never before;
+  s22 still none.
