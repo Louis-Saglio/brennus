@@ -438,10 +438,11 @@ PlacementManager.prototype.planCandidates = function(templateType, opts)
 			}
 	}
 	const out = [];
+	const marketLot = templateType.split("/").pop() === "market" ? undefined : this.marketLot(idx);
 	for (const [key, [i, j, r]] of opts.freeOnly ? [] : lots)
 	{
 		const role = this.lotRole(idx, key);
-		if (role === "cc" || role !== "build" && opts.kind !== "field")
+		if (role === "cc" || role !== "build" && opts.kind !== "field" || key === marketLot)
 			continue;
 		const lotWorld = toWorld(f, (r.p0 + r.p1) / 2, (r.q0 + r.q1) / 2);
 		const target = typeof opts.target === "function" ? opts.target(lotWorld) : opts.target;
@@ -555,8 +556,57 @@ PlacementManager.prototype.reservedLots = function(idx)
 		for (const [, key] of lots.slice(0, missing))
 			set.add(key);
 	}
-	this._reserved = { "turn": this.bot.turn, "set": set };
+	// The market gates the city phase (and with it the war stage): until
+	// one stands and once at most marketHoldLeft empty lots still fit it,
+	// the nearest of them is held for it alone — a hard hold, not the
+	// bank's last-resort weight: houses, fields and free-standing dropsites
+	// never take it. Without the hold a cramped base (map edge, small
+	// territory) had every lot eaten by houses, fields and storehouses by
+	// minute 15 (sweep200 s83: no lot fitted a market until a second CC
+	// stood, city 30.5 m). Lots the arsenal can use are taken last. (A hold
+	// from minute 0 in every game was tried: houses spilled 0.9 min
+	// earlier, pop at 10 m -1.2, 191W vs 196W on 200 seeds.)
+	let market;
+	if (!have.market)
+	{
+		const lots = [];
+		const f = idx.f;
+		const home = this.bot.getCivicCentre()?.position();
+		for (let i = -3; i <= 3; ++i)
+			for (let j = -3; j <= 3; ++j)
+			{
+				const key = i + "," + j;
+				if (this.lotRole(idx, key) !== "build" ||
+					(idx.byLot.get(key) || []).some(b => b.i === i && b.j === j))
+					continue;
+				if (!this.lotBigFits(idx, i, j, "market"))
+					continue;
+				const r = lotRect(f, i, j);
+				const w = toWorld(f, (r.p0 + r.p1) / 2, (r.q0 + r.q1) / 2);
+				lots.push([this.lotBigFits(idx, i, j, "arsenal") ? 1 : 0,
+					home ? Math.hypot(w[0] - home[0], w[1] - home[1]) : 0, key]);
+			}
+		lots.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+		if (lots.length <= this.marketHoldLeft)
+			market = lots[0]?.[2];
+	}
+	if (market !== this._marketLotLogged && (market !== undefined || this._marketLotLogged !== undefined))
+	{
+		this._marketLotLogged = market;
+		print(`[HARNESS] t=${(gameState.getTimeElapsed() / 60000).toFixed(1)}m market lot ${market === undefined ? (have.market ? "released (market ordered)" : "released") : "held: " + market}\n`);
+	}
+	this._reserved = { "turn": this.bot.turn, "set": set, "market": market };
 	return set;
+};
+
+/** Empty market-sized lots left at which the market's lot gets held (reservedLots). */
+PlacementManager.prototype.marketHoldLeft = 2;
+
+/** The lot held for the market (see reservedLots), or undefined. */
+PlacementManager.prototype.marketLot = function(idx)
+{
+	this.reservedLots(idx);
+	return this._reserved.market;
 };
 
 /** Score handicap (m) of a free-standing dropsite spot: a lattice spot this much farther still wins. */
@@ -581,10 +631,17 @@ PlacementManager.prototype.freeSpotOK = function(idx, pos, hp, hq)
 	const [p, q] = toLocal(f, pos[0], pos[1]);
 	const r = { "p0": p - hp, "p1": p + hp, "q0": q - hq, "q1": q + hq };
 	const S = f.S;
+	const marketLot = this.marketLot(idx);
 	for (let i = lotIndex(f, f.Lp, r.p0 - S); i <= lotIndex(f, f.Lp, r.p1 + S); ++i)
 		for (let j = lotIndex(f, f.Lq, r.q0 - S); j <= lotIndex(f, f.Lq, r.q1 + S); ++j)
 		{
 			const key = i + "," + j;
+			if (key === marketLot)
+			{
+				const ml = lotRect(f, i, j);
+				if (intersects(r, ml.p0 - S, ml.p1 + S, ml.q0 - S, ml.q1 + S))
+					return false;
+			}
 			const near = idx.byLot.get(key) || [];
 			for (const b of near)
 			{
@@ -621,12 +678,12 @@ PlacementManager.prototype.ringSpots = function(center, rMin, rMax, step = 2)
 };
 
 /** Terrain/territory/enemy/region check of one spot (the plan rules are the candidate generator's): "" when buildable, else the first failing check. */
-PlacementManager.prototype.spotCheck = function(templateType, pos, region)
+PlacementManager.prototype.spotCheck = function(templateType, pos, region, relaxedEnemy)
 {
 	const [x, z] = pos;
 	if (this.failedSpots.some(fs => Math.abs(fs[0] - x) < 6 && Math.abs(fs[1] - z) < 6))
 		return "failed";
-	if (this.bot.armyManager.nearEnemy(pos, 100, 60))
+	if (relaxedEnemy ? this.bot.armyManager.nearEnemySplit(pos, 100, 40, 60) : this.bot.armyManager.nearEnemy(pos, 100, 60))
 		return "enemy";
 	if (region !== undefined && this.bot.accessibility.getAccessValue(pos) !== region)
 		return "region";
@@ -670,7 +727,7 @@ PlacementManager.prototype.planSearch = function(templateType, opts)
 				}
 			}
 		}
-		const why = this.spotCheck(templateType, cand.pos, region);
+		const why = this.spotCheck(templateType, cand.pos, region, opts.relaxedEnemy);
 		if (!why)
 			return cand;
 		++tally[why];
@@ -885,13 +942,22 @@ PlacementManager.prototype.tryConstruct = function(templateType, kind, center, r
 		// Anything but an arsenal keeps off the arsenal-sized lots of the
 		// land bank while another lot nearby has room.
 		const isArsenal = templateType.split("/").pop() === "arsenal";
+		// The market gates the city phase: after 2 min of failures, only
+		// structures that shoot keep it 100 m away — an enemy house or
+		// farmstead only blocks its own 40 m (sweep200 s29: Petra took the
+		// annex and housed next to it, 26 of 68 spots rejected for houses
+		// 26-67 m away, market 22 min late, city 42 m).
+		const relaxedEnemy = templateType.split("/").pop() === "market" &&
+			this.placeFailSince[templateType] !== undefined && this.bot.turn - this.placeFailSince[templateType] >= 600;
 		const opts = {
 			"kind": kind, "centers": center ? [center, ...ccs] : ccs, "maxDist": 160,
-			"region": "nearestCC", "reserve": !isArsenal,
+			"region": "nearestCC", "reserve": !isArsenal, "relaxedEnemy": relaxedEnemy,
 			"score": (x, z, info) => Math.hypot(x - anchor[0], z - anchor[1]) +
 				(!isArsenal && info.reserved && info.arsenalLot ? 40 : 0)
 		};
 		pos = this.planSearch(templateType, opts)?.pos;
+		if (pos && relaxedEnemy)
+			print(`[HARNESS] t=${(this.bot.gameState.getTimeElapsed() / 60000).toFixed(1)}m market at ${pos[0].toFixed(0)},${pos[1].toFixed(0)} under the relaxed enemy rule (failing for ${((this.bot.turn - this.placeFailSince[templateType]) / 300).toFixed(1)} min)\n`);
 		// Last resort when no lot has room (small territory, lots cut by
 		// woods and the border): stand alone on open ground like a
 		// dropsite, a street clear of everything (freeSpotOK).

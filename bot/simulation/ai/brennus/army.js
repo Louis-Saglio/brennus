@@ -11,6 +11,8 @@ export function ArmyManager(bot)
 	this.demobilized = {};
 	// Enemy intel caches, refreshed each block by updateEnemyPositions.
 	this.enemyStructuresPos = [];
+	// The subset that shoots (towers, fortresses, CCs: an Attack component).
+	this.enemyArmedStructuresPos = [];
 	this.enemyMobilesPos = [];
 	this.enemyArmy = undefined;
 	this.enemySiege = undefined;
@@ -86,6 +88,7 @@ ArmyManager.prototype.maintainRoster = function(gameState)
 ArmyManager.prototype.updateEnemyPositions = function()
 {
 	this.enemyStructuresPos = [];
+	this.enemyArmedStructuresPos = [];
 	this.enemyMobilesPos = [];
 	let army = 0, siege = 0, nearest = Infinity;
 	const ccPos = this.bot.getCivicCentre()?.position();
@@ -99,6 +102,8 @@ ArmyManager.prototype.updateEnemyPositions = function()
 		if (ent.hasClass("Structure"))
 		{
 			this.enemyStructuresPos.push(pos);
+			if (ent.get("Attack"))
+				this.enemyArmedStructuresPos.push(pos);
 			continue;
 		}
 		this.enemyMobilesPos.push(pos);
@@ -135,6 +140,20 @@ ArmyManager.prototype.nearEnemy = function(pos, structureDist, mobileDist)
 		if (SquareDistance(epos, pos) < md2)
 			return true;
 	return false;
+};
+
+/**
+ * nearEnemy with two structure radii: `armedDist` for the structures that
+ * shoot (towers, fortresses, CCs), `structureDist` for the rest (houses,
+ * fields, dropsites only block the spot itself).
+ */
+ArmyManager.prototype.nearEnemySplit = function(pos, armedDist, structureDist, mobileDist)
+{
+	const ad2 = armedDist * armedDist;
+	for (const epos of this.enemyArmedStructuresPos || [])
+		if (SquareDistance(epos, pos) < ad2)
+			return true;
+	return this.nearEnemy(pos, structureDist, mobileDist);
 };
 
 // ---------------------------------------------------------------- defense

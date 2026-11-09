@@ -2123,3 +2123,21 @@ unchanged.
   "no placement for market" shows in 29/200 games in both runs — next lead.
 - Residual flips sit on the 15 % superiority band edge (s64: 69 vs
   60 x 1.15, responders changing between cycles), not on distance.
+
+## 2026-11-09 (market placement: lot hold on scarcity, relaxed enemy rule — shipped)
+
+- "no placement for market" shows in 29/200 games but the market is
+  placed within ~1 min in 27 of them; real delays only on s83 (13.7 min:
+  cramped map-edge base, the land bank holds arsenal-sized lots only and
+  none existed, so houses, fields and free-standing storehouses ate every
+  lot) and s29 (22 min: Petra captured the annex and housed next to it,
+  any enemy structure < 100 m rejected the spot).
+- Fix: hold the nearest market-sized empty lot for the market alone once
+  <= 2 remain (hard, not the bank's +200 weight); after 2 min of market
+  failures only structures with Attack keep it 100 m away, others 40 m.
+- 200 seeds paired vs eab6f18: 196W/2T/2L both, s29 T->W (city 42 -> 20 m),
+  s83 city 30.5 -> 16.5 m, s177 W->T (first-wave chaos), civilians lost
+  -5.7/game (t -2.0), win time -0.26 m (n.s.).
+- Failed first: holding the lot from minute 0 in every game cost housing
+  (spill 0.9 min earlier, pop at 10 m -1.2) and went 191W/4T/5L. Gate a
+  land reservation on scarcity, not on time.
