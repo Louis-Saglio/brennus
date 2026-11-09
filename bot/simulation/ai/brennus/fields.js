@@ -11,11 +11,10 @@
  * 60%. Placement therefore has exactly one objective: minimize the edge
  * distance to the nearest food dropsite (CC or farmstead).
  *
- * Packing: fields are 22x22 m obstructions and do NOT block movement
- * (BlockMovement false), so they can sit anywhere they physically fit —
- * including between other buildings. They must not overlap each other
- * (the engine rejects an overlapping foundation silently), which the
- * explicit box check below enforces independently of the passability map.
+ * Packing: fields are 22x22 m obstructions that do NOT block movement
+ * (BlockMovement false), so they double as walkable open ground: the
+ * town plan (placement.js) packs them around the home CC as its farm and
+ * beside expansion CCs, and they take building lots elsewhere.
  *
  * Diminishing returns (dr=0.9, 5 slots) make spreading gatherers across
  * fields better than stacking them: per-gatherer efficiency is 100/95/90/
@@ -122,71 +121,55 @@ FieldManager.prototype.orderField = function()
 };
 
 /**
- * Placement: the buildable spot minimizing the edge distance to the
- * nearest food dropsite. Candidates ring every dropsite (CCs out to a
- * 110 m edge — their 140 m territory bubble covers it; farmsteads to
- * 60 m — beyond that a field cluster attracts a farmstead through the
- * dropsite demand path instead). Cheap geometric checks (failed spots,
- * land region, structure-overlap) filter the rings; the survivors are
- * scored by nearest-dropsite edge distance and validated best-first
- * (enemy proximity, then the full passability + territory check).
+ * Placement: the town-plan spot minimizing the edge distance to the nearest
+ * food dropsite: the home farm's 24 slots around the CC first (no street
+ * between fields — the densest farmland there is; farmsteads come to its
+ * outer ring), the field-only lots beside an expansion CC next, building
+ * lots last, since those hold the town: pairing up in a lot that already
+ * has a field (two per lot), then lots too cut up for a big building,
+ * the big buildings' land bank (placement.js reservedLots) last.
+ * Reach:
+ * CCs out to a 110 m edge (their 140 m territory bubble covers it),
+ * farmsteads to 60 m (beyond that a field cluster attracts a farmstead
+ * through the dropsite demand path instead). Candidates are validated
+ * best-first (failed spots, enemy proximity, land region, passability +
+ * territory).
  */
 FieldManager.prototype.findFieldSpot = function(fieldType)
 {
 	const bot = this.bot;
-	const gameState = bot.gameState;
-	const template = gameState.getTemplate(fieldType);
-	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
-	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
-	const angle = bot.placementManager.getPlacementAngle();
-	const cosa = Math.cos(angle), sina = Math.sin(angle);
-	const pass = gameState.getPassabilityMap();
-	const mask = gameState.getPassabilityClassMask("building-land");
-	const terr = bot.territoryMap;
-
 	const dropsites = this.foodDropsites();
 	if (!dropsites.length)
 		return undefined;
-	const cells = this.blockerCells();
-
-	const cands = [];
-	for (const d of dropsites)
-	{
-		const region = bot.accessibility.getAccessValue(d.pos);
-		const rMin = Math.min(d.hw + halfW, d.hd + halfD);
-		const rMax = d.halfDiag + (d.isCC ? 110 : 60);
-		for (let r = rMin; r <= rMax; r += 2)
-			for (let a = 0; a < 32; ++a)
+	const nearest = (x, z) => {
+		let best, edge = Infinity;
+		for (const o of dropsites)
+		{
+			const e = Math.hypot(x - o.pos[0], z - o.pos[1]) - o.halfDiag;
+			if (e < edge)
 			{
-				const ang = a * Math.PI / 16;
-				const x = d.pos[0] + r * Math.cos(ang);
-				const z = d.pos[1] + r * Math.sin(ang);
-				if (bot.placementManager.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
-					continue;
-				if (bot.accessibility.getAccessValue([x, z]) !== region)
-					continue;
-				if (this.boxBlocked(x, z, halfW, halfD, cosa, sina, cells))
-					continue;
-				let edge = Infinity;
-				for (const o of dropsites)
-				{
-					const e = Math.hypot(x - o.pos[0], z - o.pos[1]) - o.halfDiag;
-					if (e < edge)
-						edge = e;
-				}
-				cands.push([x, z, edge]);
+				edge = e;
+				best = o;
 			}
-	}
-	cands.sort((a, b) => a[2] - b[2]);
+		}
+		return [best, edge];
+	};
+	const cands = bot.placementManager.planCandidates(fieldType, {
+		"kind": "field",
+		"centers": dropsites.map(d => d.pos),
+		"maxDist": Math.max(...dropsites.map(d => d.halfDiag + (d.isCC ? 110 : 60))),
+		"target": lotWorld => nearest(lotWorld[0], lotWorld[1])[0].pos,
+		"bigFits": true, "reserve": true,
+		"score": (x, z, info) => nearest(x, z)[1] + (info.role === "farm" ? 0 : info.role === "field" ? 10 :
+			60 - (info.fields ? 30 : info.bigFits === false ? 20 : 0) + (info.reserved ? 200 : 0))
+	});
 	for (const c of cands)
 	{
-		if (bot.armyManager.nearEnemy([c[0], c[1]], 100, 60))
+		const [site, edge] = nearest(c.pos[0], c.pos[1]);
+		if (edge > (site.isCC ? 110 : 60))
 			continue;
-		if (bot.placementManager.placementOK(c[0], c[1], halfW, halfD, angle, pass, mask, terr))
-		{
-			c[2] = Math.max(0, c[2]);
-			return c;
-		}
+		if (bot.placementManager.spotOK(fieldType, c.pos, bot.accessibility.getAccessValue(site.pos)))
+			return [c.pos[0], c.pos[1], Math.max(0, edge)];
 	}
 	return undefined;
 };
@@ -223,68 +206,4 @@ FieldManager.prototype.foodDropsites = function()
 		sites.sort((a, b) => Math.hypot(a.pos[0] - home[0], a.pos[1] - home[1]) -
 			Math.hypot(b.pos[0] - home[0], b.pos[1] - home[1]));
 	return sites;
-};
-
-/**
- * Own structures, foundations and pending builds as placement blockers,
- * hashed into 48 m cells (a blocker's reach is at most ~42 m: biggest
- * obstruction half-width plus the field's). Fields may not rasterize
- * their walkable obstruction into the passability map, so the overlap
- * check cannot rely on it.
- */
-FieldManager.prototype.blockerCells = function()
-{
-	const gameState = this.bot.gameState;
-	const blockers = [];
-	const add = (pos, hw, hd) => blockers.push({ "pos": pos, "hw": hw, "hd": hd });
-	for (const ent of gameState.getOwnStructures().values())
-	{
-		const pos = ent.position();
-		const o = ent.get("Obstruction/Static");
-		if (pos && o)
-			add(pos, +o["@width"] / 2, +o["@depth"] / 2);
-	}
-	for (const f of gameState.getOwnFoundations().values())
-	{
-		const pos = f.position();
-		const o = f.get("Obstruction/Static");
-		if (pos && o)
-			add(pos, +o["@width"] / 2, +o["@depth"] / 2);
-	}
-	for (const pb of this.bot.constructionManager.pendingBuilds)
-	{
-		const o = gameState.getTemplate(pb.template)?.get("Obstruction/Static");
-		if (o)
-			add([pb.x, pb.z], +o["@width"] / 2, +o["@depth"] / 2);
-	}
-	const cells = new Map();
-	for (const b of blockers)
-	{
-		const key = `${Math.floor(b.pos[0] / 48)},${Math.floor(b.pos[1] / 48)}`;
-		const cell = cells.get(key);
-		if (cell)
-			cell.push(b);
-		else
-			cells.set(key, [b]);
-	}
-	return cells;
-};
-
-/** True when the candidate's rotated box overlaps a known blocker (all buildings share the CC angle, so boxes are axis-aligned in the rotated frame). */
-FieldManager.prototype.boxBlocked = function(x, z, halfW, halfD, cosa, sina, cells)
-{
-	const cx = Math.floor(x / 48), cz = Math.floor(z / 48);
-	for (let i = cx - 1; i <= cx + 1; ++i)
-		for (let j = cz - 1; j <= cz + 1; ++j)
-			for (const b of cells.get(`${i},${j}`) || [])
-			{
-				const dx = x - b.pos[0], dz = z - b.pos[1];
-				if (dx * dx + dz * dz > 3600)
-					continue;
-				const u = dx * cosa + dz * sina;
-				const v = -dx * sina + dz * cosa;
-				if (Math.abs(u) < halfW + b.hw + 0.75 && Math.abs(v) < halfD + b.hd + 0.75)
-					return true;
-			}
-	return false;
 };

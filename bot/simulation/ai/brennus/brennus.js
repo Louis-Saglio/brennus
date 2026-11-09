@@ -8,6 +8,7 @@
 
 import { BaseAI } from "simulation/ai/common-api/baseAI.js";
 import { ResourceArbiter } from "simulation/ai/brennus/arbiter.js";
+import { AnnexManager } from "simulation/ai/brennus/annex.js";
 import { ArmyManager } from "simulation/ai/brennus/army.js";
 import { BoomManager } from "simulation/ai/brennus/boom.js";
 import { BuildupManager } from "simulation/ai/brennus/buildup.js";
@@ -57,6 +58,9 @@ BrennusBot.prototype.CustomInit = function(gameState)
 	// and the defense/war/expansion stage latches.
 	this.expansionManager = new ExpansionManager(this);
 	this.expansionManager.deserialize(this.savedState?.expansion);
+	// Town-phase second CC on the edge of the home territory.
+	this.annexManager = new AnnexManager(this);
+	this.annexManager.deserialize(this.savedState?.annex);
 
 	this.offenseManager = new OffenseManager(this);
 	this.offenseManager.deserialize(this.savedState?.offense);
@@ -127,6 +131,7 @@ BrennusBot.prototype.Serialize = function()
 {
 	return {
 		"expansion": this.expansionManager.serialize(),
+		"annex": this.annexManager.serialize(),
 		"construction": this.constructionManager.serialize(),
 		"placement": this.placementManager.serialize(),
 		"economy": this.economyManager.serialize(),

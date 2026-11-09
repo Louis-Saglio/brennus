@@ -309,6 +309,64 @@ Trigger.prototype.MapSnapshot = function()
 		",\"1\":[" + per["1"].join(",") + "],\"2\":[" + per["2"].join(",") + "]}\n");
 };
 
+// ---------------------------------------------------------------------------
+// Layout snapshots: every structure's true footprint, every 2 min of sim time.
+//
+// Purpose: measure base clutter offline (tools/layout.py) — obstruction
+// rectangles, not dots, so free sides, street widths and path detours can be
+// computed exactly. One stdout line per snapshot:
+//   [HARNESS] layout {"t": <sim s>, "1": [[name,x,z,angle,w,d,blocks], ...], "2": [...]}
+// name: template short name (foundations get a trailing "*"), x,z metres
+// (0.1 m), angle radians (0.01), w,d obstruction size, blocks 1 when the
+// obstruction blocks movement (fields do not). Observation only.
+// ---------------------------------------------------------------------------
+
+const LAYOUT_TPL_CACHE = new Map();
+
+function LAYOUT_tpl(name)
+{
+	let rec = LAYOUT_TPL_CACHE.get(name);
+	if (rec !== undefined)
+		return rec;
+	const tpl = Engine.QueryInterface(SYSTEM_ENTITY, IID_TemplateManager).GetTemplate(name);
+	const st = tpl && tpl.Obstruction && tpl.Obstruction.Static;
+	const classes = tpl && tpl.Identity && tpl.Identity.Classes ? String(tpl.Identity.Classes._string || "") : "";
+	rec = null;
+	if (st && classes.indexOf("Structure") !== -1)
+		rec = {
+			"short": name.replace(/^foundation\|/, "").split("/").pop() + (name.indexOf("foundation|") === 0 ? "*" : ""),
+			"w": +st["@width"], "d": +st["@depth"],
+			"blocks": String(tpl.Obstruction.BlockMovement) === "false" ? 0 : 1
+		};
+	LAYOUT_TPL_CACHE.set(name, rec);
+	return rec;
+}
+
+Trigger.prototype.LayoutSnapshot = function()
+{
+	const now = Engine.QueryInterface(SYSTEM_ENTITY, IID_Timer).GetTime() / 1000;
+	const cmpTemplateManager = Engine.QueryInterface(SYSTEM_ENTITY, IID_TemplateManager);
+	const per = { "1": [], "2": [] };
+	for (const ent of Engine.GetEntitiesWithInterface(IID_Obstruction))
+	{
+		const cmpOwnership = Engine.QueryInterface(ent, IID_Ownership);
+		const owner = cmpOwnership ? cmpOwnership.GetOwner() : -1;
+		if (owner !== 1 && owner !== 2)
+			continue;
+		const rec = LAYOUT_tpl(cmpTemplateManager.GetCurrentTemplateName(ent) || "");
+		if (!rec)
+			continue;
+		const cmpPosition = Engine.QueryInterface(ent, IID_Position);
+		if (!cmpPosition || !cmpPosition.IsInWorld())
+			continue;
+		const pos = cmpPosition.GetPosition2D();
+		per[owner].push("[\"" + rec.short + "\"," + pos.x.toFixed(1) + "," + pos.y.toFixed(1) + "," +
+			cmpPosition.GetRotation().y.toFixed(2) + "," + rec.w + "," + rec.d + "," + rec.blocks + "]");
+	}
+	print("[HARNESS] layout {\"t\":" + now.toFixed(0) +
+		",\"1\":[" + per["1"].join(",") + "],\"2\":[" + per["2"].join(",") + "]}\n");
+};
+
 Trigger.prototype.PrintEfficiency = function()
 {
 	if (EFF_printed)
@@ -370,6 +428,9 @@ Trigger.prototype.PrintEfficiency = function()
 
 	// Map snapshots: every 30 s of sim time (see the section above).
 	cmpTrigger.RegisterTrigger("OnInterval", "MapSnapshot", { "enabled": true, "delay": 30000, "interval": 30000 });
+
+	// Layout snapshots: every 2 min of sim time (see the section above).
+	cmpTrigger.RegisterTrigger("OnInterval", "LayoutSnapshot", { "enabled": true, "delay": 120000, "interval": 120000 });
 
 	// Print the summary when the game ends, next to the statistics JSON.
 	cmpTrigger.RegisterTrigger("OnPlayerWon", "PrintEfficiency", { "enabled": true });

@@ -201,6 +201,27 @@ renders those snapshots as a grid (and optionally per-unit movement tracks),
 which is exact, needs no GPU, and scales to a whole batch: 12 games in one
 picture, or one game per seed compared side by side.
 
+### layout.py — base clutter metrics from the telemetry
+
+```sh
+tools/layout.py <stdout.log | tag dir | batch dir>... [--at 16,24] [--radius 120] [--png DIR] [--tsv FILE]
+```
+
+The mod also prints a `[HARNESS] layout` line every 2 min of sim time:
+every structure of both players with its true obstruction rectangle
+(`[name,x,z,angle,w,d,blocks]`, foundations named `name*`, `blocks` 0 for
+walkable fields). `layout.py` rasterizes player 1's blocking footprints
+around the home CC on the engine's 1 m navcell grid and measures how much
+they get in the way of movement, at the given game minutes:
+`egress_inf/_ram` (detour out to the base rim, infantry clearance 0.8 m /
+ram clearance 3.0 m), `trapped_ram` (ram-passable cells with no way out),
+`cc_detour` / `cc_ram_detour` / `cc_ram_unreach` (paths to the civic
+centre), `enclosed` (buildings with no side reachable from outside),
+`ars` (arsenals whose rams can get out) and `density` (footprint share of
+the 25-90 m annulus). Terrain is not in the snapshots, so the metrics
+isolate the bot's own placement. `--png` draws each base with the
+ram-blocked (brown), ram-trapped (purple) and infantry-trapped (red) cells.
+
 ## Local install
 
 ```sh

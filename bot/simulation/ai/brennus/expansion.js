@@ -206,8 +206,8 @@ ExpansionManager.prototype.expansionSpotOK = function(spot, halfW, halfD)
 		{
 			const dx = (i + 0.5) * pc - spot[0];
 			const dz = (j + 0.5) * pc - spot[1];
-			const u = dx * cosa + dz * sina;
-			const v = -dx * sina + dz * cosa;
+			const u = dx * cosa - dz * sina;
+			const v = dx * sina + dz * cosa;
 			if (Math.abs(u) <= halfW + 0.75 && Math.abs(v) <= halfD + 0.75 &&
 				(pass.data[i + j * pass.width] & mask))
 				return false;
@@ -226,25 +226,34 @@ ExpansionManager.prototype.expansionSpotOK = function(spot, halfW, halfD)
 	return true;
 };
 
+/** Buildable CC spot near `anchor`: a town-plan lattice node (lot centre), nearest first, so every district shares the home lattice's streets. */
 ExpansionManager.prototype.expansionSpotNear = function(anchor, halfW, halfD, ccSpots)
 {
-	for (let r = 0; r <= 60; r += 4)
-		for (let a = 0; a < 24; ++a)
-		{
-			const ang = a * 2 * Math.PI / 24;
-			const spot = [anchor[0] + r * Math.cos(ang), anchor[1] + r * Math.sin(ang)];
-			if (this.bot.placementManager.failedSpots.some(f => Math.abs(f[0] - spot[0]) < 6 && Math.abs(f[1] - spot[1]) < 6))
-				continue;
-			if (ccSpots.some(c => SquareDistance(c, spot) < 200 * 200))
-				continue;
-			if (this.bot.armyManager.nearEnemy(spot, 100, 60))
-				continue;
-			if (this.expansionRegion !== undefined &&
-				this.bot.accessibility.getAccessValue(spot) !== this.expansionRegion)
-				continue;
-			if (this.expansionSpotOK(spot, halfW, halfD))
-				return spot;
-		}
+	let spots = this.bot.placementManager.latticeNodesNear(anchor, 60);
+	if (!spots)
+	{
+		spots = [];
+		for (let r = 0; r <= 60; r += 4)
+			for (let a = 0; a < 24; ++a)
+			{
+				const ang = a * 2 * Math.PI / 24;
+				spots.push([anchor[0] + r * Math.cos(ang), anchor[1] + r * Math.sin(ang)]);
+			}
+	}
+	for (const spot of spots)
+	{
+		if (this.bot.placementManager.failedSpots.some(f => Math.abs(f[0] - spot[0]) < 6 && Math.abs(f[1] - spot[1]) < 6))
+			continue;
+		if (ccSpots.some(c => SquareDistance(c, spot) < 200 * 200))
+			continue;
+		if (this.bot.armyManager.nearEnemy(spot, 100, 60))
+			continue;
+		if (this.expansionRegion !== undefined &&
+			this.bot.accessibility.getAccessValue(spot) !== this.expansionRegion)
+			continue;
+		if (this.expansionSpotOK(spot, halfW, halfD))
+			return spot;
+	}
 	return undefined;
 };
 
@@ -1172,37 +1181,18 @@ ExpansionManager.prototype.manageBarter = function()
 	}
 };
 
+/** Wonder spot: an empty 2×2 block of town-plan lots (the wonder is wider than a lot), home district first. */
 ExpansionManager.prototype.findWonderSpot = function(wonderType)
 {
-	const template = this.bot.gameState.getTemplate(wonderType);
-	const halfW = +template.get("Obstruction/Static/@width") / 2 + 0.5;
-	const halfD = +template.get("Obstruction/Static/@depth") / 2 + 0.5;
-	const angle = this.bot.placementManager.getPlacementAngle();
-	const pass = this.bot.gameState.getPassabilityMap();
-	const mask = this.bot.gameState.getPassabilityClassMask("building-land");
-	const terr = this.bot.territoryMap;
 	const ccType = this.bot.gameState.applyCiv("structures/{civ}/civil_centre");
 	const anchors = [];
 	const cc = this.bot.getCivicCentre();
 	if (cc)
-		anchors.push([cc.position(), 95]);
+		anchors.push([cc.position(), 130]);
 	for (const ent of this.bot.gameState.getOwnStructures().values())
 		if (ent.templateName() === ccType && ent.position() && ent.id() !== cc?.id())
-			anchors.push([ent.position(), 60]);
-	for (const anchor of anchors)
-		for (let r = 12; r <= anchor[1]; r += 2)
-			for (let a = 0; a < 64; ++a)
-			{
-				const ang = a * 2 * Math.PI / 64;
-				const x = anchor[0][0] + r * Math.cos(ang);
-				const z = anchor[0][1] + r * Math.sin(ang);
-				if (this.bot.placementManager.failedSpots.some(f => Math.abs(f[0] - x) < 6 && Math.abs(f[1] - z) < 6))
-					continue;
-				if (this.bot.armyManager.nearEnemy([x, z], 100, 60))
-					continue;
-				if (!this.bot.placementManager.placementOK(x, z, halfW, halfD, angle, pass, mask, terr))
-					continue;
-				return [x, z];
-			}
-	return undefined;
+			anchors.push([ent.position(), 100]);
+	if (!anchors.length)
+		return undefined;
+	return this.bot.placementManager.findBlockSpot(wonderType, anchors);
 };

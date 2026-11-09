@@ -129,6 +129,8 @@ BuildupManager.prototype.manageDefenseBuildings = function()
 		const isHome = cc.id() === home.id();
 		if (!isHome && (this.bot.armyManager.armyCount() < 30 || !this.bot.expansionManager.warOn()))
 			continue;	// no point fortifying a frontier the army cannot reach yet
+		if (this.bot.annexManager.isAnnex(cc))
+			continue;	// the annex is part of the home town: its towers would not pay back
 		if (this.placeTower(cc.position(), isHome ? 5 : 4))
 			return;
 	}
@@ -136,7 +138,7 @@ BuildupManager.prototype.manageDefenseBuildings = function()
 
 /**
  * Order one defense tower near `center` if fewer than `want` stand (or are
- * planned) within 60 m. Towers must be ≥ 60 m from any other Tower
+ * planned) within 105 m. Towers must be ≥ 60 m from any other Tower
  * (BuildRestrictions) — the generic placer ignores that, so the candidate
  * filter enforces 65 m against built, foundation and pending towers.
  */
@@ -154,9 +156,11 @@ BuildupManager.prototype.placeTower = function(center, want)
 	for (const pb of this.bot.constructionManager.pendingBuilds)
 		if (pb.template === towerType)
 			towers.push([pb.x, pb.z]);
+	// Counted over the whole search radius: town-plan tower spots sit in
+	// the first building ring, 68-100 m out, around the CC's farm.
 	let near = 0;
 	for (const p of towers)
-		if (SquareDistance(p, center) < 60 * 60)
+		if (SquareDistance(p, center) < 105 * 105)
 			near++;
 	if (near >= want)
 		return false;
@@ -166,7 +170,7 @@ BuildupManager.prototype.placeTower = function(center, want)
 	if (res.wood < 100 || res.stone < 100)
 		return false;
 	const clearOfTowers = (x, z) => !towers.some(p => SquareDistance(p, [x, z]) < 65 * 65);
-	const spot = this.bot.placementManager.findBuildingPosition(towerType, center, 12, 80, true,
+	const spot = this.bot.placementManager.findBuildingPosition(towerType, center, 12, 100, true,
 		this.bot.accessibility.getAccessValue(center), clearOfTowers);
 	if (!spot || !this.bot.placementManager.placeOrder(towerType, spot))
 		return false;

@@ -602,8 +602,9 @@ export const WoodStorehouseStrategy = {
 
 	/**
 	 * Pick the buildable spot maximizing total savings, a·Σ W·max(0, d0 − dNew),
-	 * over the tree set. Candidates ring the unserved mass's wood-weighted
-	 * centroid; the engine's own placement prefilter (passability, territory,
+	 * over the tree set. Candidates are the town-plan spots around the
+	 * unserved mass's wood-weighted centroid; the engine's own placement
+	 * prefilter (passability, territory,
 	 * failed spots, enemy proximity, land region) vets each one, and existing
 	 * dropsites keep their separation. Returns the winner with its total and
 	 * unserved-only savings in wood-equivalent.
@@ -665,13 +666,20 @@ export const WoodStorehouseStrategy = {
 				best = [x, z];
 			}
 		};
-		consider(cx, cz);
+		// Town-plan spots within 45 m of the unserved mass (in each lot the
+		// position nearest the centroid plus the snapped corners), and the
+		// free-standing ring spots around it that keep off the built lots.
+		const free = [[cx, cz]];
 		for (let r = 6; r <= 42; r += 6)
 			for (let k = 0; k < 16; ++k)
 			{
 				const ang = k * Math.PI / 8;
-				consider(cx + r * Math.cos(ang), cz + r * Math.sin(ang));
+				free.push([cx + r * Math.cos(ang), cz + r * Math.sin(ang)]);
 			}
+		for (const cand of placement.planCandidates(storeType, {
+			"kind": "dropsite", "centers": [[cx, cz]], "maxDist": 45, "target": [cx, cz], "free": free,
+			"score": (x, z) => Math.hypot(x - cx, z - cz) }))
+			consider(cand.pos[0], cand.pos[1]);
 		if (!best)
 			return undefined;
 		return { "pos": best, "total": bestTotal * econ.a, "unserved": bestUnserved * econ.a };

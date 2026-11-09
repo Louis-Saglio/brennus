@@ -183,6 +183,10 @@ ResourceArbiter.prototype.declaredAmount = function(name, resource)
 ResourceArbiter.prototype.spenders = [
 	["defense", bot => bot.defenseManager.manageDefense()],
 	["phaseUp", bot => bot.boomManager.managePhaseUp()],
+	// The town-phase annex CC: right behind the phase-ups, which keep first
+	// claim on the ores (as a leftovers-only spender it would land after
+	// the relief CC it is meant to pre-empt).
+	["annex", bot => bot.annexManager.update()],
 	// Razzia riders right behind the phase-ups: as a leftovers-only stage it
 	// never trained a rider (the boom spends every block's balance).
 	["raid", bot => bot.raidManager.update()],

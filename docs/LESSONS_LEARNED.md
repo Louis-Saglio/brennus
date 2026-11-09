@@ -2017,3 +2017,49 @@ unchanged.
   dismissal counts. Raw `unitsLost.Civilian` for the b4a1f06 shelter
   change: seeds 31 44-55 766 → 493 (−36%), fresh 56-67 561 → 336 (−40%);
   this change: 829 → 839 (neutral).
+
+## 2026-11-09 (town plan: block layout with streets; the annex CC attempt)
+
+- Placement rewritten as a lattice of lots anchored at the home CC
+  (placement.js "town plan"): a 119 m farm square (CC + 24 field slots,
+  fields are walkable — BlockMovement false), then 26 x 49 m lots with
+  8 m streets. Buildings in a lot snap 1.5 m apart (too narrow for any
+  unit: solid blocks, no 2-4 m alleys) and each keeps one side open to a
+  street. The arsenal (29 m) overhangs one street by 3 m. Dropsites may
+  stand off the lattice on open ground (a street clear of everything).
+- Engine facts: units spawn all around a footprint
+  (CCmpFootprint::PickSpawnPoint), so one open side is enough. The
+  building-land raster marks navcells fully inside the shape + 0.5 m, so
+  any gap > the placementOK inflation (1.25 m) passes; ram ("large",
+  clearance 3.0) needs > 6 m of street. Obstruction rotation: width along
+  (cos a, -sin a), depth along (sin a, cos a)
+  (CCmpObstructionManager::AddStaticShape) — placementOK and
+  expansionSpotOK used the opposite rotation (harmless for squares at the
+  usual 135°, width/depth swapped for market/storehouse/farmstead). Fixed.
+- New telemetry: `[HARNESS] layout` (true footprints every 2 min, trigger
+  script) + tools/layout.py (detours on the 1 m navcell grid), and
+  `[HARNESS] plan` (lot occupancy map every ~4 min, bot).
+- Measured (36 seeds 3-43 + 44-67, at 18 min, base -> plan): detour to
+  the CC 1.66x -> 1.09x (infantry), 2.24x -> 1.10x (rams); enclosed
+  buildings 3.75 -> 0 per game; "ram stuck" warnings 65 -> 32. Games:
+  36W -> 35W/1L (s64), mean win 27.7 -> 26.8 m, city 18.7 -> 19.6 m,
+  unitsLost.Civilian 1217 -> 1621 (more civilians lost; not explained yet).
+- Pitfalls hit on the way: houses fill every whole lot first and the
+  arsenal waits for a relief CC (s43 36 min) — the land bank
+  (reservedLots) keeps one arsenal-sized empty lot per big building still
+  to come. Fields in building lots starved the trio (market late, city
+  +1.3 m) — fields belong in the farm. Dropsites forced onto lots sat too
+  far from berries and the farmstead strategy re-ordered 4 in a minute —
+  dropsites must be free to stand at the resource. The farm lot holds the
+  starting woods/mines: let fields pack around them (lot-edge snapping).
+- Annex CC (annex.js, town-phase second CC 204-240 m from home on a
+  lattice node, new-land / forward / contested / resource score, no
+  towers): orders landed at 12-16 m (built 14-17 m) on 34 of 36 seeds and
+  "no placement" warnings fell 256 -> 46, but 32W/2T/2L. s54/s61: the
+  annex rose just as Petra's first wave (~15 m) arrived; the defense
+  marched the whole army ~300 m to garrison the annex (outnumbered) while
+  the wave sacked home — pop 255 -> 127 in 2 min. Shipped disabled
+  (AnnexManager.enabled = false, behaviour identical to the plan alone,
+  hashes checked). Next: keep the annex off Petra's attack corridor
+  (home-to-enemy-CC segment), land it before the first wave, and never
+  garrison the army at a non-home CC far from home.

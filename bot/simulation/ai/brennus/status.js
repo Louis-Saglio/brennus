@@ -82,6 +82,13 @@ BrennusBot.prototype.logStatus = function()
 		`terr=${terr ? terr.pct + "%(" + terr.own + "/" + terr.total + ")" : "-"} ` +
 		`stock ${Math.floor(res.food)}/${Math.floor(res.wood)}/${Math.floor(res.stone)}/${Math.floor(res.metal)}\n`);
 
+	// Town-plan occupancy every ~4 min (one line, see PlacementManager.planDump).
+	if (this.turn - (this.lastPlanDump ?? -Infinity) >= 1200)
+	{
+		this.lastPlanDump = this.turn;
+		this.placementManager.planDump();
+	}
+
 	// Economy-stall diagnosis: pop well under the limit means the boom is not
 	// converting food into workers — say why once per episode (food eaten by
 	// the retraining queue vs nothing queued vs idle hands), clear at gap<=10.
